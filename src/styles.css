@@ -76,15 +76,12 @@ h3 {
 
 .hero {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) auto;
   gap: 24px;
-  align-items: end;
   margin-bottom: 20px;
 }
 
 .eyebrow,
 .section-label,
-.formula-label,
 .score-label,
 .summary-label {
   display: inline-flex;
@@ -113,73 +110,6 @@ h3 {
   color: var(--muted);
   font-size: 1.02rem;
   line-height: 1.6;
-}
-
-.hero-formula {
-  display: grid;
-  gap: 10px;
-  min-width: 280px;
-  padding: 18px 20px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  background: rgba(255, 255, 255, 0.52);
-  box-shadow: var(--shadow);
-  align-content: start;
-}
-
-.equation {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  color: var(--text);
-  font-size: 0.95rem;
-}
-
-.equation-cluster {
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-}
-
-.equation-token,
-.fraction-top,
-.fraction-bottom {
-  font-family: "SFMono-Regular", "Menlo", monospace;
-}
-
-.equation-token {
-  font-size: 0.9rem;
-}
-
-.equation-operator {
-  color: var(--muted);
-  font-size: 0.92rem;
-}
-
-.fraction {
-  display: inline-grid;
-  justify-items: center;
-  gap: 3px;
-  min-width: 64px;
-}
-
-.fraction-top,
-.fraction-bottom {
-  font-size: 0.85rem;
-  line-height: 1;
-}
-
-.fraction-bar {
-  width: 100%;
-  height: 1px;
-  background: var(--line-strong);
-}
-
-.formula-note {
-  color: var(--muted);
-  font-size: 0.82rem;
-  line-height: 1.5;
 }
 
 .panel {
@@ -270,14 +200,9 @@ h3 {
   text-overflow: ellipsis;
 }
 
-.settings-row,
 .entry-form {
   display: grid;
   gap: 12px;
-}
-
-.settings-row {
-  grid-template-columns: repeat(2, minmax(0, 180px));
 }
 
 .entry-form {
@@ -531,10 +456,6 @@ input:focus {
     grid-column: 1 / -1;
   }
 
-  .settings-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .ranking-actions {
     justify-content: space-between;
   }
@@ -561,7 +482,6 @@ input:focus {
 
   .hero,
   .summary-strip,
-  .settings-row,
   .entry-form,
   .ranking-row {
     grid-template-columns: 1fr;

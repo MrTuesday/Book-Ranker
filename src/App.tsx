@@ -19,10 +19,8 @@ type RankedBook = Book & {
   rank: number;
 };
 
-const DEFAULT_GLOBAL_MEAN = "3.80";
-const DEFAULT_MINIMUM_VOTES = "500";
-const GLOBAL_MEAN_STORAGE_KEY = "book-ranker.global-mean.v1";
-const MINIMUM_VOTES_STORAGE_KEY = "book-ranker.minimum-votes.v1";
+const GLOBAL_MEAN = 3.8;
+const SMOOTHING_FACTOR = 500;
 
 function createDraft(): BookDraft {
   return {
@@ -31,30 +29,6 @@ function createDraft(): BookDraft {
     starRating: "",
     ratingCount: "",
   };
-}
-
-function readStoredSetting(storageKey: string, fallbackValue: string) {
-  if (typeof window === "undefined") {
-    return fallbackValue;
-  }
-
-  try {
-    return window.localStorage.getItem(storageKey) ?? fallbackValue;
-  } catch {
-    return fallbackValue;
-  }
-}
-
-function writeStoredSetting(storageKey: string, value: string) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(storageKey, value);
-  } catch {
-    // Keep the UI usable even if storage is unavailable.
-  }
 }
 
 function bayesianScore(R: number, v: number, C: number, m: number) {
@@ -82,12 +56,6 @@ function messageFromError(error: unknown) {
 }
 
 export default function App() {
-  const [globalMean, setGlobalMean] = useState(() =>
-    readStoredSetting(GLOBAL_MEAN_STORAGE_KEY, DEFAULT_GLOBAL_MEAN),
-  );
-  const [minimumVotes, setMinimumVotes] = useState(() =>
-    readStoredSetting(MINIMUM_VOTES_STORAGE_KEY, DEFAULT_MINIMUM_VOTES),
-  );
   const [books, setBooks] = useState<Book[]>([]);
   const [draft, setDraft] = useState<BookDraft>(createDraft());
   const [editingBookId, setEditingBookId] = useState<number | null>(null);
@@ -127,26 +95,16 @@ export default function App() {
     };
   }, []);
 
-  useEffect(() => {
-    writeStoredSetting(GLOBAL_MEAN_STORAGE_KEY, globalMean);
-  }, [globalMean]);
-
-  useEffect(() => {
-    writeStoredSetting(MINIMUM_VOTES_STORAGE_KEY, minimumVotes);
-  }, [minimumVotes]);
-
   const rankedBooks = useMemo<RankedBook[]>(() => {
-    const C = Number(globalMean);
-    const m = Number(minimumVotes);
-
-    if (!Number.isFinite(C) || !Number.isFinite(m) || m < 0) {
-      return [];
-    }
-
     return books
       .map((book) => ({
         ...book,
-        score: bayesianScore(book.starRating, book.ratingCount, C, m),
+        score: bayesianScore(
+          book.starRating,
+          book.ratingCount,
+          GLOBAL_MEAN,
+          SMOOTHING_FACTOR,
+        ),
         rank: 0,
       }))
       .sort((a, b) => {
@@ -159,7 +117,7 @@ export default function App() {
         return b.ratingCount - a.ratingCount;
       })
       .map((book, index) => ({ ...book, rank: index + 1 }));
-  }, [books, globalMean, minimumVotes]);
+  }, [books]);
 
   const rankedCount = rankedBooks.length;
   const leader = rankedBooks[0];
@@ -264,43 +222,6 @@ export default function App() {
             out proven favorites.
           </p>
         </div>
-
-        <div className="hero-formula">
-          <span className="formula-label">Formula</span>
-          <div
-            className="equation"
-            aria-label="score equals v over v plus m times R plus m over v plus m times C"
-          >
-            <span className="equation-token">score</span>
-            <span className="equation-operator">=</span>
-
-            <span className="equation-cluster">
-              <span className="fraction">
-                <span className="fraction-top">v</span>
-                <span className="fraction-bar" />
-                <span className="fraction-bottom">v + m</span>
-              </span>
-              <span className="equation-operator">*</span>
-              <span className="equation-token">R</span>
-            </span>
-
-            <span className="equation-operator">+</span>
-
-            <span className="equation-cluster">
-              <span className="fraction">
-                <span className="fraction-top">m</span>
-                <span className="fraction-bar" />
-                <span className="fraction-bottom">v + m</span>
-              </span>
-              <span className="equation-operator">*</span>
-              <span className="equation-token">C</span>
-            </span>
-          </div>
-          <p className="formula-note">
-            R = average rating, v = ratings, C = global mean, m = smoothing
-            factor
-          </p>
-        </div>
       </section>
 
       <section className="panel control-panel">
@@ -346,28 +267,6 @@ export default function App() {
             ) : null}
           </div>
         ) : null}
-
-        <div className="settings-row">
-          <label className="field field-compact">
-            <span>Global mean C</span>
-            <input
-              type="number"
-              step="0.01"
-              value={globalMean}
-              onChange={(event) => setGlobalMean(event.target.value)}
-            />
-          </label>
-
-          <label className="field field-compact">
-            <span>Smoothing factor m</span>
-            <input
-              type="number"
-              step="1"
-              value={minimumVotes}
-              onChange={(event) => setMinimumVotes(event.target.value)}
-            />
-          </label>
-        </div>
 
         <form className="entry-form" onSubmit={submitBook}>
           <label className="field entry-title">
