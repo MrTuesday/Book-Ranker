@@ -224,16 +224,11 @@ export default function App() {
             ones that start with a few perfect ratings.
           </p>
         </div>
-      </section>
 
-      <section className="panel control-panel">
-        <div className="section-heading section-heading-wide">
-          <div>
-            <p className="section-label">Inputs</p>
-            <h2>{isEditing ? "Edit book" : "Add a book"}</h2>
-          </div>
+        <aside className="hero-overview" aria-label="List overview">
+          <p className="section-label">List overview</p>
 
-          <div className="summary-strip">
+          <div className="hero-summary">
             <article className="summary-tile">
               <span className="summary-label">Books</span>
               <strong>{rankedCount}</strong>
@@ -256,6 +251,15 @@ export default function App() {
                     : "No books yet"}
               </strong>
             </article>
+          </div>
+        </aside>
+      </section>
+
+      <section className="panel control-panel">
+        <div className="section-heading">
+          <div>
+            <p className="section-label">Inputs</p>
+            <h2>{isEditing ? "Edit book" : "Add a book"}</h2>
           </div>
         </div>
 
