@@ -1,0 +1,370 @@
+:root {
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  color: #1d232a;
+  background:
+    radial-gradient(circle at top left, rgba(255, 196, 125, 0.45), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(136, 191, 255, 0.35), transparent 30%),
+    linear-gradient(145deg, #f5efe4 0%, #fffdf8 50%, #eef3f8 100%);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-height: 100vh;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.page-shell {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+.ambient {
+  position: absolute;
+  width: 28rem;
+  height: 28rem;
+  border-radius: 999px;
+  filter: blur(36px);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.ambient-left {
+  top: -10rem;
+  left: -9rem;
+  background: rgba(255, 190, 112, 0.4);
+}
+
+.ambient-right {
+  right: -8rem;
+  bottom: -10rem;
+  background: rgba(88, 143, 212, 0.34);
+}
+
+.app-frame {
+  position: relative;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 3rem 1.25rem 4rem;
+}
+
+.hero {
+  display: grid;
+  gap: 1.5rem;
+  align-items: end;
+  margin-bottom: 1.75rem;
+}
+
+.eyebrow,
+.section-label,
+.rank-tag,
+.formula-card span,
+.metric span,
+.score-block span {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.74rem;
+  color: #6b7683;
+}
+
+.hero h1,
+.panel h2,
+.ranking-card h3 {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.hero h1 {
+  font-size: clamp(2.7rem, 6vw, 4.9rem);
+  line-height: 0.96;
+  max-width: 10ch;
+}
+
+.hero-copy {
+  max-width: 44rem;
+  margin: 0.85rem 0 0;
+  font-size: 1.02rem;
+  line-height: 1.7;
+  color: #4d5864;
+}
+
+.formula-card,
+.panel,
+.ranking-card,
+.book-card,
+.metric,
+.empty-state {
+  backdrop-filter: blur(14px);
+  background: rgba(255, 255, 255, 0.68);
+  box-shadow: 0 18px 45px rgba(51, 58, 66, 0.08);
+}
+
+.formula-card {
+  justify-self: start;
+  padding: 1rem 1.15rem;
+  border: 1px solid rgba(122, 134, 146, 0.16);
+  border-radius: 1.4rem;
+}
+
+.formula-card strong {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.96rem;
+}
+
+.workspace {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.panel {
+  border: 1px solid rgba(122, 134, 146, 0.16);
+  border-radius: 1.7rem;
+  padding: 1.3rem;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.panel h2 {
+  font-size: 1.9rem;
+}
+
+.controls-grid {
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 1.15rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.field span {
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.field small {
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: #66717e;
+}
+
+.field input {
+  width: 100%;
+  border: 1px solid rgba(123, 133, 147, 0.22);
+  border-radius: 1rem;
+  padding: 0.9rem 0.95rem;
+  background: rgba(255, 252, 247, 0.8);
+  color: #1d232a;
+}
+
+.field input:focus {
+  outline: 2px solid rgba(86, 124, 176, 0.24);
+  border-color: rgba(86, 124, 176, 0.38);
+}
+
+.action-row {
+  display: flex;
+  align-items: end;
+  gap: 0.75rem;
+}
+
+.button,
+.button-secondary,
+.button-ghost,
+.icon-button {
+  border: 0;
+  border-radius: 999px;
+  transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+
+.button,
+.button-secondary,
+.button-ghost {
+  min-height: 3rem;
+  padding: 0 1rem;
+}
+
+.button {
+  background: linear-gradient(135deg, #243646 0%, #355067 100%);
+  color: #fff7ef;
+  box-shadow: 0 12px 30px rgba(36, 54, 70, 0.18);
+}
+
+.button-secondary {
+  background: linear-gradient(135deg, #c66f32 0%, #db9653 100%);
+  color: #fff8f2;
+  box-shadow: 0 12px 30px rgba(198, 111, 50, 0.22);
+}
+
+.button-ghost,
+.icon-button {
+  background: rgba(240, 245, 249, 0.8);
+  color: #42505e;
+}
+
+.button:hover,
+.button-secondary:hover,
+.button-ghost:hover,
+.icon-button:hover {
+  transform: translateY(-1px);
+}
+
+.book-list,
+.ranking-list {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.book-card {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+  border-radius: 1.35rem;
+  border: 1px solid rgba(122, 134, 146, 0.14);
+}
+
+.icon-button {
+  justify-self: start;
+  padding: 0.75rem 1rem;
+}
+
+.ranking-panel {
+  align-self: start;
+}
+
+.empty-state {
+  padding: 1.25rem;
+  border-radius: 1.35rem;
+  color: #5b6773;
+  border: 1px dashed rgba(122, 134, 146, 0.24);
+}
+
+.ranking-card {
+  border-radius: 1.5rem;
+  padding: 1rem;
+  border: 1px solid rgba(122, 134, 146, 0.14);
+}
+
+.ranking-topline {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.ranking-card h3 {
+  margin-top: 0.25rem;
+  font-size: 1.45rem;
+}
+
+.author-line {
+  margin: 0.25rem 0 0;
+  color: #55606d;
+}
+
+.score-block {
+  text-align: right;
+}
+
+.score-block strong {
+  display: block;
+  margin-top: 0.32rem;
+  font-size: 2.1rem;
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.metric-grid {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.95rem;
+}
+
+.metric {
+  border-radius: 1.2rem;
+  padding: 0.9rem;
+  border: 1px solid rgba(122, 134, 146, 0.14);
+}
+
+.metric strong {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 1.08rem;
+}
+
+@media (min-width: 700px) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .controls-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .book-card {
+    grid-template-columns: 1.5fr 1.1fr 0.7fr 0.9fr auto;
+    align-items: end;
+  }
+
+  .metric-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 980px) {
+  .workspace {
+    grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.9fr);
+    align-items: start;
+  }
+}
+
+@media (max-width: 699px) {
+  .panel-header,
+  .ranking-topline,
+  .action-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .button,
+  .button-secondary,
+  .button-ghost,
+  .icon-button {
+    width: 100%;
+  }
+
+  .score-block {
+    text-align: left;
+  }
+}
