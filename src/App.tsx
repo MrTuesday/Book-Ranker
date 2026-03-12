@@ -296,7 +296,8 @@ export default function App() {
             </span>
           </div>
           <p className="formula-note">
-            R = average rating, v = ratings, C = global mean, m = minimum votes
+            R = average rating, v = ratings, C = global mean, m = smoothing
+            factor
           </p>
         </div>
       </section>
@@ -357,7 +358,7 @@ export default function App() {
           </label>
 
           <label className="field field-compact">
-            <span>Minimum votes m</span>
+            <span>Smoothing factor m</span>
             <input
               type="number"
               step="1"
