@@ -282,14 +282,22 @@ export default function App() {
 
             <article className="summary-tile summary-tile-wide">
               <span className="summary-label">Leader</span>
-              <strong>{leader ? leader.title : isLoading ? "Loading..." : "No books yet"}</strong>
+              <strong>
+                {leader
+                  ? leader.title
+                  : isLoading
+                    ? "Loading..."
+                    : "No books yet"}
+              </strong>
             </article>
           </div>
         </div>
 
         <div className="panel-status-row">
           <p className="panel-status">
-            {isLoading ? "Loading saved books from the backend..." : "Changes are saved to the backend automatically."}
+            {isLoading
+              ? "Loading saved books from the backend..."
+              : "Changes are saved to the backend automatically."}
           </p>
           {errorMessage ? <p className="panel-error">{errorMessage}</p> : null}
         </div>
@@ -341,7 +349,9 @@ export default function App() {
               type="number"
               step="0.01"
               value={draft.starRating}
-              onChange={(event) => updateDraft("starRating", event.target.value)}
+              onChange={(event) =>
+                updateDraft("starRating", event.target.value)
+              }
             />
           </label>
 
@@ -351,17 +361,28 @@ export default function App() {
               type="number"
               step="1"
               value={draft.ratingCount}
-              onChange={(event) => updateDraft("ratingCount", event.target.value)}
+              onChange={(event) =>
+                updateDraft("ratingCount", event.target.value)
+              }
             />
           </label>
 
           <div className="form-actions">
-            <button type="submit" className="btn btn-primary" disabled={!canSubmit}>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={!canSubmit}
+            >
               {isSaving ? "Saving..." : isEditing ? "Save changes" : "Add book"}
             </button>
 
             {isEditing ? (
-              <button type="button" className="btn btn-tertiary" onClick={resetDraft} disabled={isSaving}>
+              <button
+                type="button"
+                className="btn btn-tertiary"
+                onClick={resetDraft}
+                disabled={isSaving}
+              >
                 Cancel
               </button>
             ) : null}
@@ -375,10 +396,6 @@ export default function App() {
             <p className="section-label">Ranking</p>
             <h2>Ranked books</h2>
           </div>
-          <p className="section-note">
-            Bars below each score show how close the Bayesian score is to the
-            full 5-star scale.
-          </p>
         </div>
 
         <div className="ranking-list">
@@ -404,13 +421,17 @@ export default function App() {
                     <div className="ranking-topline">
                       <div>
                         <h3>{book.title}</h3>
-                        <p className="book-byline">{book.author || "Author unknown"}</p>
+                        <p className="book-byline">
+                          {book.author || "Author unknown"}
+                        </p>
                       </div>
 
                       <div className="ranking-actions">
                         <div className="score-block score-block-inline">
                           <span className="score-label">Bayesian score</span>
-                          <strong className="score-value">{formatScore(book.score)}</strong>
+                          <strong className="score-value">
+                            {formatScore(book.score)}
+                          </strong>
                         </div>
 
                         <div className="action-group">
