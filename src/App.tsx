@@ -19,6 +19,11 @@ type RankedBook = Book & {
   rank: number;
 };
 
+const DEFAULT_GLOBAL_MEAN = "3.90";
+const DEFAULT_MINIMUM_VOTES = "500";
+const GLOBAL_MEAN_STORAGE_KEY = "book-ranker.global-mean.v1";
+const MINIMUM_VOTES_STORAGE_KEY = "book-ranker.minimum-votes.v1";
+
 function createDraft(): BookDraft {
   return {
     title: "",
@@ -26,6 +31,30 @@ function createDraft(): BookDraft {
     starRating: "",
     ratingCount: "",
   };
+}
+
+function readStoredSetting(storageKey: string, fallbackValue: string) {
+  if (typeof window === "undefined") {
+    return fallbackValue;
+  }
+
+  try {
+    return window.localStorage.getItem(storageKey) ?? fallbackValue;
+  } catch {
+    return fallbackValue;
+  }
+}
+
+function writeStoredSetting(storageKey: string, value: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(storageKey, value);
+  } catch {
+    // Keep the UI usable even if storage is unavailable.
+  }
 }
 
 function bayesianScore(R: number, v: number, C: number, m: number) {
@@ -53,8 +82,12 @@ function messageFromError(error: unknown) {
 }
 
 export default function App() {
-  const [globalMean, setGlobalMean] = useState("3.90");
-  const [minimumVotes, setMinimumVotes] = useState("500");
+  const [globalMean, setGlobalMean] = useState(() =>
+    readStoredSetting(GLOBAL_MEAN_STORAGE_KEY, DEFAULT_GLOBAL_MEAN),
+  );
+  const [minimumVotes, setMinimumVotes] = useState(() =>
+    readStoredSetting(MINIMUM_VOTES_STORAGE_KEY, DEFAULT_MINIMUM_VOTES),
+  );
   const [books, setBooks] = useState<Book[]>([]);
   const [draft, setDraft] = useState<BookDraft>(createDraft());
   const [editingBookId, setEditingBookId] = useState<number | null>(null);
@@ -93,6 +126,14 @@ export default function App() {
       isActive = false;
     };
   }, []);
+
+  useEffect(() => {
+    writeStoredSetting(GLOBAL_MEAN_STORAGE_KEY, globalMean);
+  }, [globalMean]);
+
+  useEffect(() => {
+    writeStoredSetting(MINIMUM_VOTES_STORAGE_KEY, minimumVotes);
+  }, [minimumVotes]);
 
   const rankedBooks = useMemo<RankedBook[]>(() => {
     const C = Number(globalMean);
