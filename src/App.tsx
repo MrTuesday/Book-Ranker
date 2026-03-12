@@ -259,8 +259,9 @@ export default function App() {
           <p className="eyebrow">Bayesian Book Ranker</p>
           <h1>Rank books with less noise.</h1>
           <p className="hero-text">
-            Compare books using a weighted score that balances average rating
-            with rating volume, so small sample sizes do not dominate the list.
+            Compare books with a score that looks at each book's rating and how
+            many people rated it, so a handful of glowing reviews doesn't crowd
+            out proven favorites.
           </p>
         </div>
 
