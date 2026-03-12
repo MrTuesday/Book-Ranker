@@ -197,6 +197,29 @@ h3 {
   margin-bottom: 16px;
 }
 
+.panel-status-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.panel-status,
+.panel-error {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.panel-status {
+  color: var(--muted);
+}
+
+.panel-error {
+  color: #a64b2a;
+}
+
 .section-heading {
   display: flex;
   justify-content: space-between;

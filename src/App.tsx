@@ -1,12 +1,11 @@
-import { type FormEvent, useMemo, useState } from "react";
-
-type Book = {
-  id: number;
-  title: string;
-  author: string;
-  starRating: number;
-  ratingCount: number;
-};
+import { type FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  createBookRecord,
+  deleteBookRecord,
+  fetchBooks,
+  type Book,
+  updateBookRecord,
+} from "./lib/books-api";
 
 type BookDraft = {
   title: string;
@@ -19,32 +18,6 @@ type RankedBook = Book & {
   score: number;
   rank: number;
 };
-
-const initialBooks: Book[] = [
-  {
-    id: 1,
-    title: "The Left Hand of Darkness",
-    author: "Ursula K. Le Guin",
-    starRating: 4.12,
-    ratingCount: 142300,
-  },
-  {
-    id: 2,
-    title: "Never Let Me Go",
-    author: "Kazuo Ishiguro",
-    starRating: 3.85,
-    ratingCount: 592000,
-  },
-  {
-    id: 3,
-    title: "Piranesi",
-    author: "Susanna Clarke",
-    starRating: 4.23,
-    ratingCount: 292500,
-  },
-];
-
-const countFormatter = new Intl.NumberFormat("en-US");
 
 function createDraft(): BookDraft {
   return {
@@ -64,19 +37,62 @@ function formatScore(value: number, places = 2) {
 }
 
 function formatCount(value: number) {
-  return countFormatter.format(value);
+  return new Intl.NumberFormat("en-US").format(value);
 }
 
 function clampPercentage(value: number) {
   return Math.max(0, Math.min(100, value));
 }
 
+function messageFromError(error: unknown) {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return "Something went wrong while saving your books.";
+}
+
 export default function App() {
   const [globalMean, setGlobalMean] = useState("3.90");
   const [minimumVotes, setMinimumVotes] = useState("500");
-  const [books, setBooks] = useState<Book[]>(initialBooks);
+  const [books, setBooks] = useState<Book[]>([]);
   const [draft, setDraft] = useState<BookDraft>(createDraft());
   const [editingBookId, setEditingBookId] = useState<number | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isActive = true;
+
+    async function loadSavedBooks() {
+      setIsLoading(true);
+      setErrorMessage(null);
+
+      try {
+        const savedBooks = await fetchBooks();
+
+        if (isActive) {
+          setBooks(savedBooks);
+        }
+      } catch (error) {
+        if (isActive) {
+          setErrorMessage(messageFromError(error));
+        }
+      } finally {
+        if (isActive) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    void loadSavedBooks();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   const rankedBooks = useMemo<RankedBook[]>(() => {
     const C = Number(globalMean);
@@ -114,7 +130,9 @@ export default function App() {
 
   const parsedDraftRating = Number(draft.starRating);
   const parsedDraftCount = Number(draft.ratingCount);
-  const canAddBook =
+  const canSubmit =
+    !isLoading &&
+    !isSaving &&
     draft.title.trim().length > 0 &&
     draft.starRating.trim().length > 0 &&
     draft.ratingCount.trim().length > 0 &&
@@ -141,51 +159,55 @@ export default function App() {
       starRating: String(book.starRating),
       ratingCount: String(book.ratingCount),
     });
+    setErrorMessage(null);
   }
 
-  function submitBook(event: FormEvent<HTMLFormElement>) {
+  async function submitBook(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!canAddBook) {
+    if (!canSubmit) {
       return;
     }
 
-    if (editingBookId !== null) {
-      setBooks((current) =>
-        current.map((book) =>
-          book.id === editingBookId
-            ? {
-                ...book,
-                title: draft.title.trim(),
-                author: draft.author.trim(),
-                starRating: parsedDraftRating,
-                ratingCount: parsedDraftCount,
-              }
-            : book,
-        ),
-      );
-      resetDraft();
-      return;
-    }
+    setIsSaving(true);
+    setErrorMessage(null);
 
-    setBooks((current) => [
-      ...current,
-      {
-        id: Date.now() + Math.floor(Math.random() * 1000),
+    try {
+      const payload = {
         title: draft.title.trim(),
         author: draft.author.trim(),
         starRating: parsedDraftRating,
         ratingCount: parsedDraftCount,
-      },
-    ]);
-    resetDraft();
+      };
+
+      const nextBooks = isEditing
+        ? await updateBookRecord(editingBookId, payload)
+        : await createBookRecord(payload);
+
+      setBooks(nextBooks);
+      resetDraft();
+    } catch (error) {
+      setErrorMessage(messageFromError(error));
+    } finally {
+      setIsSaving(false);
+    }
   }
 
-  function removeBook(id: number) {
-    setBooks((current) => current.filter((book) => book.id !== id));
+  async function removeBook(id: number) {
+    setPendingDeleteId(id);
+    setErrorMessage(null);
 
-    if (editingBookId === id) {
-      resetDraft();
+    try {
+      const nextBooks = await deleteBookRecord(id);
+      setBooks(nextBooks);
+
+      if (editingBookId === id) {
+        resetDraft();
+      }
+    } catch (error) {
+      setErrorMessage(messageFromError(error));
+    } finally {
+      setPendingDeleteId(null);
     }
   }
 
@@ -260,9 +282,16 @@ export default function App() {
 
             <article className="summary-tile summary-tile-wide">
               <span className="summary-label">Leader</span>
-              <strong>{leader ? leader.title : "No books yet"}</strong>
+              <strong>{leader ? leader.title : isLoading ? "Loading..." : "No books yet"}</strong>
             </article>
           </div>
+        </div>
+
+        <div className="panel-status-row">
+          <p className="panel-status">
+            {isLoading ? "Loading saved books from the backend..." : "Changes are saved to the backend automatically."}
+          </p>
+          {errorMessage ? <p className="panel-error">{errorMessage}</p> : null}
         </div>
 
         <div className="settings-row">
@@ -312,9 +341,7 @@ export default function App() {
               type="number"
               step="0.01"
               value={draft.starRating}
-              onChange={(event) =>
-                updateDraft("starRating", event.target.value)
-              }
+              onChange={(event) => updateDraft("starRating", event.target.value)}
             />
           </label>
 
@@ -324,27 +351,17 @@ export default function App() {
               type="number"
               step="1"
               value={draft.ratingCount}
-              onChange={(event) =>
-                updateDraft("ratingCount", event.target.value)
-              }
+              onChange={(event) => updateDraft("ratingCount", event.target.value)}
             />
           </label>
 
           <div className="form-actions">
-            <button
-              type="submit"
-              className="btn btn-primary"
-              disabled={!canAddBook}
-            >
-              {isEditing ? "Save changes" : "Add book"}
+            <button type="submit" className="btn btn-primary" disabled={!canSubmit}>
+              {isSaving ? "Saving..." : isEditing ? "Save changes" : "Add book"}
             </button>
 
             {isEditing ? (
-              <button
-                type="button"
-                className="btn btn-tertiary"
-                onClick={resetDraft}
-              >
+              <button type="button" className="btn btn-tertiary" onClick={resetDraft} disabled={isSaving}>
                 Cancel
               </button>
             ) : null}
@@ -365,13 +382,16 @@ export default function App() {
         </div>
 
         <div className="ranking-list">
-          {rankedBooks.length === 0 ? (
+          {isLoading ? (
+            <div className="empty-state">Loading saved books...</div>
+          ) : rankedBooks.length === 0 ? (
             <div className="empty-state">
               Add a valid title, rating, and vote count to generate rankings.
             </div>
           ) : (
             rankedBooks.map((book) => {
               const scoreFill = clampPercentage((book.score / 5) * 100);
+              const isDeleting = pendingDeleteId === book.id;
 
               return (
                 <article
@@ -384,17 +404,13 @@ export default function App() {
                     <div className="ranking-topline">
                       <div>
                         <h3>{book.title}</h3>
-                        <p className="book-byline">
-                          {book.author || "Author unknown"}
-                        </p>
+                        <p className="book-byline">{book.author || "Author unknown"}</p>
                       </div>
 
                       <div className="ranking-actions">
                         <div className="score-block score-block-inline">
                           <span className="score-label">Bayesian score</span>
-                          <strong className="score-value">
-                            {formatScore(book.score)}
-                          </strong>
+                          <strong className="score-value">{formatScore(book.score)}</strong>
                         </div>
 
                         <div className="action-group">
@@ -402,6 +418,7 @@ export default function App() {
                             type="button"
                             className="btn btn-secondary"
                             onClick={() => startEditing(book)}
+                            disabled={isSaving || isDeleting}
                           >
                             {editingBookId === book.id ? "Editing" : "Edit"}
                           </button>
@@ -409,9 +426,10 @@ export default function App() {
                           <button
                             type="button"
                             className="btn btn-tertiary"
-                            onClick={() => removeBook(book.id)}
+                            onClick={() => void removeBook(book.id)}
+                            disabled={isSaving || isDeleting}
                           >
-                            Remove
+                            {isDeleting ? "Removing..." : "Remove"}
                           </button>
                         </div>
                       </div>
