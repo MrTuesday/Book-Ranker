@@ -258,7 +258,6 @@ export default function App() {
       <section className="panel control-panel">
         <div className="section-heading">
           <div>
-            <p className="section-label">Inputs</p>
             <h2>{isEditing ? "Edit book" : "Add a book"}</h2>
           </div>
         </div>
