@@ -19,7 +19,7 @@ type RankedBook = Book & {
   rank: number;
 };
 
-const DEFAULT_GLOBAL_MEAN = "3.90";
+const DEFAULT_GLOBAL_MEAN = "3.80";
 const DEFAULT_MINIMUM_VOTES = "500";
 const GLOBAL_MEAN_STORAGE_KEY = "book-ranker.global-mean.v1";
 const MINIMUM_VOTES_STORAGE_KEY = "book-ranker.minimum-votes.v1";
@@ -434,13 +434,6 @@ export default function App() {
       </section>
 
       <section className="panel board">
-        <div className="section-heading section-heading-wide">
-          <div>
-            <p className="section-label">Ranking</p>
-            <h2>Ranked books</h2>
-          </div>
-        </div>
-
         <div className="ranking-list">
           {isLoading ? (
             <div className="empty-state">Loading books...</div>
