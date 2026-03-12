@@ -215,11 +215,13 @@ export default function App() {
       <section className="hero">
         <div className="hero-copy">
           <p className="eyebrow">Bayesian Book Ranker</p>
-          <h1>Rank books with less noise.</h1>
+          <h1>
+            Rank books
+            <span className="hero-title-accent">without the noise.</span>
+          </h1>
           <p className="hero-text">
-            Compare books with a score that looks at each book's rating and how
-            many people rated it, so a handful of glowing reviews doesn't crowd
-            out proven favorites.
+            Built to favor books that keep winning people over, not just the
+            ones that start with a few perfect ratings.
           </p>
         </div>
       </section>

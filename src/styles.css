@@ -77,7 +77,7 @@ h3 {
 .hero {
   display: grid;
   gap: 24px;
-  margin-bottom: 20px;
+  margin-bottom: 28px;
 }
 
 .eyebrow,
@@ -94,21 +94,36 @@ h3 {
   text-transform: uppercase;
 }
 
+.eyebrow {
+  width: fit-content;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.52);
+}
+
 .hero-copy {
   display: grid;
-  gap: 12px;
-  max-width: 700px;
+  gap: 14px;
+  max-width: 760px;
 }
 
 .hero h1 {
+  display: grid;
+  gap: 4px;
   font-size: clamp(2.8rem, 5vw, 5rem);
   line-height: 0.95;
+  max-width: 10ch;
+}
+
+.hero-title-accent {
+  color: var(--accent);
 }
 
 .hero-text {
-  max-width: 56ch;
+  max-width: 44ch;
   color: var(--muted);
-  font-size: 1.02rem;
+  font-size: 1.05rem;
   line-height: 1.6;
 }
 
