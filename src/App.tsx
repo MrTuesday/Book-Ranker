@@ -293,14 +293,16 @@ export default function App() {
           </div>
         </div>
 
-        <div className="panel-status-row">
-          <p className="panel-status">
-            {isLoading
-              ? "Loading books from this browser..."
-              : "Changes are saved automatically in this browser."}
-          </p>
-          {errorMessage ? <p className="panel-error">{errorMessage}</p> : null}
-        </div>
+        {isLoading || errorMessage ? (
+          <div className="panel-status-row">
+            {isLoading ? (
+              <p className="panel-status">Loading books from this browser...</p>
+            ) : null}
+            {errorMessage ? (
+              <p className="panel-error">{errorMessage}</p>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="settings-row">
           <label className="field field-compact">
