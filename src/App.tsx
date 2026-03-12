@@ -296,8 +296,8 @@ export default function App() {
         <div className="panel-status-row">
           <p className="panel-status">
             {isLoading
-              ? "Loading saved books from the backend..."
-              : "Changes are saved to the backend automatically."}
+              ? "Loading saved books..."
+              : "Changes are saved automatically."}
           </p>
           {errorMessage ? <p className="panel-error">{errorMessage}</p> : null}
         </div>
