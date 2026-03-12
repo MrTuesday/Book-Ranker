@@ -49,7 +49,7 @@ function messageFromError(error: unknown) {
     return error.message;
   }
 
-  return "Something went wrong while saving your books.";
+  return "Something went wrong while saving your books in this browser.";
 }
 
 export default function App() {
@@ -296,8 +296,8 @@ export default function App() {
         <div className="panel-status-row">
           <p className="panel-status">
             {isLoading
-              ? "Loading saved books..."
-              : "Changes are saved automatically."}
+              ? "Loading books from this browser..."
+              : "Changes are saved automatically in this browser."}
           </p>
           {errorMessage ? <p className="panel-error">{errorMessage}</p> : null}
         </div>
@@ -400,7 +400,7 @@ export default function App() {
 
         <div className="ranking-list">
           {isLoading ? (
-            <div className="empty-state">Loading saved books...</div>
+            <div className="empty-state">Loading books...</div>
           ) : rankedBooks.length === 0 ? (
             <div className="empty-state">
               Add a valid title, rating, and vote count to generate rankings.
