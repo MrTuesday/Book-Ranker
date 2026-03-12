@@ -215,7 +215,7 @@ export default function App() {
     <main className="app-shell">
       <section className="hero">
         <div className="hero-copy">
-          <p className="eyebrow">Bayesian ranking</p>
+          <p className="eyebrow">Bayesian Book Ranker</p>
           <h1>Rank books with less noise.</h1>
           <p className="hero-text">
             Compare books using a weighted score that balances average rating
