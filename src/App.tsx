@@ -1,295 +1,437 @@
-import { useMemo, useState } from "react";
+import { type FormEvent, useMemo, useState } from "react";
 
-type EditableBook = {
+type Book = {
   id: number;
   title: string;
   author: string;
-  rating: string;
-  ratingsCount: string;
+  starRating: number;
+  ratingCount: number;
 };
 
-type RankedBook = EditableBook & {
-  rank: number;
-  numericRating: number;
-  numericRatingsCount: number;
+type BookDraft = {
+  title: string;
+  author: string;
+  starRating: string;
+  ratingCount: string;
+};
+
+type RankedBook = Book & {
   score: number;
+  rank: number;
 };
 
-const initialBooks: EditableBook[] = [
-  { id: 1, title: "True Age", author: "Morgan Levine", rating: "3.70", ratingsCount: "125" },
-  { id: 2, title: "Super Agers", author: "Eric Topol", rating: "3.48", ratingsCount: "1564" },
-  { id: 3, title: "Ageless", author: "Andrew Steele", rating: "3.83", ratingsCount: "1470" },
-  { id: 4, title: "Why We Die", author: "Venki Ramakrishnan", rating: "4.04", ratingsCount: "2512" }
+const initialBooks: Book[] = [
+  {
+    id: 1,
+    title: "The Left Hand of Darkness",
+    author: "Ursula K. Le Guin",
+    starRating: 4.12,
+    ratingCount: 142300,
+  },
+  {
+    id: 2,
+    title: "Never Let Me Go",
+    author: "Kazuo Ishiguro",
+    starRating: 3.85,
+    ratingCount: 592000,
+  },
+  {
+    id: 3,
+    title: "Piranesi",
+    author: "Susanna Clarke",
+    starRating: 4.23,
+    ratingCount: 292500,
+  },
 ];
 
-function round(value: number, digits = 3) {
-  return value.toFixed(digits);
-}
+const countFormatter = new Intl.NumberFormat("en-US");
 
-function computeWeightedScore(rating: number, ratingsCount: number, baseline: number, priorWeight: number) {
-  return (ratingsCount / (ratingsCount + priorWeight)) * rating + (priorWeight / (ratingsCount + priorWeight)) * baseline;
-}
-
-function createEmptyBook() {
+function createDraft(): BookDraft {
   return {
-    id: Date.now(),
     title: "",
     author: "",
-    rating: "",
-    ratingsCount: ""
+    starRating: "",
+    ratingCount: "",
   };
 }
 
+function bayesianScore(R: number, v: number, C: number, m: number) {
+  return (v / (v + m)) * R + (m / (v + m)) * C;
+}
+
+function formatScore(value: number, places = 2) {
+  return value.toFixed(places);
+}
+
+function formatCount(value: number) {
+  return countFormatter.format(value);
+}
+
+function clampPercentage(value: number) {
+  return Math.max(0, Math.min(100, value));
+}
+
 export default function App() {
-  const [baseline, setBaseline] = useState("3.90");
-  const [priorWeight, setPriorWeight] = useState("500");
-  const [books, setBooks] = useState<EditableBook[]>(initialBooks);
-  const [copyLabel, setCopyLabel] = useState("Copy rankings");
+  const [globalMean, setGlobalMean] = useState("3.90");
+  const [minimumVotes, setMinimumVotes] = useState("500");
+  const [books, setBooks] = useState<Book[]>(initialBooks);
+  const [draft, setDraft] = useState<BookDraft>(createDraft());
+  const [editingBookId, setEditingBookId] = useState<number | null>(null);
 
   const rankedBooks = useMemo<RankedBook[]>(() => {
-    const numericBaseline = Number(baseline);
-    const numericPriorWeight = Number(priorWeight);
+    const C = Number(globalMean);
+    const m = Number(minimumVotes);
 
-    if (!Number.isFinite(numericBaseline) || !Number.isFinite(numericPriorWeight) || numericPriorWeight <= 0) {
+    if (!Number.isFinite(C) || !Number.isFinite(m) || m < 0) {
       return [];
     }
 
     return books
-      .map((book) => {
-        const numericRating = Number(book.rating);
-        const numericRatingsCount = Number(book.ratingsCount);
-
-        if (!book.title.trim() || !Number.isFinite(numericRating) || !Number.isFinite(numericRatingsCount) || numericRatingsCount < 0) {
-          return null;
+      .map((book) => ({
+        ...book,
+        score: bayesianScore(book.starRating, book.ratingCount, C, m),
+        rank: 0,
+      }))
+      .sort((a, b) => {
+        if (b.score !== a.score) {
+          return b.score - a.score;
         }
-
-        const score = computeWeightedScore(numericRating, numericRatingsCount, numericBaseline, numericPriorWeight);
-
-        return {
-          ...book,
-          numericRating,
-          numericRatingsCount,
-          score,
-          rank: 0
-        };
-      })
-      .filter((book): book is RankedBook => book !== null)
-      .sort((left, right) => {
-        if (right.score !== left.score) {
-          return right.score - left.score;
+        if (b.starRating !== a.starRating) {
+          return b.starRating - a.starRating;
         }
-
-        if (right.numericRating !== left.numericRating) {
-          return right.numericRating - left.numericRating;
-        }
-
-        return right.numericRatingsCount - left.numericRatingsCount;
+        return b.ratingCount - a.ratingCount;
       })
       .map((book, index) => ({ ...book, rank: index + 1 }));
-  }, [baseline, books, priorWeight]);
+  }, [books, globalMean, minimumVotes]);
 
-  function updateBook(id: number, field: keyof Omit<EditableBook, "id">, value: string) {
-    setBooks((current) => current.map((book) => (book.id === id ? { ...book, [field]: value } : book)));
+  const rankedCount = rankedBooks.length;
+  const leader = rankedBooks[0];
+  const averageScore =
+    rankedCount > 0
+      ? rankedBooks.reduce((total, book) => total + book.score, 0) / rankedCount
+      : null;
+  const isEditing = editingBookId !== null;
+
+  const parsedDraftRating = Number(draft.starRating);
+  const parsedDraftCount = Number(draft.ratingCount);
+  const canAddBook =
+    draft.title.trim().length > 0 &&
+    draft.starRating.trim().length > 0 &&
+    draft.ratingCount.trim().length > 0 &&
+    Number.isFinite(parsedDraftRating) &&
+    Number.isFinite(parsedDraftCount) &&
+    parsedDraftRating >= 0 &&
+    parsedDraftRating <= 5 &&
+    parsedDraftCount >= 0;
+
+  function updateDraft(field: keyof BookDraft, value: string) {
+    setDraft((current) => ({ ...current, [field]: value }));
   }
 
-  function addBook() {
-    setBooks((current) => [...current, createEmptyBook()]);
+  function resetDraft() {
+    setDraft(createDraft());
+    setEditingBookId(null);
+  }
+
+  function startEditing(book: Book) {
+    setEditingBookId(book.id);
+    setDraft({
+      title: book.title,
+      author: book.author,
+      starRating: String(book.starRating),
+      ratingCount: String(book.ratingCount),
+    });
+  }
+
+  function submitBook(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!canAddBook) {
+      return;
+    }
+
+    if (editingBookId !== null) {
+      setBooks((current) =>
+        current.map((book) =>
+          book.id === editingBookId
+            ? {
+                ...book,
+                title: draft.title.trim(),
+                author: draft.author.trim(),
+                starRating: parsedDraftRating,
+                ratingCount: parsedDraftCount,
+              }
+            : book,
+        ),
+      );
+      resetDraft();
+      return;
+    }
+
+    setBooks((current) => [
+      ...current,
+      {
+        id: Date.now() + Math.floor(Math.random() * 1000),
+        title: draft.title.trim(),
+        author: draft.author.trim(),
+        starRating: parsedDraftRating,
+        ratingCount: parsedDraftCount,
+      },
+    ]);
+    resetDraft();
   }
 
   function removeBook(id: number) {
     setBooks((current) => current.filter((book) => book.id !== id));
-  }
 
-  function clearAll() {
-    setBooks([createEmptyBook()]);
-  }
-
-  async function copyRankedTable() {
-    const lines = [
-      "Rank\tTitle\tAuthor\tGoodreads Rating\tRatings Count\tWeighted Score",
-      ...rankedBooks.map((book) =>
-        [
-          book.rank,
-          book.title,
-          book.author || "Unknown author",
-          round(book.numericRating, 2),
-          book.numericRatingsCount,
-          round(book.score)
-        ].join("\t")
-      )
-    ];
-
-    try {
-      await navigator.clipboard.writeText(lines.join("\n"));
-      setCopyLabel("Copied");
-      window.setTimeout(() => setCopyLabel("Copy rankings"), 1500);
-    } catch (error) {
-      console.error("Clipboard copy failed", error);
-      setCopyLabel("Copy failed");
-      window.setTimeout(() => setCopyLabel("Copy rankings"), 1500);
+    if (editingBookId === id) {
+      resetDraft();
     }
   }
 
   return (
-    <div className="page-shell">
-      <div className="ambient ambient-left" />
-      <div className="ambient ambient-right" />
+    <main className="app-shell">
+      <section className="hero">
+        <div className="hero-copy">
+          <p className="eyebrow">Bayesian ranking</p>
+          <h1>Rank books with less noise.</h1>
+          <p className="hero-text">
+            Compare books using a weighted score that balances average rating
+            with rating volume, so small sample sizes do not dominate the list.
+          </p>
+        </div>
 
-      <main className="app-frame">
-        <section className="hero">
+        <div className="hero-formula">
+          <span className="formula-label">Formula</span>
+          <div
+            className="equation"
+            aria-label="score equals v over v plus m times R plus m over v plus m times C"
+          >
+            <span className="equation-token">score</span>
+            <span className="equation-operator">=</span>
+
+            <span className="equation-cluster">
+              <span className="fraction">
+                <span className="fraction-top">v</span>
+                <span className="fraction-bar" />
+                <span className="fraction-bottom">v + m</span>
+              </span>
+              <span className="equation-operator">*</span>
+              <span className="equation-token">R</span>
+            </span>
+
+            <span className="equation-operator">+</span>
+
+            <span className="equation-cluster">
+              <span className="fraction">
+                <span className="fraction-top">m</span>
+                <span className="fraction-bar" />
+                <span className="fraction-bottom">v + m</span>
+              </span>
+              <span className="equation-operator">*</span>
+              <span className="equation-token">C</span>
+            </span>
+          </div>
+          <p className="formula-note">
+            R = average rating, v = ratings, C = global mean, m = minimum votes
+          </p>
+        </div>
+      </section>
+
+      <section className="panel control-panel">
+        <div className="section-heading section-heading-wide">
           <div>
-            <p className="eyebrow">Bayesian Goodreads ranking</p>
-            <h1>Book Ranker</h1>
-            <p className="hero-copy">
-              Compare Goodreads titles with a weighted score so a tiny sample does not outrank a stronger, broader signal.
-            </p>
+            <p className="section-label">Inputs</p>
+            <h2>{isEditing ? "Edit book" : "Add a book"}</h2>
           </div>
-          <div className="formula-card">
-            <span>Formula</span>
-            <strong>score = (v / (v + m)) * R + (m / (v + m)) * C</strong>
-          </div>
-        </section>
 
-        <section className="workspace">
-          <div className="panel">
-            <div className="panel-header">
-              <div>
-                <p className="section-label">Inputs</p>
-                <h2>Books and priors</h2>
-              </div>
-              <button className="button button-secondary" type="button" onClick={addBook}>
-                Add book
+          <div className="summary-strip">
+            <article className="summary-tile">
+              <span className="summary-label">Books</span>
+              <strong>{rankedCount}</strong>
+            </article>
+
+            <article className="summary-tile">
+              <span className="summary-label">Average</span>
+              <strong>
+                {averageScore === null ? "--" : formatScore(averageScore)}
+              </strong>
+            </article>
+
+            <article className="summary-tile summary-tile-wide">
+              <span className="summary-label">Leader</span>
+              <strong>{leader ? leader.title : "No books yet"}</strong>
+            </article>
+          </div>
+        </div>
+
+        <div className="settings-row">
+          <label className="field field-compact">
+            <span>Global mean C</span>
+            <input
+              type="number"
+              step="0.01"
+              value={globalMean}
+              onChange={(event) => setGlobalMean(event.target.value)}
+            />
+          </label>
+
+          <label className="field field-compact">
+            <span>Minimum votes m</span>
+            <input
+              type="number"
+              step="1"
+              value={minimumVotes}
+              onChange={(event) => setMinimumVotes(event.target.value)}
+            />
+          </label>
+        </div>
+
+        <form className="entry-form" onSubmit={submitBook}>
+          <label className="field entry-title">
+            <span>Title</span>
+            <input
+              type="text"
+              value={draft.title}
+              onChange={(event) => updateDraft("title", event.target.value)}
+            />
+          </label>
+
+          <label className="field entry-author">
+            <span>Author</span>
+            <input
+              type="text"
+              value={draft.author}
+              onChange={(event) => updateDraft("author", event.target.value)}
+            />
+          </label>
+
+          <label className="field entry-rating">
+            <span>Star rating</span>
+            <input
+              type="number"
+              step="0.01"
+              value={draft.starRating}
+              onChange={(event) =>
+                updateDraft("starRating", event.target.value)
+              }
+            />
+          </label>
+
+          <label className="field entry-count">
+            <span>Ratings</span>
+            <input
+              type="number"
+              step="1"
+              value={draft.ratingCount}
+              onChange={(event) =>
+                updateDraft("ratingCount", event.target.value)
+              }
+            />
+          </label>
+
+          <div className="form-actions">
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={!canAddBook}
+            >
+              {isEditing ? "Save changes" : "Add book"}
+            </button>
+
+            {isEditing ? (
+              <button
+                type="button"
+                className="btn btn-tertiary"
+                onClick={resetDraft}
+              >
+                Cancel
               </button>
-            </div>
-
-            <div className="controls-grid">
-              <label className="field">
-                <span>Baseline mean (C)</span>
-                <input type="number" step="0.01" value={baseline} onChange={(event) => setBaseline(event.target.value)} />
-                <small>Use a market-wide average such as 3.90.</small>
-              </label>
-
-              <label className="field">
-                <span>Prior weight (m)</span>
-                <input
-                  type="number"
-                  step="1"
-                  value={priorWeight}
-                  onChange={(event) => setPriorWeight(event.target.value)}
-                />
-                <small>Higher values punish low-count books more aggressively.</small>
-              </label>
-
-              <div className="action-row">
-                <button className="button" type="button" onClick={copyRankedTable}>
-                  {copyLabel}
-                </button>
-                <button className="button button-ghost" type="button" onClick={clearAll}>
-                  Clear
-                </button>
-              </div>
-            </div>
-
-            <div className="book-list">
-              {books.map((book, index) => (
-                <article className="book-card" key={book.id}>
-                  <label className="field">
-                    <span>Title</span>
-                    <input
-                      type="text"
-                      value={book.title}
-                      placeholder={`Book ${index + 1}`}
-                      onChange={(event) => updateBook(book.id, "title", event.target.value)}
-                    />
-                  </label>
-
-                  <label className="field">
-                    <span>Author</span>
-                    <input
-                      type="text"
-                      value={book.author}
-                      placeholder="Author"
-                      onChange={(event) => updateBook(book.id, "author", event.target.value)}
-                    />
-                  </label>
-
-                  <label className="field">
-                    <span>Rating</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={book.rating}
-                      placeholder="3.95"
-                      onChange={(event) => updateBook(book.id, "rating", event.target.value)}
-                    />
-                  </label>
-
-                  <label className="field">
-                    <span>Ratings count</span>
-                    <input
-                      type="number"
-                      step="1"
-                      value={book.ratingsCount}
-                      placeholder="2500"
-                      onChange={(event) => updateBook(book.id, "ratingsCount", event.target.value)}
-                    />
-                  </label>
-
-                  <button className="icon-button" type="button" onClick={() => removeBook(book.id)} aria-label={`Remove ${book.title || `book ${index + 1}`}`}>
-                    Remove
-                  </button>
-                </article>
-              ))}
-            </div>
+            ) : null}
           </div>
+        </form>
+      </section>
 
-          <aside className="panel ranking-panel">
-            <div className="panel-header">
-              <div>
-                <p className="section-label">Output</p>
-                <h2>Rankings</h2>
-              </div>
+      <section className="panel board">
+        <div className="section-heading section-heading-wide">
+          <div>
+            <p className="section-label">Ranking</p>
+            <h2>Ranked books</h2>
+          </div>
+          <p className="section-note">
+            Bars below each score show how close the Bayesian score is to the
+            full 5-star scale.
+          </p>
+        </div>
+
+        <div className="ranking-list">
+          {rankedBooks.length === 0 ? (
+            <div className="empty-state">
+              Add a valid title, rating, and vote count to generate rankings.
             </div>
+          ) : (
+            rankedBooks.map((book) => {
+              const scoreFill = clampPercentage((book.score / 5) * 100);
 
-            {rankedBooks.length === 0 ? (
-              <div className="empty-state">Add at least one complete book entry with a title, rating, and ratings count.</div>
-            ) : (
-              <div className="ranking-list">
-                {rankedBooks.map((book) => (
-                  <article className="ranking-card" key={book.id}>
+              return (
+                <article
+                  key={book.id}
+                  className={`ranking-row${editingBookId === book.id ? " is-editing" : ""}`}
+                >
+                  <div className="rank-badge">#{book.rank}</div>
+
+                  <div className="ranking-body">
                     <div className="ranking-topline">
                       <div>
-                        <p className="rank-tag">Rank {book.rank}</p>
                         <h3>{book.title}</h3>
-                        <p className="author-line">{book.author || "Unknown author"}</p>
+                        <p className="book-byline">
+                          {book.author || "Author unknown"}
+                        </p>
                       </div>
-                      <div className="score-block">
-                        <span>Weighted score</span>
-                        <strong>{round(book.score)}</strong>
+
+                      <div className="ranking-actions">
+                        <div className="score-block score-block-inline">
+                          <span className="score-label">Bayesian score</span>
+                          <strong className="score-value">
+                            {formatScore(book.score)}
+                          </strong>
+                        </div>
+
+                        <div className="action-group">
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            onClick={() => startEditing(book)}
+                          >
+                            {editingBookId === book.id ? "Editing" : "Edit"}
+                          </button>
+
+                          <button
+                            type="button"
+                            className="btn btn-tertiary"
+                            onClick={() => removeBook(book.id)}
+                          >
+                            Remove
+                          </button>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="metric-grid">
-                      <div className="metric">
-                        <span>Goodreads rating</span>
-                        <strong>{round(book.numericRating, 2)}</strong>
-                      </div>
-                      <div className="metric">
-                        <span>Ratings count</span>
-                        <strong>{book.numericRatingsCount.toLocaleString()}</strong>
-                      </div>
-                      <div className="metric">
-                        <span>Adjustment</span>
-                        <strong>{round(book.score - book.numericRating)}</strong>
-                      </div>
+                    <div className="meta-row">
+                      <span>{formatScore(book.starRating)} average rating</span>
+                      <span>{formatCount(book.ratingCount)} ratings</span>
                     </div>
-                  </article>
-                ))}
-              </div>
-            )}
-          </aside>
-        </section>
-      </main>
-    </div>
+
+                    <div className="score-meter" aria-hidden="true">
+                      <span style={{ width: `${scoreFill}%` }} />
+                    </div>
+                  </div>
+                </article>
+              );
+            })
+          )}
+        </div>
+      </section>
+    </main>
   );
 }
