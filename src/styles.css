@@ -320,8 +320,9 @@ input:focus {
   min-height: 74px;
   padding: 8px;
   border-radius: 18px;
-  background: rgba(30, 77, 69, 0.08);
-  color: var(--accent);
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--muted);
   font-family: "Iowan Old Style", "Palatino Linotype", serif;
   font-size: 1.9rem;
   font-weight: 600;
