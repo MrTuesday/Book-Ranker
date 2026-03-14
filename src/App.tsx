@@ -82,6 +82,16 @@ function uniqueTags(values: string[]) {
   );
 }
 
+function averageTagPreference(tags: string[], scores: Record<string, number>) {
+  if (tags.length === 0) {
+    return 3;
+  }
+
+  return (
+    tags.reduce((total, tag) => total + (scores[tag] ?? 3), 0) / tags.length
+  );
+}
+
 function tagPreferences(tags: string[], scores: Record<string, number>) {
   if (tags.length === 0) {
     return [3];
@@ -274,7 +284,7 @@ export default function App() {
     return books
       .map((book) => {
         const preferences = [
-          ...tagPreferences(book.authors, authorExperiences),
+          averageTagPreference(book.authors, authorExperiences),
           ...tagPreferences(book.genres, genreInterests),
         ];
         const R = book.starRating ?? GLOBAL_MEAN;
