@@ -918,11 +918,12 @@ export default function App() {
                 </div>
                 <button
                   type="button"
-                  className="btn btn-secondary btn-tag-add"
+                  className="btn btn-tag-add"
                   onClick={() => addDraftTag("author")}
                   disabled={!draft.authorInput.trim()}
+                  aria-label="Add author tag"
                 >
-                  Add
+                  +
                 </button>
               </div>
               {draft.authors.length > 0 ? (
@@ -1036,11 +1037,12 @@ export default function App() {
                 </div>
                 <button
                   type="button"
-                  className="btn btn-secondary btn-tag-add"
+                  className="btn btn-tag-add"
                   onClick={() => addDraftTag("genre")}
                   disabled={!draft.genreInput.trim()}
+                  aria-label="Add genre tag"
                 >
-                  Add
+                  +
                 </button>
               </div>
               {draft.genres.length > 0 ? (
