@@ -52,6 +52,11 @@ type DraftTagDrag = {
   field: SuggestionField;
   tag: string;
 };
+type BookTagDrag = {
+  bookId: number;
+  field: SuggestionField;
+  tag: string;
+};
 type TagActionScope = "draft" | "book";
 type DraftTextField =
   | "title"
@@ -344,6 +349,12 @@ export default function App() {
     field: SuggestionField;
     tag: string | null;
   } | null>(null);
+  const [bookTagDrag, setBookTagDrag] = useState<BookTagDrag | null>(null);
+  const [bookTagDropTarget, setBookTagDropTarget] = useState<{
+    bookId: number;
+    field: SuggestionField;
+    tag: string | null;
+  } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [genreInterests, setGenreInterests] = useState<GenreInterestMap>({});
   const [authorExperiences, setAuthorExperiences] =
@@ -461,6 +472,8 @@ export default function App() {
     setActiveTagActionMenu(null);
     setDraftTagDrag(null);
     setDraftTagDropTarget(null);
+    setBookTagDrag(null);
+    setBookTagDropTarget(null);
   }, []);
 
   useEffect(() => {
@@ -850,10 +863,156 @@ export default function App() {
     setDraftTagDropTarget(null);
   }
 
+  async function reorderBookTags(
+    bookId: number,
+    field: SuggestionField,
+    draggedTag: string,
+    targetTag: string | null,
+  ) {
+    const book = books.find((candidate) => candidate.id === bookId);
+
+    if (!book) {
+      return;
+    }
+
+    const currentTags = field === "author" ? book.authors : book.genres;
+    const nextTags =
+      targetTag == null
+        ? moveTagToEnd(currentTags, draggedTag)
+        : reorderTags(currentTags, draggedTag, targetTag);
+
+    if (nextTags === currentTags) {
+      return;
+    }
+
+    setErrorMessage(null);
+
+    try {
+      const payload = {
+        title: book.title,
+        authors: field === "author" ? nextTags : book.authors,
+        starRating: book.starRating,
+        ratingCount: book.ratingCount,
+        genres: field === "genre" ? nextTags : book.genres,
+      };
+      const nextBooks = await updateBookRecord(bookId, payload);
+      setBooks(nextBooks);
+
+      if (editingBookId === bookId) {
+        const tagsKey = field === "author" ? "authors" : "genres";
+        setDraft((current) => ({
+          ...current,
+          [tagsKey]: nextTags,
+        }));
+      }
+    } catch (error) {
+      setErrorMessage(messageFromError(error));
+    }
+  }
+
+  function handleBookTagDragStart(
+    event: ReactDragEvent<HTMLSpanElement>,
+    bookId: number,
+    field: SuggestionField,
+    tag: string,
+  ) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", `${bookId}:${field}:${tag}`);
+    setActiveTagActionMenu(null);
+    setBookTagDrag({ bookId, field, tag });
+    setBookTagDropTarget(null);
+  }
+
+  function handleBookTagGroupDragOver(
+    event: ReactDragEvent<HTMLDivElement>,
+    bookId: number,
+    field: SuggestionField,
+  ) {
+    if (
+      !bookTagDrag ||
+      bookTagDrag.bookId !== bookId ||
+      bookTagDrag.field !== field
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setBookTagDropTarget((current) =>
+      current?.bookId === bookId &&
+      current.field === field &&
+      current.tag === null
+        ? current
+        : { bookId, field, tag: null },
+    );
+  }
+
+  function handleBookTagDragOver(
+    event: ReactDragEvent<HTMLSpanElement>,
+    bookId: number,
+    field: SuggestionField,
+    tag: string,
+  ) {
+    if (
+      !bookTagDrag ||
+      bookTagDrag.bookId !== bookId ||
+      bookTagDrag.field !== field
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "move";
+
+    if (bookTagDrag.tag === tag) {
+      setBookTagDropTarget(null);
+      return;
+    }
+
+    setBookTagDropTarget((current) =>
+      current?.bookId === bookId &&
+      current.field === field &&
+      current.tag === tag
+        ? current
+        : { bookId, field, tag },
+    );
+  }
+
+  async function handleBookTagDrop(
+    event: ReactDragEvent<HTMLElement>,
+    bookId: number,
+    field: SuggestionField,
+    targetTag: string | null = null,
+  ) {
+    if (
+      !bookTagDrag ||
+      bookTagDrag.bookId !== bookId ||
+      bookTagDrag.field !== field
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const draggedTag = bookTagDrag.tag;
+    setBookTagDrag(null);
+    setBookTagDropTarget(null);
+    await reorderBookTags(bookId, field, draggedTag, targetTag);
+  }
+
+  function handleBookTagDragEnd() {
+    setBookTagDrag(null);
+    setBookTagDropTarget(null);
+  }
+
   function startEditing(book: Book) {
     setEditingBookId(book.id);
     setScrollToForm(true);
     setActiveTagActionMenu(null);
+    setBookTagDrag(null);
+    setBookTagDropTarget(null);
     setDraft({
       title: book.title,
       starRating: book.starRating != null ? String(book.starRating) : "",
@@ -1650,28 +1809,254 @@ export default function App() {
                         <h3>{book.title}</h3>
                         <div className="book-tags">
                           {book.authors.length > 0 ? (
-                            book.authors.map((author) => {
-                              const deleteKey = `author:${author}`;
+                            <div
+                              className={[
+                                "book-tag-group",
+                                bookTagDrag?.bookId === book.id &&
+                                bookTagDrag.field === "author"
+                                  ? "is-drag-active"
+                                  : "",
+                                bookTagDropTarget?.bookId === book.id &&
+                                bookTagDropTarget.field === "author" &&
+                                bookTagDropTarget.tag === null
+                                  ? "is-drop-target-end"
+                                  : "",
+                              ]
+                                .filter(Boolean)
+                                .join(" ")}
+                              onDragOver={(event) =>
+                                handleBookTagGroupDragOver(
+                                  event,
+                                  book.id,
+                                  "author",
+                                )
+                              }
+                              onDrop={(event) =>
+                                void handleBookTagDrop(event, book.id, "author")
+                              }
+                            >
+                              {book.authors.map((author) => {
+                                const deleteKey = `author:${author}`;
+                                const actionMenuId = tagActionMenuId(
+                                  "book",
+                                  "author",
+                                  author,
+                                  book.id,
+                                );
+                                const isDeletingTag =
+                                  pendingTagDelete === deleteKey;
+                                const isActionMenuOpen =
+                                  activeTagActionMenu === actionMenuId;
+                                const isDragging =
+                                  bookTagDrag?.bookId === book.id &&
+                                  bookTagDrag.field === "author" &&
+                                  bookTagDrag.tag === author;
+                                const isDropTarget =
+                                  bookTagDropTarget?.bookId === book.id &&
+                                  bookTagDropTarget.field === "author" &&
+                                  bookTagDropTarget.tag === author;
+
+                                return (
+                                  <span
+                                    key={`author-${book.id}-${author}`}
+                                    className={[
+                                      "genre-tag",
+                                      "book-tag-chip",
+                                      isDragging ? "is-dragging" : "",
+                                      isDropTarget ? "is-drag-target" : "",
+                                    ]
+                                      .filter(Boolean)
+                                      .join(" ")}
+                                    draggable
+                                    onDragStart={(event) =>
+                                      handleBookTagDragStart(
+                                        event,
+                                        book.id,
+                                        "author",
+                                        author,
+                                      )
+                                    }
+                                    onDragOver={(event) =>
+                                      handleBookTagDragOver(
+                                        event,
+                                        book.id,
+                                        "author",
+                                        author,
+                                      )
+                                    }
+                                    onDrop={(event) =>
+                                      void handleBookTagDrop(
+                                        event,
+                                        book.id,
+                                        "author",
+                                        author,
+                                      )
+                                    }
+                                    onDragEnd={handleBookTagDragEnd}
+                                    aria-grabbed={isDragging}
+                                    title={`Drag to reorder ${author}`}
+                                  >
+                                    {author}
+                                    {authorExperiences[author] != null ? (
+                                      <span className="genre-tag-interest">
+                                        {authorExperiences[author]}
+                                      </span>
+                                    ) : null}
+                                    <span className="tag-action-shell">
+                                      <button
+                                        type="button"
+                                        className={`tag-remove tag-action-toggle${isActionMenuOpen ? " is-open" : ""}`}
+                                        onClick={() =>
+                                          setActiveTagActionMenu((current) =>
+                                            current === actionMenuId
+                                              ? null
+                                              : actionMenuId,
+                                          )
+                                        }
+                                        aria-label={`Open delete options for author ${author}`}
+                                        title={`Open delete options for author ${author}`}
+                                        disabled={isDeletingTag}
+                                      >
+                                        x
+                                      </button>
+                                      {isActionMenuOpen ? (
+                                        <span className="tag-action-menu">
+                                          <button
+                                            type="button"
+                                            className="tag-action-option"
+                                            onClick={() => {
+                                              setActiveTagActionMenu(null);
+                                              void clearTag(
+                                                book.id,
+                                                "author",
+                                                author,
+                                              );
+                                            }}
+                                            aria-label={`Remove author ${author} from this book`}
+                                            title={`Remove author ${author} from this book`}
+                                            disabled={isDeletingTag}
+                                          >
+                                            This book
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="tag-action-option tag-action-option-danger"
+                                            onClick={() => {
+                                              setActiveTagActionMenu(null);
+                                              void removeGlobalTag(
+                                                "author",
+                                                author,
+                                              );
+                                            }}
+                                            aria-label={`Delete author tag ${author} everywhere`}
+                                            title={`Delete author tag ${author} everywhere`}
+                                            disabled={isDeletingTag}
+                                          >
+                                            {isDeletingTag
+                                              ? "Deleting..."
+                                              : "Everywhere"}
+                                          </button>
+                                        </span>
+                                      ) : null}
+                                    </span>
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <span className="genre-tag">Author unknown</span>
+                          )}
+                          <div
+                            className={[
+                              "book-tag-group",
+                              bookTagDrag?.bookId === book.id &&
+                              bookTagDrag.field === "genre"
+                                ? "is-drag-active"
+                                : "",
+                              bookTagDropTarget?.bookId === book.id &&
+                              bookTagDropTarget.field === "genre" &&
+                              bookTagDropTarget.tag === null
+                                ? "is-drop-target-end"
+                                : "",
+                            ]
+                              .filter(Boolean)
+                              .join(" ")}
+                            onDragOver={(event) =>
+                              handleBookTagGroupDragOver(
+                                event,
+                                book.id,
+                                "genre",
+                              )
+                            }
+                            onDrop={(event) =>
+                              void handleBookTagDrop(event, book.id, "genre")
+                            }
+                          >
+                            {book.genres.map((genre) => {
+                              const deleteKey = `genre:${genre}`;
                               const actionMenuId = tagActionMenuId(
                                 "book",
-                                "author",
-                                author,
+                                "genre",
+                                genre,
                                 book.id,
                               );
                               const isDeletingTag =
                                 pendingTagDelete === deleteKey;
                               const isActionMenuOpen =
                                 activeTagActionMenu === actionMenuId;
+                              const isDragging =
+                                bookTagDrag?.bookId === book.id &&
+                                bookTagDrag.field === "genre" &&
+                                bookTagDrag.tag === genre;
+                              const isDropTarget =
+                                bookTagDropTarget?.bookId === book.id &&
+                                bookTagDropTarget.field === "genre" &&
+                                bookTagDropTarget.tag === genre;
 
                               return (
                                 <span
-                                  key={`author-${book.id}-${author}`}
-                                  className="genre-tag"
+                                  key={`genre-${book.id}-${genre}`}
+                                  className={[
+                                    "genre-tag",
+                                    "book-tag-chip",
+                                    isDragging ? "is-dragging" : "",
+                                    isDropTarget ? "is-drag-target" : "",
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" ")}
+                                  draggable
+                                  onDragStart={(event) =>
+                                    handleBookTagDragStart(
+                                      event,
+                                      book.id,
+                                      "genre",
+                                      genre,
+                                    )
+                                  }
+                                  onDragOver={(event) =>
+                                    handleBookTagDragOver(
+                                      event,
+                                      book.id,
+                                      "genre",
+                                      genre,
+                                    )
+                                  }
+                                  onDrop={(event) =>
+                                    void handleBookTagDrop(
+                                      event,
+                                      book.id,
+                                      "genre",
+                                      genre,
+                                    )
+                                  }
+                                  onDragEnd={handleBookTagDragEnd}
+                                  aria-grabbed={isDragging}
+                                  title={`Drag to reorder ${genre}`}
                                 >
-                                  {author}
-                                  {authorExperiences[author] != null ? (
+                                  {genre}
+                                  {genreInterests[genre] != null ? (
                                     <span className="genre-tag-interest">
-                                      {authorExperiences[author]}
+                                      {genreInterests[genre]}
                                     </span>
                                   ) : null}
                                   <span className="tag-action-shell">
@@ -1685,8 +2070,8 @@ export default function App() {
                                             : actionMenuId,
                                         )
                                       }
-                                      aria-label={`Open delete options for author ${author}`}
-                                      title={`Open delete options for author ${author}`}
+                                      aria-label={`Open delete options for genre ${genre}`}
+                                      title={`Open delete options for genre ${genre}`}
                                       disabled={isDeletingTag}
                                     >
                                       x
@@ -1700,12 +2085,12 @@ export default function App() {
                                             setActiveTagActionMenu(null);
                                             void clearTag(
                                               book.id,
-                                              "author",
-                                              author,
+                                              "genre",
+                                              genre,
                                             );
                                           }}
-                                          aria-label={`Remove author ${author} from this book`}
-                                          title={`Remove author ${author} from this book`}
+                                          aria-label={`Remove genre ${genre} from this book`}
+                                          title={`Remove genre ${genre} from this book`}
                                           disabled={isDeletingTag}
                                         >
                                           This book
@@ -1716,12 +2101,12 @@ export default function App() {
                                           onClick={() => {
                                             setActiveTagActionMenu(null);
                                             void removeGlobalTag(
-                                              "author",
-                                              author,
+                                              "genre",
+                                              genre,
                                             );
                                           }}
-                                          aria-label={`Delete author tag ${author} everywhere`}
-                                          title={`Delete author tag ${author} everywhere`}
+                                          aria-label={`Delete genre tag ${genre} everywhere`}
+                                          title={`Delete genre tag ${genre} everywhere`}
                                           disabled={isDeletingTag}
                                         >
                                           {isDeletingTag
@@ -1733,91 +2118,8 @@ export default function App() {
                                   </span>
                                 </span>
                               );
-                            })
-                          ) : (
-                            <span className="genre-tag">Author unknown</span>
-                          )}
-                          {book.genres.map((genre) => {
-                            const deleteKey = `genre:${genre}`;
-                            const actionMenuId = tagActionMenuId(
-                              "book",
-                              "genre",
-                              genre,
-                              book.id,
-                            );
-                            const isDeletingTag =
-                              pendingTagDelete === deleteKey;
-                            const isActionMenuOpen =
-                              activeTagActionMenu === actionMenuId;
-
-                            return (
-                              <span
-                                key={`genre-${book.id}-${genre}`}
-                                className="genre-tag"
-                              >
-                                {genre}
-                                {genreInterests[genre] != null ? (
-                                  <span className="genre-tag-interest">
-                                    {genreInterests[genre]}
-                                  </span>
-                                ) : null}
-                                <span className="tag-action-shell">
-                                  <button
-                                    type="button"
-                                    className={`tag-remove tag-action-toggle${isActionMenuOpen ? " is-open" : ""}`}
-                                    onClick={() =>
-                                      setActiveTagActionMenu((current) =>
-                                        current === actionMenuId
-                                          ? null
-                                          : actionMenuId,
-                                      )
-                                    }
-                                    aria-label={`Open delete options for genre ${genre}`}
-                                    title={`Open delete options for genre ${genre}`}
-                                    disabled={isDeletingTag}
-                                  >
-                                    x
-                                  </button>
-                                  {isActionMenuOpen ? (
-                                    <span className="tag-action-menu">
-                                      <button
-                                        type="button"
-                                        className="tag-action-option"
-                                        onClick={() => {
-                                          setActiveTagActionMenu(null);
-                                          void clearTag(
-                                            book.id,
-                                            "genre",
-                                            genre,
-                                          );
-                                        }}
-                                        aria-label={`Remove genre ${genre} from this book`}
-                                        title={`Remove genre ${genre} from this book`}
-                                        disabled={isDeletingTag}
-                                      >
-                                        This book
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="tag-action-option tag-action-option-danger"
-                                        onClick={() => {
-                                          setActiveTagActionMenu(null);
-                                          void removeGlobalTag("genre", genre);
-                                        }}
-                                        aria-label={`Delete genre tag ${genre} everywhere`}
-                                        title={`Delete genre tag ${genre} everywhere`}
-                                        disabled={isDeletingTag}
-                                      >
-                                        {isDeletingTag
-                                          ? "Deleting..."
-                                          : "Everywhere"}
-                                      </button>
-                                    </span>
-                                  ) : null}
-                                </span>
-                              </span>
-                            );
-                          })}
+                            })}
+                          </div>
                         </div>
                         <div className="meta-row">
                           {book.starRating != null ? (
