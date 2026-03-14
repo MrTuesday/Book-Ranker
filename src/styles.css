@@ -564,17 +564,18 @@ input:focus {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
+  min-width: 18px;
   height: 18px;
-  padding: 0;
+  padding: 0 4px;
   border: none;
   border-radius: 999px;
-  background: transparent;
-  color: var(--accent);
-  font-size: 0.85rem;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
   line-height: 1;
   cursor: pointer;
-  opacity: 0.5;
+  opacity: 0.6;
   transition: opacity 0.15s;
 }
 

@@ -17,8 +17,6 @@ import {
   updateBookRecord,
   writeGenreInterest,
   writeAuthorExperience,
-  deleteGenreInterest,
-  deleteAuthorExperience,
   renameGenreInterest,
   renameGenreInBooks,
   renameAuthorExperience,
