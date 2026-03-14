@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import {
   createBookRecord,
   deleteBookRecord,
@@ -21,6 +21,7 @@ type RankedBook = Book & {
 
 const GLOBAL_MEAN = 3.8;
 const SMOOTHING_FACTOR = 500;
+const FULL_STARS = 5;
 
 function createDraft(): BookDraft {
   return {
@@ -53,6 +54,19 @@ function messageFromError(error: unknown) {
   }
 
   return "Something went wrong while saving your books in this browser.";
+}
+
+function Stars({ rating }: { rating: number }) {
+  const filled = Math.round(rating);
+  return (
+    <span className="stars" aria-label={`${rating} out of 5 stars`}>
+      {Array.from({ length: FULL_STARS }, (_, i) => (
+        <span key={i} className={i < filled ? "star-filled" : "star-empty"}>
+          {i < filled ? "★" : "☆"}
+        </span>
+      ))}
+    </span>
+  );
 }
 
 export default function App() {
@@ -127,6 +141,21 @@ export default function App() {
       : null;
   const isEditing = editingBookId !== null;
 
+  const resetDraft = useCallback(() => {
+    setDraft(createDraft());
+    setEditingBookId(null);
+  }, []);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && isEditing) {
+        resetDraft();
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isEditing, resetDraft]);
+
   const parsedDraftRating = Number(draft.starRating);
   const parsedDraftCount = Number(draft.ratingCount);
   const canSubmit =
@@ -143,11 +172,6 @@ export default function App() {
 
   function updateDraft(field: keyof BookDraft, value: string) {
     setDraft((current) => ({ ...current, [field]: value }));
-  }
-
-  function resetDraft() {
-    setDraft(createDraft());
-    setEditingBookId(null);
   }
 
   function startEditing(book: Book) {
@@ -216,39 +240,40 @@ export default function App() {
         <div className="hero-copy">
           <p className="eyebrow">Bayesian Book Ranker</p>
           <h1>
-            Rank books
-            <span className="hero-title-accent">without the noise.</span>
+            Book ratings
+            <span className="hero-title-accent">made smarter.</span>
           </h1>
           <p className="hero-text">
-            Built to favor books that keep winning people over, not just the
-            ones that start with a few perfect ratings.
+            The more ratings a book has, the more its star rating is
+            trusted. Books with a handful of perfect scores can&rsquo;t
+            jump ahead of consistently well-rated titles.
           </p>
         </div>
 
         <aside className="hero-overview" aria-label="List overview">
-          <p className="section-label">List overview</p>
+          <p className="section-label">Your library</p>
 
           <div className="hero-summary">
             <article className="summary-tile">
-              <span className="summary-label">Books</span>
+              <span className="summary-label">Ranked</span>
               <strong>{rankedCount}</strong>
             </article>
 
             <article className="summary-tile">
-              <span className="summary-label">Average</span>
+              <span className="summary-label">Avg. score</span>
               <strong>
                 {averageScore === null ? "--" : formatScore(averageScore)}
               </strong>
             </article>
 
             <article className="summary-tile summary-tile-wide">
-              <span className="summary-label">Leader</span>
+              <span className="summary-label">Top pick</span>
               <strong>
                 {leader
                   ? leader.title
                   : isLoading
                     ? "Loading..."
-                    : "No books yet"}
+                    : "Waiting for entries"}
               </strong>
             </article>
           </div>
@@ -265,7 +290,7 @@ export default function App() {
         {isLoading || errorMessage ? (
           <div className="panel-status-row">
             {isLoading ? (
-              <p className="panel-status">Loading books from this browser...</p>
+              <p className="panel-status">Loading your saved library...</p>
             ) : null}
             {errorMessage ? (
               <p className="panel-error">{errorMessage}</p>
@@ -278,6 +303,7 @@ export default function App() {
             <span>Title</span>
             <input
               type="text"
+              placeholder="e.g. The Remains of the Day"
               value={draft.title}
               onChange={(event) => updateDraft("title", event.target.value)}
             />
@@ -287,6 +313,7 @@ export default function App() {
             <span>Author</span>
             <input
               type="text"
+              placeholder="e.g. Kazuo Ishiguro"
               value={draft.author}
               onChange={(event) => updateDraft("author", event.target.value)}
             />
@@ -297,6 +324,7 @@ export default function App() {
             <input
               type="number"
               step="0.01"
+              placeholder="0 – 5"
               value={draft.starRating}
               onChange={(event) =>
                 updateDraft("starRating", event.target.value)
@@ -309,6 +337,7 @@ export default function App() {
             <input
               type="number"
               step="1"
+              placeholder="e.g. 50000"
               value={draft.ratingCount}
               onChange={(event) =>
                 updateDraft("ratingCount", event.target.value)
@@ -342,22 +371,32 @@ export default function App() {
       <section className="panel board">
         <div className="ranking-list">
           {isLoading ? (
-            <div className="empty-state">Loading books...</div>
+            <div className="empty-state">Loading your rankings...</div>
           ) : rankedBooks.length === 0 ? (
             <div className="empty-state">
-              Add a valid title, rating, and vote count to generate rankings.
+              No books yet. Add a title, star rating, and number of ratings
+              above to see your first ranking.
             </div>
           ) : (
-            rankedBooks.map((book) => {
+            rankedBooks.map((book, index) => {
               const scoreFill = clampPercentage((book.score / 5) * 100);
               const isDeleting = pendingDeleteId === book.id;
+              const rankClass =
+                book.rank === 1
+                  ? "rank-gold"
+                  : book.rank === 2
+                    ? "rank-silver"
+                    : book.rank === 3
+                      ? "rank-bronze"
+                      : "";
 
               return (
                 <article
                   key={book.id}
-                  className={`ranking-row${editingBookId === book.id ? " is-editing" : ""}`}
+                  className={`ranking-row${editingBookId === book.id ? " is-editing" : ""}${book.rank === 1 ? " is-leader" : ""}`}
+                  style={{ animationDelay: `${index * 60}ms` }}
                 >
-                  <div className="rank-badge">#{book.rank}</div>
+                  <div className={`rank-badge ${rankClass}`}>#{book.rank}</div>
 
                   <div className="ranking-body">
                     <div className="ranking-topline">
@@ -370,7 +409,7 @@ export default function App() {
 
                       <div className="ranking-actions">
                         <div className="score-block score-block-inline">
-                          <span className="score-label">Bayesian score</span>
+                          <span className="score-label">Weighted score</span>
                           <strong className="score-value">
                             {formatScore(book.score)}
                           </strong>
@@ -399,12 +438,18 @@ export default function App() {
                     </div>
 
                     <div className="meta-row">
-                      <span>{formatScore(book.starRating)} average rating</span>
+                      <span>
+                        <Stars rating={book.starRating} />{" "}
+                        {formatScore(book.starRating)} avg
+                      </span>
                       <span>{formatCount(book.ratingCount)} ratings</span>
                     </div>
 
                     <div className="score-meter" aria-hidden="true">
-                      <span style={{ width: `${scoreFill}%` }} />
+                      <span
+                        className="score-meter-fill"
+                        style={{ "--fill-width": `${scoreFill}%` } as React.CSSProperties}
+                      />
                     </div>
                   </div>
                 </article>

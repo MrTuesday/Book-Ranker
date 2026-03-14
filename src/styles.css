@@ -264,6 +264,11 @@ input {
     background-color 160ms ease;
 }
 
+input::placeholder {
+  color: var(--muted);
+  opacity: 0.5;
+}
+
 input:focus {
   outline: none;
   border-color: rgba(30, 77, 69, 0.3);
@@ -286,11 +291,26 @@ input:focus {
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: rgba(255, 255, 255, 0.72);
+  transition:
+    transform 200ms ease,
+    box-shadow 200ms ease,
+    border-color 200ms ease,
+    background-color 200ms ease;
+}
+
+.ranking-row:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(52, 42, 30, 0.1);
 }
 
 .ranking-row.is-editing {
   border-color: rgba(30, 77, 69, 0.26);
   background: rgba(247, 252, 250, 0.92);
+}
+
+.ranking-row.is-leader {
+  border-color: rgba(30, 77, 69, 0.18);
+  background: rgba(247, 252, 250, 0.82);
 }
 
 .rank-badge {
@@ -306,6 +326,22 @@ input:focus {
   font-size: 1.9rem;
   font-weight: 600;
   letter-spacing: -0.04em;
+  transition: background-color 200ms ease, color 200ms ease;
+}
+
+.rank-badge.rank-gold {
+  background: linear-gradient(135deg, #fef3c7, #fde68a);
+  color: #92400e;
+}
+
+.rank-badge.rank-silver {
+  background: linear-gradient(135deg, #f1f5f9, #e2e8f0);
+  color: #475569;
+}
+
+.rank-badge.rank-bronze {
+  background: linear-gradient(135deg, #fed7aa, #fdba74);
+  color: #9a3412;
 }
 
 .ranking-body {
@@ -370,6 +406,22 @@ input:focus {
   font-size: 0.95rem;
 }
 
+.stars {
+  display: inline-flex;
+  gap: 1px;
+  font-size: 0.92rem;
+  letter-spacing: 1px;
+  vertical-align: baseline;
+}
+
+.star-filled {
+  color: #d97706;
+}
+
+.star-empty {
+  color: rgba(23, 20, 17, 0.2);
+}
+
 .score-meter {
   position: relative;
   overflow: hidden;
@@ -378,11 +430,14 @@ input:focus {
   background: rgba(23, 20, 17, 0.08);
 }
 
-.score-meter span {
+.score-meter-fill {
   display: block;
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, #2f6a5f 0%, #8fb7ae 100%);
+  width: var(--fill-width, 0%);
+  animation: meter-grow 600ms ease-out both;
+  animation-delay: inherit;
 }
 
 .empty-state {
@@ -449,6 +504,16 @@ input:focus {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes meter-grow {
+  from {
+    width: 0%;
+  }
+
+  to {
+    width: var(--fill-width, 0%);
   }
 }
 
