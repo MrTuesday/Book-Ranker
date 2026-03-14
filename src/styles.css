@@ -750,18 +750,49 @@ input:focus {
     opacity: 0.4;
 }
 
-.tag-remove-global {
-    width: auto;
-    min-width: 30px;
-    padding: 0 7px;
-    background: rgba(166, 75, 42, 0.92);
-    font-size: 0.58rem;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
+.tag-action-toggle.is-open {
+    opacity: 1;
+    background: rgba(23, 20, 17, 0.72);
 }
 
-.tag-remove-global:hover {
-    background: rgba(166, 75, 42, 1);
+.tag-action-menu {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.tag-action-option {
+    border: none;
+    border-radius: 999px;
+    padding: 5px 9px;
+    background: rgba(180, 83, 9, 0.14);
+    color: var(--accent);
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    transition:
+        background-color 0.15s ease,
+        color 0.15s ease,
+        opacity 0.15s ease;
+}
+
+.tag-action-option:hover {
+    background: rgba(180, 83, 9, 0.22);
+}
+
+.tag-action-option:disabled {
+    cursor: wait;
+    opacity: 0.45;
+}
+
+.tag-action-option-danger {
+    background: rgba(166, 75, 42, 0.16);
+    color: #a64b2a;
+}
+
+.tag-action-option-danger:hover {
+    background: rgba(166, 75, 42, 0.24);
 }
 
 .genre-tag-interest {

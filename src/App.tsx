@@ -52,6 +52,7 @@ type DraftTagDrag = {
   field: SuggestionField;
   tag: string;
 };
+type TagActionScope = "draft" | "book";
 type DraftTextField =
   | "title"
   | "starRating"
@@ -160,6 +161,17 @@ function removeTagFromScores(scores: Record<string, string>, tag: string) {
   const nextScores = { ...scores };
   delete nextScores[tag];
   return nextScores;
+}
+
+function tagActionMenuId(
+  scope: TagActionScope,
+  field: SuggestionField,
+  tag: string,
+  bookId?: number,
+) {
+  return scope === "draft"
+    ? `draft:${field}:${tag}`
+    : `book:${bookId}:${field}:${tag}`;
 }
 
 function reorderTags(tags: string[], draggedTag: string, targetTag: string) {
@@ -324,6 +336,9 @@ export default function App() {
   const [pendingTagDelete, setPendingTagDelete] = useState<string | null>(null);
   const [activeSuggestionField, setActiveSuggestionField] =
     useState<SuggestionField | null>(null);
+  const [activeTagActionMenu, setActiveTagActionMenu] = useState<string | null>(
+    null,
+  );
   const [draftTagDrag, setDraftTagDrag] = useState<DraftTagDrag | null>(null);
   const [draftTagDropTarget, setDraftTagDropTarget] = useState<{
     field: SuggestionField;
@@ -443,6 +458,7 @@ export default function App() {
     setDraft(createDraft());
     setEditingBookId(null);
     setActiveSuggestionField(null);
+    setActiveTagActionMenu(null);
     setDraftTagDrag(null);
     setDraftTagDropTarget(null);
   }, []);
@@ -747,6 +763,7 @@ export default function App() {
   ) {
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", `${field}:${tag}`);
+    setActiveTagActionMenu(null);
     setDraftTagDrag({ field, tag });
     setDraftTagDropTarget(null);
   }
@@ -817,6 +834,7 @@ export default function App() {
   function startEditing(book: Book) {
     setEditingBookId(book.id);
     setScrollToForm(true);
+    setActiveTagActionMenu(null);
     setDraft({
       title: book.title,
       starRating: book.starRating != null ? String(book.starRating) : "",
@@ -1205,6 +1223,11 @@ export default function App() {
                   {draft.authors.map((author) => {
                     const score = getDraftTagScore("author", author);
                     const deleteKey = `author:${author}`;
+                    const actionMenuId = tagActionMenuId(
+                      "draft",
+                      "author",
+                      author,
+                    );
                     const isDragging =
                       draftTagDrag?.field === "author" &&
                       draftTagDrag.tag === author;
@@ -1212,6 +1235,8 @@ export default function App() {
                       draftTagDropTarget?.field === "author" &&
                       draftTagDropTarget.tag === author;
                     const isDeletingTag = pendingTagDelete === deleteKey;
+                    const isActionMenuOpen =
+                      activeTagActionMenu === actionMenuId;
 
                     return (
                       <span
@@ -1244,26 +1269,54 @@ export default function App() {
                         ) : null}
                         <button
                           type="button"
-                          className="tag-remove"
+                          className={`tag-remove tag-action-toggle${isActionMenuOpen ? " is-open" : ""}`}
                           onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => removeDraftTag("author", author)}
-                          aria-label={`Remove author ${author} from this book`}
-                          title={`Remove author ${author} from this book`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setActiveTagActionMenu((current) =>
+                              current === actionMenuId ? null : actionMenuId,
+                            );
+                          }}
+                          aria-label={`Open delete options for author ${author}`}
+                          title={`Open delete options for author ${author}`}
                           disabled={isDeletingTag}
                         >
                           x
                         </button>
-                        <button
-                          type="button"
-                          className="tag-remove tag-remove-global"
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => void removeGlobalTag("author", author)}
-                          aria-label={`Delete author tag ${author} everywhere`}
-                          title={`Delete author tag ${author} everywhere`}
-                          disabled={isDeletingTag}
-                        >
-                          {isDeletingTag ? "..." : "all"}
-                        </button>
+                        {isActionMenuOpen ? (
+                          <span className="tag-action-menu">
+                            <button
+                              type="button"
+                              className="tag-action-option"
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setActiveTagActionMenu(null);
+                                removeDraftTag("author", author);
+                              }}
+                              aria-label={`Remove author ${author} from this book`}
+                              title={`Remove author ${author} from this book`}
+                              disabled={isDeletingTag}
+                            >
+                              This book
+                            </button>
+                            <button
+                              type="button"
+                              className="tag-action-option tag-action-option-danger"
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setActiveTagActionMenu(null);
+                                void removeGlobalTag("author", author);
+                              }}
+                              aria-label={`Delete author tag ${author} everywhere`}
+                              title={`Delete author tag ${author} everywhere`}
+                              disabled={isDeletingTag}
+                            >
+                              {isDeletingTag ? "Deleting..." : "Everywhere"}
+                            </button>
+                          </span>
+                        ) : null}
                       </span>
                     );
                   })}
@@ -1388,6 +1441,11 @@ export default function App() {
                   {draft.genres.map((genre) => {
                     const score = getDraftTagScore("genre", genre);
                     const deleteKey = `genre:${genre}`;
+                    const actionMenuId = tagActionMenuId(
+                      "draft",
+                      "genre",
+                      genre,
+                    );
                     const isDragging =
                       draftTagDrag?.field === "genre" &&
                       draftTagDrag.tag === genre;
@@ -1395,6 +1453,8 @@ export default function App() {
                       draftTagDropTarget?.field === "genre" &&
                       draftTagDropTarget.tag === genre;
                     const isDeletingTag = pendingTagDelete === deleteKey;
+                    const isActionMenuOpen =
+                      activeTagActionMenu === actionMenuId;
 
                     return (
                       <span
@@ -1427,26 +1487,54 @@ export default function App() {
                         ) : null}
                         <button
                           type="button"
-                          className="tag-remove"
+                          className={`tag-remove tag-action-toggle${isActionMenuOpen ? " is-open" : ""}`}
                           onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => removeDraftTag("genre", genre)}
-                          aria-label={`Remove genre ${genre} from this book`}
-                          title={`Remove genre ${genre} from this book`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setActiveTagActionMenu((current) =>
+                              current === actionMenuId ? null : actionMenuId,
+                            );
+                          }}
+                          aria-label={`Open delete options for genre ${genre}`}
+                          title={`Open delete options for genre ${genre}`}
                           disabled={isDeletingTag}
                         >
                           x
                         </button>
-                        <button
-                          type="button"
-                          className="tag-remove tag-remove-global"
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => void removeGlobalTag("genre", genre)}
-                          aria-label={`Delete genre tag ${genre} everywhere`}
-                          title={`Delete genre tag ${genre} everywhere`}
-                          disabled={isDeletingTag}
-                        >
-                          {isDeletingTag ? "..." : "all"}
-                        </button>
+                        {isActionMenuOpen ? (
+                          <span className="tag-action-menu">
+                            <button
+                              type="button"
+                              className="tag-action-option"
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setActiveTagActionMenu(null);
+                                removeDraftTag("genre", genre);
+                              }}
+                              aria-label={`Remove genre ${genre} from this book`}
+                              title={`Remove genre ${genre} from this book`}
+                              disabled={isDeletingTag}
+                            >
+                              This book
+                            </button>
+                            <button
+                              type="button"
+                              className="tag-action-option tag-action-option-danger"
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setActiveTagActionMenu(null);
+                                void removeGlobalTag("genre", genre);
+                              }}
+                              aria-label={`Delete genre tag ${genre} everywhere`}
+                              title={`Delete genre tag ${genre} everywhere`}
+                              disabled={isDeletingTag}
+                            >
+                              {isDeletingTag ? "Deleting..." : "Everywhere"}
+                            </button>
+                          </span>
+                        ) : null}
                       </span>
                     );
                   })}
@@ -1539,58 +1627,103 @@ export default function App() {
                         <h3>{book.title}</h3>
                         <div className="book-tags">
                           {book.authors.length > 0 ? (
-                            book.authors.map((author) =>
-                              (() => {
-                                const deleteKey = `author:${author}`;
-                                const isDeletingTag =
-                                  pendingTagDelete === deleteKey;
+                            book.authors.map((author) => {
+                              const deleteKey = `author:${author}`;
+                              const actionMenuId = tagActionMenuId(
+                                "book",
+                                "author",
+                                author,
+                                book.id,
+                              );
+                              const isDeletingTag =
+                                pendingTagDelete === deleteKey;
+                              const isActionMenuOpen =
+                                activeTagActionMenu === actionMenuId;
 
-                                return (
-                                  <span
-                                    key={`author-${book.id}-${author}`}
-                                    className="genre-tag"
+                              return (
+                                <span
+                                  key={`author-${book.id}-${author}`}
+                                  className="genre-tag"
+                                >
+                                  {author}
+                                  {authorExperiences[author] != null ? (
+                                    <span className="genre-tag-interest">
+                                      {authorExperiences[author]}
+                                    </span>
+                                  ) : null}
+                                  <button
+                                    type="button"
+                                    className={`tag-remove tag-action-toggle${isActionMenuOpen ? " is-open" : ""}`}
+                                    onClick={() =>
+                                      setActiveTagActionMenu((current) =>
+                                        current === actionMenuId
+                                          ? null
+                                          : actionMenuId,
+                                      )
+                                    }
+                                    aria-label={`Open delete options for author ${author}`}
+                                    title={`Open delete options for author ${author}`}
+                                    disabled={isDeletingTag}
                                   >
-                                    {author}
-                                    {authorExperiences[author] != null ? (
-                                      <span className="genre-tag-interest">
-                                        {authorExperiences[author]}
-                                      </span>
-                                    ) : null}
-                                    <button
-                                      type="button"
-                                      className="tag-remove"
-                                      onClick={() =>
-                                        void clearTag(book.id, "author", author)
-                                      }
-                                      aria-label={`Remove author ${author}`}
-                                      title={`Remove author ${author} from this book`}
-                                      disabled={isDeletingTag}
-                                    >
-                                      x
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="tag-remove tag-remove-global"
-                                      onClick={() =>
-                                        void removeGlobalTag("author", author)
-                                      }
-                                      aria-label={`Delete author tag ${author} everywhere`}
-                                      title={`Delete author tag ${author} everywhere`}
-                                      disabled={isDeletingTag}
-                                    >
-                                      {isDeletingTag ? "..." : "all"}
-                                    </button>
-                                  </span>
-                                );
-                              })(),
-                            )
+                                    x
+                                  </button>
+                                  {isActionMenuOpen ? (
+                                    <span className="tag-action-menu">
+                                      <button
+                                        type="button"
+                                        className="tag-action-option"
+                                        onClick={() => {
+                                          setActiveTagActionMenu(null);
+                                          void clearTag(
+                                            book.id,
+                                            "author",
+                                            author,
+                                          );
+                                        }}
+                                        aria-label={`Remove author ${author} from this book`}
+                                        title={`Remove author ${author} from this book`}
+                                        disabled={isDeletingTag}
+                                      >
+                                        This book
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="tag-action-option tag-action-option-danger"
+                                        onClick={() => {
+                                          setActiveTagActionMenu(null);
+                                          void removeGlobalTag(
+                                            "author",
+                                            author,
+                                          );
+                                        }}
+                                        aria-label={`Delete author tag ${author} everywhere`}
+                                        title={`Delete author tag ${author} everywhere`}
+                                        disabled={isDeletingTag}
+                                      >
+                                        {isDeletingTag
+                                          ? "Deleting..."
+                                          : "Everywhere"}
+                                      </button>
+                                    </span>
+                                  ) : null}
+                                </span>
+                              );
+                            })
                           ) : (
                             <span className="genre-tag">Author unknown</span>
                           )}
                           {book.genres.map((genre) => {
                             const deleteKey = `genre:${genre}`;
+                            const actionMenuId = tagActionMenuId(
+                              "book",
+                              "genre",
+                              genre,
+                              book.id,
+                            );
                             const isDeletingTag =
                               pendingTagDelete === deleteKey;
+                            const isActionMenuOpen =
+                              activeTagActionMenu === actionMenuId;
 
                             return (
                               <span
@@ -1605,28 +1738,52 @@ export default function App() {
                                 ) : null}
                                 <button
                                   type="button"
-                                  className="tag-remove"
+                                  className={`tag-remove tag-action-toggle${isActionMenuOpen ? " is-open" : ""}`}
                                   onClick={() =>
-                                    void clearTag(book.id, "genre", genre)
+                                    setActiveTagActionMenu((current) =>
+                                      current === actionMenuId
+                                        ? null
+                                        : actionMenuId,
+                                    )
                                   }
-                                  aria-label={`Remove genre ${genre}`}
-                                  title={`Remove genre ${genre} from this book`}
+                                  aria-label={`Open delete options for genre ${genre}`}
+                                  title={`Open delete options for genre ${genre}`}
                                   disabled={isDeletingTag}
                                 >
                                   x
                                 </button>
-                                <button
-                                  type="button"
-                                  className="tag-remove tag-remove-global"
-                                  onClick={() =>
-                                    void removeGlobalTag("genre", genre)
-                                  }
-                                  aria-label={`Delete genre tag ${genre} everywhere`}
-                                  title={`Delete genre tag ${genre} everywhere`}
-                                  disabled={isDeletingTag}
-                                >
-                                  {isDeletingTag ? "..." : "all"}
-                                </button>
+                                {isActionMenuOpen ? (
+                                  <span className="tag-action-menu">
+                                    <button
+                                      type="button"
+                                      className="tag-action-option"
+                                      onClick={() => {
+                                        setActiveTagActionMenu(null);
+                                        void clearTag(book.id, "genre", genre);
+                                      }}
+                                      aria-label={`Remove genre ${genre} from this book`}
+                                      title={`Remove genre ${genre} from this book`}
+                                      disabled={isDeletingTag}
+                                    >
+                                      This book
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="tag-action-option tag-action-option-danger"
+                                      onClick={() => {
+                                        setActiveTagActionMenu(null);
+                                        void removeGlobalTag("genre", genre);
+                                      }}
+                                      aria-label={`Delete genre tag ${genre} everywhere`}
+                                      title={`Delete genre tag ${genre} everywhere`}
+                                      disabled={isDeletingTag}
+                                    >
+                                      {isDeletingTag
+                                        ? "Deleting..."
+                                        : "Everywhere"}
+                                    </button>
+                                  </span>
+                                ) : null}
                               </span>
                             );
                           })}
