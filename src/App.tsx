@@ -37,7 +37,6 @@ type RankedBook = Book & {
 const GLOBAL_MEAN = 3.8;
 const SMOOTHING_FACTOR = 500;
 
-
 function createDraft(): BookDraft {
   return {
     title: "",
@@ -111,13 +110,46 @@ function ScoreDistribution({ scores }: { scores: number[] }) {
       viewBox={`0 0 ${w} ${h}`}
       aria-label="Score distribution"
     >
-      <line x1={pad} y1={trackY} x2={w - pad} y2={trackY} stroke="var(--line)" strokeWidth="1" />
-      <line x1={pad} y1={trackY - 4} x2={pad} y2={trackY + 4} stroke="var(--line-strong)" strokeWidth="1" />
-      <line x1={w - pad} y1={trackY - 4} x2={w - pad} y2={trackY + 4} stroke="var(--line-strong)" strokeWidth="1" />
-      <text x={pad} y={h - 2} fill="var(--muted)" fontSize="10" textAnchor="middle">
+      <line
+        x1={pad}
+        y1={trackY}
+        x2={w - pad}
+        y2={trackY}
+        stroke="var(--line)"
+        strokeWidth="1"
+      />
+      <line
+        x1={pad}
+        y1={trackY - 4}
+        x2={pad}
+        y2={trackY + 4}
+        stroke="var(--line-strong)"
+        strokeWidth="1"
+      />
+      <line
+        x1={w - pad}
+        y1={trackY - 4}
+        x2={w - pad}
+        y2={trackY + 4}
+        stroke="var(--line-strong)"
+        strokeWidth="1"
+      />
+      <text
+        x={pad}
+        y={h - 2}
+        fill="var(--muted)"
+        fontSize="10"
+        textAnchor="middle"
+      >
         {lo.toFixed(1)}
       </text>
-      <text x={w - pad} y={h - 2} fill="var(--muted)" fontSize="10" textAnchor="middle">
+      <text
+        x={w - pad}
+        y={h - 2}
+        fill="var(--muted)"
+        fontSize="10"
+        textAnchor="middle"
+      >
         {hi.toFixed(1)}
       </text>
       {positions.map((x, i) => (
@@ -134,7 +166,6 @@ function ScoreDistribution({ scores }: { scores: number[] }) {
   );
 }
 
-
 export default function App() {
   const [books, setBooks] = useState<Book[]>([]);
   const [draft, setDraft] = useState<BookDraft>(createDraft());
@@ -145,7 +176,8 @@ export default function App() {
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [genreInterests, setGenreInterests] = useState<GenreInterestMap>({});
-  const [authorExperiences, setAuthorExperiences] = useState<AuthorExperienceMap>({});
+  const [authorExperiences, setAuthorExperiences] =
+    useState<AuthorExperienceMap>({});
 
   useEffect(() => {
     let isActive = true;
@@ -251,7 +283,9 @@ export default function App() {
 
   useEffect(() => {
     if (scrollToForm) {
-      document.querySelector(".control-panel")?.scrollIntoView({ behavior: "smooth" });
+      document
+        .querySelector(".control-panel")
+        ?.scrollIntoView({ behavior: "smooth" });
       setScrollToForm(false);
     }
   }, [scrollToForm]);
@@ -266,14 +300,22 @@ export default function App() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isEditing, resetDraft]);
 
-  const parsedDraftRating = draft.starRating.trim() ? Number(draft.starRating) : undefined;
-  const parsedDraftCount = draft.ratingCount.trim() ? Number(draft.ratingCount) : undefined;
+  const parsedDraftRating = draft.starRating.trim()
+    ? Number(draft.starRating)
+    : undefined;
+  const parsedDraftCount = draft.ratingCount.trim()
+    ? Number(draft.ratingCount)
+    : undefined;
   const canSubmit =
     !isLoading &&
     !isSaving &&
     draft.title.trim().length > 0 &&
-    (parsedDraftRating == null || (Number.isFinite(parsedDraftRating) && parsedDraftRating >= 0 && parsedDraftRating <= 5)) &&
-    (parsedDraftCount == null || (Number.isFinite(parsedDraftCount) && parsedDraftCount >= 0));
+    (parsedDraftRating == null ||
+      (Number.isFinite(parsedDraftRating) &&
+        parsedDraftRating >= 0 &&
+        parsedDraftRating <= 5)) &&
+    (parsedDraftCount == null ||
+      (Number.isFinite(parsedDraftCount) && parsedDraftCount >= 0));
 
   function updateDraft(field: keyof BookDraft, value: string) {
     setDraft((current) => {
@@ -313,11 +355,19 @@ export default function App() {
 
       const next = { ...current, [field]: clamped };
       // Auto-fill genre interest when genre changes
-      if (field === "genre" && value.trim() && genreInterests[value.trim()] != null) {
+      if (
+        field === "genre" &&
+        value.trim() &&
+        genreInterests[value.trim()] != null
+      ) {
         next.genreInterest = String(genreInterests[value.trim()]);
       }
       // Auto-fill author experience when author changes
-      if (field === "author" && value.trim() && authorExperiences[value.trim()] != null) {
+      if (
+        field === "author" &&
+        value.trim() &&
+        authorExperiences[value.trim()] != null
+      ) {
         next.authorExperience = String(authorExperiences[value.trim()]);
       }
       return next;
@@ -425,7 +475,8 @@ export default function App() {
             <span className="hero-title-accent">matters to you.</span>
           </h1>
           <p className="hero-text">
-            Bayesian modelling blends your experience with the author and current interest in the genre / topic with each book's average rating and popularity into a single estimate of how likely you really are to enjoy it.
+            Bayesian statistical modelling is applied to the inputs you provide
+            to estimate how likely you are to enjoy each book.
           </p>
         </div>
 
@@ -458,7 +509,9 @@ export default function App() {
                 <div className="leader-detail">
                   <div>
                     <strong className="summary-number">{leader.title}</strong>
-                    <p className="leader-author">{leader.author || "Author unknown"}</p>
+                    <p className="leader-author">
+                      {leader.author || "Author unknown"}
+                    </p>
                   </div>
                   <span className="leader-score">
                     {formatScore(leader.score)}
@@ -650,15 +703,20 @@ export default function App() {
                         <div className="book-tags">
                           <span className="genre-tag">
                             {book.author || "Author unknown"}
-                            {book.author && authorExperiences[book.author] != null ? (
-                              <span className="genre-tag-interest">{authorExperiences[book.author]}</span>
+                            {book.author &&
+                            authorExperiences[book.author] != null ? (
+                              <span className="genre-tag-interest">
+                                {authorExperiences[book.author]}
+                              </span>
                             ) : null}
                           </span>
                           {book.genre ? (
                             <span className="genre-tag">
                               {book.genre}
                               {genreInterests[book.genre] != null ? (
-                                <span className="genre-tag-interest">{genreInterests[book.genre]}</span>
+                                <span className="genre-tag-interest">
+                                  {genreInterests[book.genre]}
+                                </span>
                               ) : null}
                             </span>
                           ) : null}
@@ -690,7 +748,6 @@ export default function App() {
                             </button>
                           </div>
                         </div>
-
                       </div>
 
                       <strong className="score-value">
