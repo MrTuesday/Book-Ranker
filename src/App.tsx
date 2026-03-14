@@ -7,7 +7,9 @@ import {
 } from "react";
 import {
   createBookRecord,
+  deleteAuthorExperience,
   deleteBookRecord,
+  deleteGenreInterest,
   fetchBooks,
   type Book,
   type GenreInterestMap,
@@ -178,6 +180,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
+  const [pendingTagDelete, setPendingTagDelete] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [genreInterests, setGenreInterests] = useState<GenreInterestMap>({});
   const [authorExperiences, setAuthorExperiences] =
@@ -445,12 +448,18 @@ export default function App() {
         if (oldBook) {
           if (oldBook.author && oldBook.author !== payload.author) {
             await renameAuthorInBooks(oldBook.author, payload.author);
-            const nextExps = renameAuthorExperience(oldBook.author, payload.author);
+            const nextExps = renameAuthorExperience(
+              oldBook.author,
+              payload.author,
+            );
             setAuthorExperiences(nextExps);
           }
           if (oldBook.genre && oldBook.genre !== (payload.genre ?? "")) {
             await renameGenreInBooks(oldBook.genre, payload.genre ?? "");
-            const nextInterests = renameGenreInterest(oldBook.genre, payload.genre ?? "");
+            const nextInterests = renameGenreInterest(
+              oldBook.genre,
+              payload.genre ?? "",
+            );
             setGenreInterests(nextInterests);
           }
         }
@@ -484,6 +493,47 @@ export default function App() {
       setBooks(nextBooks);
     } catch (error) {
       setErrorMessage(messageFromError(error));
+    }
+  }
+
+  async function removeGlobalTag(field: "author" | "genre", value: string) {
+    const tag = value.trim();
+
+    if (!tag) {
+      return;
+    }
+
+    setPendingTagDelete(`${field}:${tag}`);
+    setErrorMessage(null);
+
+    try {
+      if (field === "author") {
+        const nextBooks = await renameAuthorInBooks(tag, "");
+        const nextExps = deleteAuthorExperience(tag);
+
+        setBooks(nextBooks);
+        setAuthorExperiences(nextExps);
+        setDraft((current) =>
+          current.author.trim() === tag
+            ? { ...current, author: "", authorExperience: "" }
+            : current,
+        );
+      } else {
+        const nextBooks = await renameGenreInBooks(tag, "");
+        const nextInterests = deleteGenreInterest(tag);
+
+        setBooks(nextBooks);
+        setGenreInterests(nextInterests);
+        setDraft((current) =>
+          current.genre.trim() === tag
+            ? { ...current, genre: "", genreInterest: "" }
+            : current,
+        );
+      }
+    } catch (error) {
+      setErrorMessage(messageFromError(error));
+    } finally {
+      setPendingTagDelete(null);
     }
   }
 
@@ -704,6 +754,82 @@ export default function App() {
             </button>
           </div>
         </form>
+
+        {knownAuthors.length > 0 || knownGenres.length > 0 ? (
+          <div className="saved-tag-groups" aria-label="Saved tags">
+            {knownAuthors.length > 0 ? (
+              <section className="saved-tag-group">
+                <div className="saved-tag-heading">
+                  <p className="section-label">Saved authors</p>
+                  <p className="saved-tag-note">Remove across all books</p>
+                </div>
+                <div className="saved-tag-list">
+                  {knownAuthors.map((author) => {
+                    const deleteKey = `author:${author}`;
+                    const isDeletingTag = pendingTagDelete === deleteKey;
+
+                    return (
+                      <span key={author} className="genre-tag">
+                        {author}
+                        {authorExperiences[author] != null ? (
+                          <span className="genre-tag-interest">
+                            {authorExperiences[author]}
+                          </span>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="tag-remove"
+                          onClick={() => void removeGlobalTag("author", author)}
+                          aria-label={`Remove author tag ${author}`}
+                          title={`Remove author tag ${author}`}
+                          disabled={isDeletingTag}
+                        >
+                          {isDeletingTag ? "…" : "x"}
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+              </section>
+            ) : null}
+
+            {knownGenres.length > 0 ? (
+              <section className="saved-tag-group">
+                <div className="saved-tag-heading">
+                  <p className="section-label">Saved genres</p>
+                  <p className="saved-tag-note">Remove across all books</p>
+                </div>
+                <div className="saved-tag-list">
+                  {knownGenres.map((genre) => {
+                    const deleteKey = `genre:${genre}`;
+                    const isDeletingTag = pendingTagDelete === deleteKey;
+
+                    return (
+                      <span key={genre} className="genre-tag">
+                        {genre}
+                        {genreInterests[genre] != null ? (
+                          <span className="genre-tag-interest">
+                            {genreInterests[genre]}
+                          </span>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="tag-remove"
+                          onClick={() => void removeGlobalTag("genre", genre)}
+                          aria-label={`Remove genre tag ${genre}`}
+                          title={`Remove genre tag ${genre}`}
+                          disabled={isDeletingTag}
+                        >
+                          {isDeletingTag ? "…" : "x"}
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+              </section>
+            ) : null}
+          </div>
+        ) : null}
       </section>
 
       <section className="panel board">
@@ -755,7 +881,7 @@ export default function App() {
                                 onClick={() => void clearTag(book.id, "author")}
                                 aria-label={`Remove author ${book.author}`}
                               >
-                                ×
+                                x
                               </button>
                             ) : null}
                           </span>
@@ -773,7 +899,7 @@ export default function App() {
                                 onClick={() => void clearTag(book.id, "genre")}
                                 aria-label={`Remove genre ${book.genre}`}
                               >
-                                ×
+                                x
                               </button>
                             </span>
                           ) : null}
