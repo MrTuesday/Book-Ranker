@@ -364,6 +364,8 @@ h3 {
     padding: 8px 10px;
     border-radius: 12px;
     background: rgba(180, 83, 9, 0.06);
+    -webkit-appearance: none;
+    appearance: none;
     color: var(--text);
     cursor: pointer;
     transition: background-color 160ms ease;
@@ -378,6 +380,14 @@ h3 {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.suggestion-pick .genre-tag-interest {
+    background: var(--accent);
+    color: #fff;
+    -webkit-text-fill-color: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
 }
 
 .suggestion-remove {
