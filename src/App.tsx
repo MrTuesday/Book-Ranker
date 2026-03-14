@@ -35,7 +35,7 @@ type RankedBook = Book & {
 };
 
 const GLOBAL_MEAN = 3.8;
-const SMOOTHING_FACTOR = 1500;
+const SMOOTHING_FACTOR = 500;
 
 
 function createDraft(): BookDraft {
@@ -54,14 +54,14 @@ function bayesianScore(R: number, v: number, C: number, m: number) {
   return (v / (v + m)) * R + (m / (v + m)) * C;
 }
 
-function personalizedMean(
-  globalMean: number,
-  genreInterest?: number,
+function compositeScore(
+  bayesian: number,
   authorExperience?: number,
+  genreInterest?: number,
 ) {
-  const values = [globalMean];
-  if (genreInterest != null) values.push(genreInterest);
+  const values = [bayesian];
   if (authorExperience != null) values.push(authorExperience);
+  if (genreInterest != null) values.push(genreInterest);
   return values.reduce((a, b) => a + b, 0) / values.length;
 }
 
@@ -192,16 +192,12 @@ export default function App() {
           book.author && authorExperiences[book.author] != null
             ? authorExperiences[book.author]
             : undefined;
-        const C = personalizedMean(
-          GLOBAL_MEAN,
-          genreInterest,
-          authorExp,
-        );
-        const R = book.starRating ?? C;
+        const R = book.starRating ?? GLOBAL_MEAN;
         const v = book.ratingCount ?? 0;
+        const bScore = bayesianScore(R, v, GLOBAL_MEAN, SMOOTHING_FACTOR);
         return {
           ...book,
-          score: bayesianScore(R, v, C, SMOOTHING_FACTOR),
+          score: compositeScore(bScore, authorExp, genreInterest),
           rank: 0,
         };
       })
@@ -417,8 +413,9 @@ export default function App() {
             <span className="hero-title-accent">matters to you.</span>
           </h1>
           <p className="hero-text">
-            Uses Bayesian statistical modelling to score books based on their
-            ratings, popularity, and your author experience and genre interest.
+            Bayesian modelling blends your author experience and genre
+            interest with each book's average rating and popularity into a
+            single score.
           </p>
         </div>
 
