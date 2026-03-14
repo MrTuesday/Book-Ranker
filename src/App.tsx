@@ -1,6 +1,7 @@
 import {
   type FocusEvent as ReactFocusEvent,
   type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -20,20 +21,22 @@ import {
   updateBookRecord,
   writeGenreInterest,
   writeAuthorExperience,
-  renameGenreInterest,
   renameGenreInBooks,
-  renameAuthorExperience,
   renameAuthorInBooks,
 } from "./lib/books-api";
 
 type BookDraft = {
   title: string;
-  author: string;
   starRating: string;
   ratingCount: string;
-  genre: string;
+  authorInput: string;
   genreInterest: string;
   authorExperience: string;
+  authors: string[];
+  authorScores: Record<string, string>;
+  genreInput: string;
+  genres: string[];
+  genreScores: Record<string, string>;
 };
 
 type RankedBook = Book & {
@@ -42,6 +45,14 @@ type RankedBook = Book & {
 };
 
 type SuggestionField = "author" | "genre";
+type DraftTextField =
+  | "title"
+  | "starRating"
+  | "ratingCount"
+  | "authorInput"
+  | "authorExperience"
+  | "genreInput"
+  | "genreInterest";
 
 const GLOBAL_MEAN = 3.8;
 const SMOOTHING_FACTOR = 500;
@@ -50,13 +61,53 @@ const MAX_SUGGESTIONS = 6;
 function createDraft(): BookDraft {
   return {
     title: "",
-    author: "",
     starRating: "",
     ratingCount: "",
-    genre: "",
+    authorInput: "",
     genreInterest: "",
     authorExperience: "",
+    authors: [],
+    authorScores: {},
+    genreInput: "",
+    genres: [],
+    genreScores: {},
   };
+}
+
+function uniqueTags(values: string[]) {
+  return Array.from(
+    new Set(
+      values.map((value) => value.trim()).filter((value) => value.length > 0),
+    ),
+  );
+}
+
+function averageTagPreference(tags: string[], scores: Record<string, number>) {
+  if (tags.length === 0) {
+    return 3;
+  }
+
+  return (
+    tags.reduce((total, tag) => total + (scores[tag] ?? 3), 0) / tags.length
+  );
+}
+
+function buildDraftScores(tags: string[], scores: Record<string, number>) {
+  return Object.fromEntries(
+    tags.flatMap((tag) =>
+      scores[tag] != null ? [[tag, String(scores[tag])]] : [],
+    ),
+  );
+}
+
+function removeTagFromScores(scores: Record<string, string>, tag: string) {
+  const nextScores = { ...scores };
+  delete nextScores[tag];
+  return nextScores;
+}
+
+function formatTagSummary(tags: string[], fallback: string) {
+  return tags.length > 0 ? tags.join(", ") : fallback;
 }
 
 function bayesianScore(R: number, v: number, C: number, m: number) {
@@ -230,14 +281,8 @@ export default function App() {
   const rankedBooks = useMemo<RankedBook[]>(() => {
     return books
       .map((book) => {
-        const genreInterest =
-          book.genre && genreInterests[book.genre] != null
-            ? genreInterests[book.genre]
-            : 3;
-        const authorExp =
-          book.author && authorExperiences[book.author] != null
-            ? authorExperiences[book.author]
-            : 3;
+        const genreInterest = averageTagPreference(book.genres, genreInterests);
+        const authorExp = averageTagPreference(book.authors, authorExperiences);
         const R = book.starRating ?? GLOBAL_MEAN;
         const v = book.ratingCount ?? 0;
         const bScore = bayesianScore(R, v, GLOBAL_MEAN, SMOOTHING_FACTOR);
@@ -270,7 +315,9 @@ export default function App() {
   const knownGenres = useMemo(() => {
     const set = new Set<string>();
     for (const book of books) {
-      if (book.genre) set.add(book.genre);
+      for (const genre of book.genres) {
+        set.add(genre);
+      }
     }
     for (const genre of Object.keys(genreInterests)) {
       set.add(genre);
@@ -281,7 +328,9 @@ export default function App() {
   const knownAuthors = useMemo(() => {
     const set = new Set<string>();
     for (const book of books) {
-      if (book.author) set.add(book.author);
+      for (const author of book.authors) {
+        set.add(author);
+      }
     }
     for (const author of Object.keys(authorExperiences)) {
       set.add(author);
@@ -290,32 +339,41 @@ export default function App() {
   }, [books, authorExperiences]);
 
   const authorSuggestions = useMemo(() => {
-    const query = draft.author.trim().toLocaleLowerCase();
+    const query = draft.authorInput.trim().toLocaleLowerCase();
 
     if (!query) {
       return [];
     }
 
     return knownAuthors
-      .filter((author) => author.toLocaleLowerCase().includes(query))
+      .filter(
+        (author) =>
+          !draft.authors.includes(author) &&
+          author.toLocaleLowerCase().includes(query),
+      )
       .slice(0, MAX_SUGGESTIONS);
-  }, [draft.author, knownAuthors]);
+  }, [draft.authorInput, draft.authors, knownAuthors]);
 
   const genreSuggestions = useMemo(() => {
-    const query = draft.genre.trim().toLocaleLowerCase();
+    const query = draft.genreInput.trim().toLocaleLowerCase();
 
     if (!query) {
       return [];
     }
 
     return knownGenres
-      .filter((genre) => genre.toLocaleLowerCase().includes(query))
+      .filter(
+        (genre) =>
+          !draft.genres.includes(genre) &&
+          genre.toLocaleLowerCase().includes(query),
+      )
       .slice(0, MAX_SUGGESTIONS);
-  }, [draft.genre, knownGenres]);
+  }, [draft.genreInput, draft.genres, knownGenres]);
 
   const resetDraft = useCallback(() => {
     setDraft(createDraft());
     setEditingBookId(null);
+    setActiveSuggestionField(null);
   }, []);
 
   useEffect(() => {
@@ -354,7 +412,7 @@ export default function App() {
     (parsedDraftCount == null ||
       (Number.isFinite(parsedDraftCount) && parsedDraftCount >= 0));
 
-  function updateDraft(field: keyof BookDraft, value: string) {
+  function updateDraft(field: DraftTextField, value: string) {
     setDraft((current) => {
       let clamped = value;
       const num = Number(value);
@@ -391,22 +449,22 @@ export default function App() {
       }
 
       const next = { ...current, [field]: clamped };
-      // Auto-fill genre interest when genre changes
-      if (
-        field === "genre" &&
-        value.trim() &&
-        genreInterests[value.trim()] != null
-      ) {
-        next.genreInterest = String(genreInterests[value.trim()]);
+      if (field === "genreInput") {
+        const match = value.trim();
+        next.genreInterest =
+          match && genreInterests[match] != null
+            ? String(genreInterests[match])
+            : "";
       }
-      // Auto-fill author experience when author changes
-      if (
-        field === "author" &&
-        value.trim() &&
-        authorExperiences[value.trim()] != null
-      ) {
-        next.authorExperience = String(authorExperiences[value.trim()]);
+
+      if (field === "authorInput") {
+        const match = value.trim();
+        next.authorExperience =
+          match && authorExperiences[match] != null
+            ? String(authorExperiences[match])
+            : "";
       }
+
       return next;
     });
   }
@@ -423,8 +481,88 @@ export default function App() {
   }
 
   function selectSuggestedValue(field: SuggestionField, value: string) {
-    updateDraft(field, value);
+    addDraftTag(field, value);
     setActiveSuggestionField(null);
+  }
+
+  function getDraftTagScore(field: SuggestionField, tag: string) {
+    const scoreMap =
+      field === "author" ? draft.authorScores : draft.genreScores;
+    const globalScores =
+      field === "author" ? authorExperiences : genreInterests;
+    const draftScore = scoreMap[tag]?.trim();
+
+    if (draftScore) {
+      return draftScore;
+    }
+
+    if (globalScores[tag] != null) {
+      return String(globalScores[tag]);
+    }
+
+    return "3";
+  }
+
+  function addDraftTag(field: SuggestionField, explicitValue?: string) {
+    setDraft((current) => {
+      const isAuthor = field === "author";
+      const inputKey = isAuthor ? "authorInput" : "genreInput";
+      const ratingKey = isAuthor ? "authorExperience" : "genreInterest";
+      const tagsKey = isAuthor ? "authors" : "genres";
+      const scoresKey = isAuthor ? "authorScores" : "genreScores";
+      const rawTag = (explicitValue ?? current[inputKey]).trim();
+
+      if (!rawTag || current[tagsKey].includes(rawTag)) {
+        return current;
+      }
+
+      const globalScores = isAuthor ? authorExperiences : genreInterests;
+      const ratingValue =
+        current[ratingKey].trim() ||
+        (globalScores[rawTag] != null ? String(globalScores[rawTag]) : "");
+      const nextTags = uniqueTags([...current[tagsKey], rawTag]);
+
+      return {
+        ...current,
+        [tagsKey]: nextTags,
+        [scoresKey]: ratingValue
+          ? {
+              ...current[scoresKey],
+              [rawTag]: ratingValue,
+            }
+          : current[scoresKey],
+        [inputKey]: "",
+        [ratingKey]: "",
+      };
+    });
+  }
+
+  function removeDraftTag(field: SuggestionField, tag: string) {
+    setDraft((current) => {
+      if (field === "author") {
+        return {
+          ...current,
+          authors: current.authors.filter((author) => author !== tag),
+          authorScores: removeTagFromScores(current.authorScores, tag),
+        };
+      }
+
+      return {
+        ...current,
+        genres: current.genres.filter((genre) => genre !== tag),
+        genreScores: removeTagFromScores(current.genreScores, tag),
+      };
+    });
+  }
+
+  function handleTagInputKeyDown(
+    event: ReactKeyboardEvent<HTMLInputElement>,
+    field: SuggestionField,
+  ) {
+    if (event.key === "Enter" || event.key === ",") {
+      event.preventDefault();
+      addDraftTag(field);
+    }
   }
 
   function startEditing(book: Book) {
@@ -432,18 +570,16 @@ export default function App() {
     setScrollToForm(true);
     setDraft({
       title: book.title,
-      author: book.author,
       starRating: book.starRating != null ? String(book.starRating) : "",
       ratingCount: book.ratingCount != null ? String(book.ratingCount) : "",
-      genre: book.genre ?? "",
-      genreInterest:
-        book.genre && genreInterests[book.genre] != null
-          ? String(genreInterests[book.genre])
-          : "",
-      authorExperience:
-        book.author && authorExperiences[book.author] != null
-          ? String(authorExperiences[book.author])
-          : "",
+      authorInput: "",
+      genreInterest: "",
+      authorExperience: "",
+      authors: [...book.authors],
+      authorScores: buildDraftScores(book.authors, authorExperiences),
+      genreInput: "",
+      genres: [...book.genres],
+      genreScores: buildDraftScores(book.genres, genreInterests),
     });
     setErrorMessage(null);
   }
@@ -459,57 +595,31 @@ export default function App() {
     setErrorMessage(null);
 
     try {
-      const genre = draft.genre.trim() || undefined;
-
       const payload = {
         title: draft.title.trim(),
-        author: draft.author.trim(),
+        authors: draft.authors,
         starRating: parsedDraftRating,
         ratingCount: parsedDraftCount,
-        genre,
+        genres: draft.genres,
       };
 
-      // Save genre interest globally if genre and interest are both provided
-      if (genre && draft.genreInterest.trim()) {
-        const parsedInterest = Number(draft.genreInterest);
-        if (Number.isFinite(parsedInterest)) {
-          const nextInterests = writeGenreInterest(genre, parsedInterest);
-          setGenreInterests(nextInterests);
+      let nextInterests = genreInterests;
+      for (const genre of draft.genres) {
+        const rawInterest = draft.genreScores[genre]?.trim();
+        if (rawInterest && Number.isFinite(Number(rawInterest))) {
+          nextInterests = writeGenreInterest(genre, Number(rawInterest));
         }
       }
+      setGenreInterests(nextInterests);
 
-      // Save author experience globally if author and experience are both provided
-      const authorName = draft.author.trim();
-      if (authorName && draft.authorExperience.trim()) {
-        const parsedExp = Number(draft.authorExperience);
-        if (Number.isFinite(parsedExp)) {
-          const nextExps = writeAuthorExperience(authorName, parsedExp);
-          setAuthorExperiences(nextExps);
+      let nextExps = authorExperiences;
+      for (const author of draft.authors) {
+        const rawExperience = draft.authorScores[author]?.trim();
+        if (rawExperience && Number.isFinite(Number(rawExperience))) {
+          nextExps = writeAuthorExperience(author, Number(rawExperience));
         }
       }
-
-      // Rename author/genre globally across all books if changed during edit
-      if (isEditing) {
-        const oldBook = books.find((b) => b.id === editingBookId);
-        if (oldBook) {
-          if (oldBook.author && oldBook.author !== payload.author) {
-            await renameAuthorInBooks(oldBook.author, payload.author);
-            const nextExps = renameAuthorExperience(
-              oldBook.author,
-              payload.author,
-            );
-            setAuthorExperiences(nextExps);
-          }
-          if (oldBook.genre && oldBook.genre !== (payload.genre ?? "")) {
-            await renameGenreInBooks(oldBook.genre, payload.genre ?? "");
-            const nextInterests = renameGenreInterest(
-              oldBook.genre,
-              payload.genre ?? "",
-            );
-            setGenreInterests(nextInterests);
-          }
-        }
-      }
+      setAuthorExperiences(nextExps);
 
       const nextBooks = isEditing
         ? await updateBookRecord(editingBookId, payload)
@@ -524,19 +634,29 @@ export default function App() {
     }
   }
 
-  async function clearTag(bookId: number, field: "author" | "genre") {
+  async function clearTag(bookId: number, field: SuggestionField, tag: string) {
     try {
       const book = books.find((b) => b.id === bookId);
       if (!book) return;
       const payload = {
         title: book.title,
-        author: field === "author" ? "" : book.author,
+        authors:
+          field === "author"
+            ? book.authors.filter((author) => author !== tag)
+            : book.authors,
         starRating: book.starRating,
         ratingCount: book.ratingCount,
-        genre: field === "genre" ? undefined : book.genre,
+        genres:
+          field === "genre"
+            ? book.genres.filter((genre) => genre !== tag)
+            : book.genres,
       };
       const nextBooks = await updateBookRecord(bookId, payload);
       setBooks(nextBooks);
+
+      if (editingBookId === bookId) {
+        removeDraftTag(field, tag);
+      }
     } catch (error) {
       setErrorMessage(messageFromError(error));
     }
@@ -559,22 +679,30 @@ export default function App() {
 
         setBooks(nextBooks);
         setAuthorExperiences(nextExps);
-        setDraft((current) =>
-          current.author.trim() === tag
-            ? { ...current, author: "", authorExperience: "" }
-            : current,
-        );
+        setDraft((current) => ({
+          ...current,
+          authors: current.authors.filter((author) => author !== tag),
+          authorScores: removeTagFromScores(current.authorScores, tag),
+          authorInput:
+            current.authorInput.trim() === tag ? "" : current.authorInput,
+          authorExperience:
+            current.authorInput.trim() === tag ? "" : current.authorExperience,
+        }));
       } else {
         const nextBooks = await renameGenreInBooks(tag, "");
         const nextInterests = deleteGenreInterest(tag);
 
         setBooks(nextBooks);
         setGenreInterests(nextInterests);
-        setDraft((current) =>
-          current.genre.trim() === tag
-            ? { ...current, genre: "", genreInterest: "" }
-            : current,
-        );
+        setDraft((current) => ({
+          ...current,
+          genres: current.genres.filter((genre) => genre !== tag),
+          genreScores: removeTagFromScores(current.genreScores, tag),
+          genreInput:
+            current.genreInput.trim() === tag ? "" : current.genreInput,
+          genreInterest:
+            current.genreInput.trim() === tag ? "" : current.genreInterest,
+        }));
       }
     } catch (error) {
       setErrorMessage(messageFromError(error));
@@ -602,9 +730,13 @@ export default function App() {
   }
 
   const showAuthorSuggestions =
-    activeSuggestionField === "author" && authorSuggestions.length > 0;
+    activeSuggestionField === "author" &&
+    draft.authorInput.trim().length > 0 &&
+    authorSuggestions.length > 0;
   const showGenreSuggestions =
-    activeSuggestionField === "genre" && genreSuggestions.length > 0;
+    activeSuggestionField === "genre" &&
+    draft.genreInput.trim().length > 0 &&
+    genreSuggestions.length > 0;
 
   return (
     <main className="app-shell">
@@ -650,7 +782,7 @@ export default function App() {
                   <div>
                     <strong className="summary-number">{leader.title}</strong>
                     <p className="leader-author">
-                      {leader.author || "Author unknown"}
+                      {formatTagSummary(leader.authors, "Author unknown")}
                     </p>
                   </div>
                   <span className="leader-score">
@@ -697,158 +829,240 @@ export default function App() {
           </label>
 
           <div className="field entry-author">
-            <span>Author + my experience</span>
-            <div className="inline-composite">
-              <div
-                className="suggestion-field"
-                onFocus={() => setActiveSuggestionField("author")}
-                onBlur={(event) => handleSuggestionFieldBlur(event, "author")}
-              >
-                <input
-                  type="text"
-                  placeholder="Kazuo Ishiguro"
-                  value={draft.author}
-                  autoComplete="off"
-                  aria-expanded={showAuthorSuggestions}
-                  aria-controls="author-suggestions"
-                  onChange={(event) =>
-                    updateDraft("author", event.target.value)
-                  }
-                />
-                {showAuthorSuggestions ? (
+            <span>Authors + my experience</span>
+            <div className="tag-editor">
+              <div className="tag-entry-row">
+                <div className="inline-composite">
                   <div
-                    id="author-suggestions"
-                    className="suggestion-popover"
-                    aria-label="Suggested authors"
+                    className="suggestion-field"
+                    onFocus={() => setActiveSuggestionField("author")}
+                    onBlur={(event) =>
+                      handleSuggestionFieldBlur(event, "author")
+                    }
                   >
-                    {authorSuggestions.map((author) => {
-                      const deleteKey = `author:${author}`;
-                      const isDeletingTag = pendingTagDelete === deleteKey;
+                    <input
+                      type="text"
+                      placeholder="Kazuo Ishiguro"
+                      value={draft.authorInput}
+                      autoComplete="off"
+                      aria-expanded={showAuthorSuggestions}
+                      aria-controls="author-suggestions"
+                      onChange={(event) =>
+                        updateDraft("authorInput", event.target.value)
+                      }
+                      onKeyDown={(event) =>
+                        handleTagInputKeyDown(event, "author")
+                      }
+                    />
+                    {showAuthorSuggestions ? (
+                      <div
+                        id="author-suggestions"
+                        className="suggestion-popover"
+                        aria-label="Suggested authors"
+                      >
+                        {authorSuggestions.map((author) => {
+                          const deleteKey = `author:${author}`;
+                          const isDeletingTag = pendingTagDelete === deleteKey;
 
-                      return (
-                        <div key={author} className="suggestion-option">
-                          <button
-                            type="button"
-                            className="suggestion-pick"
-                            onMouseDown={(event) => event.preventDefault()}
-                            onClick={() =>
-                              selectSuggestedValue("author", author)
-                            }
-                          >
-                            <span className="suggestion-copy">{author}</span>
-                            {authorExperiences[author] != null ? (
-                              <span className="genre-tag-interest">
-                                {authorExperiences[author]}
-                              </span>
-                            ) : null}
-                          </button>
-                          <button
-                            type="button"
-                            className="tag-remove suggestion-remove"
-                            onMouseDown={(event) => event.preventDefault()}
-                            onClick={() =>
-                              void removeGlobalTag("author", author)
-                            }
-                            aria-label={`Remove author tag ${author}`}
-                            title={`Remove author tag ${author}`}
-                            disabled={isDeletingTag}
-                          >
-                            {isDeletingTag ? "…" : "x"}
-                          </button>
-                        </div>
-                      );
-                    })}
+                          return (
+                            <div key={author} className="suggestion-option">
+                              <button
+                                type="button"
+                                className="suggestion-pick"
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={() =>
+                                  selectSuggestedValue("author", author)
+                                }
+                              >
+                                <span className="suggestion-copy">
+                                  {author}
+                                </span>
+                                {authorExperiences[author] != null ? (
+                                  <span className="genre-tag-interest">
+                                    {authorExperiences[author]}
+                                  </span>
+                                ) : null}
+                              </button>
+                              <button
+                                type="button"
+                                className="tag-remove suggestion-remove"
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={() =>
+                                  void removeGlobalTag("author", author)
+                                }
+                                aria-label={`Remove author tag ${author}`}
+                                title={`Remove author tag ${author}`}
+                                disabled={isDeletingTag}
+                              >
+                                {isDeletingTag ? "…" : "x"}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
                   </div>
-                ) : null}
+                  <input
+                    className="inline-rating"
+                    type="number"
+                    step="1"
+                    min="0"
+                    max="5"
+                    placeholder="-"
+                    title="Experience with author (0–5)"
+                    value={draft.authorExperience}
+                    onChange={(event) =>
+                      updateDraft("authorExperience", event.target.value)
+                    }
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-tag-add"
+                  onClick={() => addDraftTag("author")}
+                  disabled={!draft.authorInput.trim()}
+                >
+                  Add
+                </button>
               </div>
-              <input
-                className="inline-rating"
-                type="number"
-                step="1"
-                min="0"
-                max="5"
-                placeholder="-"
-                title="Experience with author (0–5)"
-                value={draft.authorExperience}
-                onChange={(event) =>
-                  updateDraft("authorExperience", event.target.value)
-                }
-              />
+              {draft.authors.length > 0 ? (
+                <div className="draft-tag-list">
+                  {draft.authors.map((author) => (
+                    <span key={author} className="genre-tag">
+                      {author}
+                      <span className="genre-tag-interest">
+                        {getDraftTagScore("author", author)}
+                      </span>
+                      <button
+                        type="button"
+                        className="tag-remove"
+                        onClick={() => removeDraftTag("author", author)}
+                        aria-label={`Remove author ${author} from this book`}
+                      >
+                        x
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
             </div>
           </div>
 
           <div className="field entry-genre">
-            <span>Genre / topic + my current interest</span>
-            <div className="inline-composite">
-              <div
-                className="suggestion-field"
-                onFocus={() => setActiveSuggestionField("genre")}
-                onBlur={(event) => handleSuggestionFieldBlur(event, "genre")}
-              >
-                <input
-                  type="text"
-                  placeholder="Historical Fiction"
-                  value={draft.genre}
-                  autoComplete="off"
-                  aria-expanded={showGenreSuggestions}
-                  aria-controls="genre-suggestions"
-                  onChange={(event) => updateDraft("genre", event.target.value)}
-                />
-                {showGenreSuggestions ? (
+            <span>Genres / topics + my current interest</span>
+            <div className="tag-editor">
+              <div className="tag-entry-row">
+                <div className="inline-composite">
                   <div
-                    id="genre-suggestions"
-                    className="suggestion-popover"
-                    aria-label="Suggested genres"
+                    className="suggestion-field"
+                    onFocus={() => setActiveSuggestionField("genre")}
+                    onBlur={(event) =>
+                      handleSuggestionFieldBlur(event, "genre")
+                    }
                   >
-                    {genreSuggestions.map((genre) => {
-                      const deleteKey = `genre:${genre}`;
-                      const isDeletingTag = pendingTagDelete === deleteKey;
+                    <input
+                      type="text"
+                      placeholder="Historical Fiction"
+                      value={draft.genreInput}
+                      autoComplete="off"
+                      aria-expanded={showGenreSuggestions}
+                      aria-controls="genre-suggestions"
+                      onChange={(event) =>
+                        updateDraft("genreInput", event.target.value)
+                      }
+                      onKeyDown={(event) =>
+                        handleTagInputKeyDown(event, "genre")
+                      }
+                    />
+                    {showGenreSuggestions ? (
+                      <div
+                        id="genre-suggestions"
+                        className="suggestion-popover"
+                        aria-label="Suggested genres"
+                      >
+                        {genreSuggestions.map((genre) => {
+                          const deleteKey = `genre:${genre}`;
+                          const isDeletingTag = pendingTagDelete === deleteKey;
 
-                      return (
-                        <div key={genre} className="suggestion-option">
-                          <button
-                            type="button"
-                            className="suggestion-pick"
-                            onMouseDown={(event) => event.preventDefault()}
-                            onClick={() => selectSuggestedValue("genre", genre)}
-                          >
-                            <span className="suggestion-copy">{genre}</span>
-                            {genreInterests[genre] != null ? (
-                              <span className="genre-tag-interest">
-                                {genreInterests[genre]}
-                              </span>
-                            ) : null}
-                          </button>
-                          <button
-                            type="button"
-                            className="tag-remove suggestion-remove"
-                            onMouseDown={(event) => event.preventDefault()}
-                            onClick={() => void removeGlobalTag("genre", genre)}
-                            aria-label={`Remove genre tag ${genre}`}
-                            title={`Remove genre tag ${genre}`}
-                            disabled={isDeletingTag}
-                          >
-                            {isDeletingTag ? "…" : "x"}
-                          </button>
-                        </div>
-                      );
-                    })}
+                          return (
+                            <div key={genre} className="suggestion-option">
+                              <button
+                                type="button"
+                                className="suggestion-pick"
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={() =>
+                                  selectSuggestedValue("genre", genre)
+                                }
+                              >
+                                <span className="suggestion-copy">{genre}</span>
+                                {genreInterests[genre] != null ? (
+                                  <span className="genre-tag-interest">
+                                    {genreInterests[genre]}
+                                  </span>
+                                ) : null}
+                              </button>
+                              <button
+                                type="button"
+                                className="tag-remove suggestion-remove"
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={() =>
+                                  void removeGlobalTag("genre", genre)
+                                }
+                                aria-label={`Remove genre tag ${genre}`}
+                                title={`Remove genre tag ${genre}`}
+                                disabled={isDeletingTag}
+                              >
+                                {isDeletingTag ? "…" : "x"}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
                   </div>
-                ) : null}
+                  <input
+                    className="inline-rating"
+                    type="number"
+                    step="1"
+                    min="0"
+                    max="5"
+                    placeholder="-"
+                    title="Genre / topic interest (0–5)"
+                    value={draft.genreInterest}
+                    onChange={(event) =>
+                      updateDraft("genreInterest", event.target.value)
+                    }
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-tag-add"
+                  onClick={() => addDraftTag("genre")}
+                  disabled={!draft.genreInput.trim()}
+                >
+                  Add
+                </button>
               </div>
-              <input
-                className="inline-rating"
-                type="number"
-                step="1"
-                min="0"
-                max="5"
-                placeholder="-"
-                title="Genre / topic interest (0–5)"
-                value={draft.genreInterest}
-                onChange={(event) =>
-                  updateDraft("genreInterest", event.target.value)
-                }
-              />
+              {draft.genres.length > 0 ? (
+                <div className="draft-tag-list">
+                  {draft.genres.map((genre) => (
+                    <span key={genre} className="genre-tag">
+                      {genre}
+                      <span className="genre-tag-interest">
+                        {getDraftTagScore("genre", genre)}
+                      </span>
+                      <button
+                        type="button"
+                        className="tag-remove"
+                        onClick={() => removeDraftTag("genre", genre)}
+                        aria-label={`Remove genre ${genre} from this book`}
+                      >
+                        x
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
             </div>
           </div>
 
@@ -935,43 +1149,56 @@ export default function App() {
                       <div className="ranking-info">
                         <h3>{book.title}</h3>
                         <div className="book-tags">
-                          <span className="genre-tag">
-                            {book.author || "Author unknown"}
-                            {book.author &&
-                            authorExperiences[book.author] != null ? (
-                              <span className="genre-tag-interest">
-                                {authorExperiences[book.author]}
-                              </span>
-                            ) : null}
-                            {book.author ? (
-                              <button
-                                type="button"
-                                className="tag-remove"
-                                onClick={() => void clearTag(book.id, "author")}
-                                aria-label={`Remove author ${book.author}`}
+                          {book.authors.length > 0 ? (
+                            book.authors.map((author) => (
+                              <span
+                                key={`author-${book.id}-${author}`}
+                                className="genre-tag"
                               >
-                                x
-                              </button>
-                            ) : null}
-                          </span>
-                          {book.genre ? (
-                            <span className="genre-tag">
-                              {book.genre}
-                              {genreInterests[book.genre] != null ? (
+                                {author}
+                                {authorExperiences[author] != null ? (
+                                  <span className="genre-tag-interest">
+                                    {authorExperiences[author]}
+                                  </span>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  className="tag-remove"
+                                  onClick={() =>
+                                    void clearTag(book.id, "author", author)
+                                  }
+                                  aria-label={`Remove author ${author}`}
+                                >
+                                  x
+                                </button>
+                              </span>
+                            ))
+                          ) : (
+                            <span className="genre-tag">Author unknown</span>
+                          )}
+                          {book.genres.map((genre) => (
+                            <span
+                              key={`genre-${book.id}-${genre}`}
+                              className="genre-tag"
+                            >
+                              {genre}
+                              {genreInterests[genre] != null ? (
                                 <span className="genre-tag-interest">
-                                  {genreInterests[book.genre]}
+                                  {genreInterests[genre]}
                                 </span>
                               ) : null}
                               <button
                                 type="button"
                                 className="tag-remove"
-                                onClick={() => void clearTag(book.id, "genre")}
-                                aria-label={`Remove genre ${book.genre}`}
+                                onClick={() =>
+                                  void clearTag(book.id, "genre", genre)
+                                }
+                                aria-label={`Remove genre ${genre}`}
                               >
                                 x
                               </button>
                             </span>
-                          ) : null}
+                          ))}
                         </div>
                         <div className="meta-row">
                           {book.starRating != null ? (

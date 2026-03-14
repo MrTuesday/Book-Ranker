@@ -307,6 +307,34 @@ h3 {
     border-radius: 14px;
 }
 
+.tag-editor {
+    display: grid;
+    gap: 8px;
+}
+
+.tag-entry-row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    min-width: 0;
+}
+
+.tag-entry-row .inline-composite {
+    flex: 1;
+}
+
+.draft-tag-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.btn-tag-add {
+    min-width: 68px;
+    padding: 13px 16px;
+    border-radius: 14px;
+}
+
 .inline-composite {
     display: flex;
     gap: 0;
@@ -644,12 +672,12 @@ input:focus {
 }
 
 .tag-remove {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 18px;
-    height: 18px;
-    padding: 0 4px;
+    display: grid;
+    place-items: center;
+    width: 20px;
+    min-width: 20px;
+    height: 20px;
+    padding: 0;
     border: none;
     border-radius: 999px;
     background: var(--accent);
@@ -657,6 +685,8 @@ input:focus {
     font-size: 0.7rem;
     font-weight: 700;
     line-height: 1;
+    font-family: "Avenir Next", "Segoe UI", sans-serif;
+    text-align: center;
     cursor: pointer;
     opacity: 0.6;
     transition: opacity 0.15s;
@@ -672,17 +702,20 @@ input:focus {
 }
 
 .genre-tag-interest {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
+    display: grid;
+    place-items: center;
+    width: 20px;
+    min-width: 20px;
+    height: 20px;
+    padding: 0;
     border-radius: 999px;
     background: var(--accent);
     color: #fff;
     font-size: 0.7rem;
     font-weight: 700;
+    line-height: 1;
+    font-family: "Avenir Next", "Segoe UI", sans-serif;
+    text-align: center;
     letter-spacing: 0;
 }
 
@@ -834,6 +867,14 @@ input:focus {
     }
 
     .btn-primary {
+        width: 100%;
+    }
+
+    .tag-entry-row {
+        flex-direction: column;
+    }
+
+    .btn-tag-add {
         width: 100%;
     }
 }

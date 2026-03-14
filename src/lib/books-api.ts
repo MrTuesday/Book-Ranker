@@ -1,10 +1,17 @@
 export type Book = {
   id: number;
   title: string;
-  author: string;
+  authors: string[];
+  genres: string[];
   starRating?: number;
   ratingCount?: number;
-  genre?: string;
+};
+
+type LegacyBook = Partial<Book> & {
+  author?: unknown;
+  genre?: unknown;
+  authors?: unknown;
+  genres?: unknown;
 };
 
 export type BookPayload = Omit<Book, "id">;
@@ -15,7 +22,11 @@ const AUTHOR_EXP_KEY = "book-ranker.author-experiences.v1";
 const seededBooks: Book[] = [];
 
 function cloneBooks(books: Book[]) {
-  return books.map((book) => ({ ...book }));
+  return books.map((book) => ({
+    ...book,
+    authors: [...book.authors],
+    genres: [...book.genres],
+  }));
 }
 
 function getStorage() {
@@ -30,29 +41,45 @@ function getStorage() {
   }
 }
 
+function normalizeTagList(value: unknown) {
+  const rawValues = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? [value]
+      : [];
+  const seen = new Set<string>();
+
+  for (const rawValue of rawValues) {
+    if (typeof rawValue !== "string") {
+      continue;
+    }
+
+    const trimmed = rawValue.trim();
+
+    if (trimmed) {
+      seen.add(trimmed);
+    }
+  }
+
+  return Array.from(seen);
+}
+
 function normalizeBook(value: unknown): Book | null {
-  const title =
-    typeof (value as Book | null)?.title === "string"
-      ? (value as Book).title.trim()
-      : "";
-  const author =
-    typeof (value as Book | null)?.author === "string"
-      ? (value as Book).author.trim()
-      : "";
-  const rawStarRating = (value as Book | null)?.starRating;
+  const book = value as LegacyBook | null;
+  const title = typeof book?.title === "string" ? book.title.trim() : "";
+  const rawStarRating = book?.starRating;
   const starRating =
     rawStarRating != null && Number.isFinite(Number(rawStarRating))
       ? Number(rawStarRating)
       : undefined;
-  const rawRatingCount = (value as Book | null)?.ratingCount;
+  const rawRatingCount = book?.ratingCount;
   const ratingCount =
     rawRatingCount != null && Number.isFinite(Number(rawRatingCount))
       ? Number(rawRatingCount)
       : undefined;
-  const id = Number((value as Book | null)?.id);
-
-  const rawGenre = (value as Book | null)?.genre;
-  const genre = typeof rawGenre === "string" ? rawGenre.trim() : undefined;
+  const id = Number(book?.id);
+  const authors = normalizeTagList(book?.authors ?? book?.author);
+  const genres = normalizeTagList(book?.genres ?? book?.genre);
 
   if (
     !title ||
@@ -66,16 +93,21 @@ function normalizeBook(value: unknown): Book | null {
   return {
     id,
     title,
-    author,
+    authors,
+    genres,
     ...(starRating != null ? { starRating } : {}),
     ...(ratingCount != null ? { ratingCount } : {}),
-    ...(genre ? { genre } : {}),
   };
 }
 
-function parsePayload(value: BookPayload) {
+function parsePayload(
+  value: BookPayload &
+    Partial<{
+      author: string;
+      genre: string;
+    }>,
+) {
   const title = typeof value?.title === "string" ? value.title.trim() : "";
-  const author = typeof value?.author === "string" ? value.author.trim() : "";
 
   if (!title) {
     throw new Error("Title is required.");
@@ -100,15 +132,15 @@ function parsePayload(value: BookPayload) {
     throw new Error("Ratings must be a non-negative number.");
   }
 
-  const rawGenre = (value as BookPayload & { genre?: string })?.genre;
-  const genre = typeof rawGenre === "string" ? rawGenre.trim() : undefined;
+  const authors = normalizeTagList(value?.authors ?? value?.author);
+  const genres = normalizeTagList(value?.genres ?? value?.genre);
 
   return {
     title,
-    author,
+    authors,
+    genres,
     ...(starRating != null ? { starRating } : {}),
     ...(ratingCount != null ? { ratingCount } : {}),
-    ...(genre ? { genre } : {}),
   };
 }
 
@@ -149,6 +181,25 @@ function writeBooks(books: Book[]) {
   const nextBooks = cloneBooks(books);
   storage.setItem(STORAGE_KEY, JSON.stringify(nextBooks));
   return nextBooks;
+}
+
+function replaceTag(tags: string[], oldValue: string, newValue: string) {
+  const oldTag = oldValue.trim();
+  const nextTag = newValue.trim();
+
+  if (!oldTag) {
+    return [...tags];
+  }
+
+  const replaced = tags.flatMap((tag) => {
+    if (tag !== oldTag) {
+      return [tag];
+    }
+
+    return nextTag ? [nextTag] : [];
+  });
+
+  return normalizeTagList(replaced);
 }
 
 export async function fetchBooks() {
@@ -234,7 +285,9 @@ export function renameGenreInterest(oldGenre: string, newGenre: string) {
   const old = oldGenre.trim();
   const next = newGenre.trim();
   if (old in map) {
-    map[next] = map[old];
+    if (next) {
+      map[next] = map[old];
+    }
     delete map[old];
     storage.setItem(GENRE_INTEREST_KEY, JSON.stringify(map));
   }
@@ -243,9 +296,10 @@ export function renameGenreInterest(oldGenre: string, newGenre: string) {
 
 export async function renameGenreInBooks(oldGenre: string, newGenre: string) {
   const books = readBooks();
-  const updated = books.map((book) =>
-    book.genre === oldGenre.trim() ? { ...book, genre: newGenre.trim() || undefined } : book,
-  );
+  const updated = books.map((book) => ({
+    ...book,
+    genres: replaceTag(book.genres, oldGenre, newGenre),
+  }));
   return writeBooks(updated);
 }
 
@@ -296,7 +350,9 @@ export function renameAuthorExperience(oldAuthor: string, newAuthor: string) {
   const old = oldAuthor.trim();
   const next = newAuthor.trim();
   if (old in map) {
-    map[next] = map[old];
+    if (next) {
+      map[next] = map[old];
+    }
     delete map[old];
     storage.setItem(AUTHOR_EXP_KEY, JSON.stringify(map));
   }
@@ -305,9 +361,10 @@ export function renameAuthorExperience(oldAuthor: string, newAuthor: string) {
 
 export async function renameAuthorInBooks(oldAuthor: string, newAuthor: string) {
   const books = readBooks();
-  const updated = books.map((book) =>
-    book.author === oldAuthor.trim() ? { ...book, author: newAuthor.trim() } : book,
-  );
+  const updated = books.map((book) => ({
+    ...book,
+    authors: replaceTag(book.authors, oldAuthor, newAuthor),
+  }));
   return writeBooks(updated);
 }
 
