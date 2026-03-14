@@ -417,8 +417,8 @@ export default function App() {
             <span className="hero-title-accent">matters to you.</span>
           </h1>
           <p className="hero-text">
-            Scores blend each book's average rating and popularity with your
-            author experience and genre interest ratings.
+            Uses Bayesian statistical modelling to score books based on their
+            ratings, popularity, and your author experience and genre interest.
           </p>
         </div>
 
