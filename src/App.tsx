@@ -500,7 +500,7 @@ export default function App() {
       return String(globalScores[tag]);
     }
 
-    return "3";
+    return "";
   }
 
   function addDraftTag(field: SuggestionField, explicitValue?: string) {
@@ -829,7 +829,7 @@ export default function App() {
           </label>
 
           <div className="field entry-author">
-            <span>Authors + my experience</span>
+            <span>Author(s) + my experience</span>
             <div className="tag-editor">
               <div className="tag-entry-row">
                 <div className="inline-composite">
@@ -928,29 +928,33 @@ export default function App() {
               </div>
               {draft.authors.length > 0 ? (
                 <div className="draft-tag-list">
-                  {draft.authors.map((author) => (
-                    <span key={author} className="genre-tag">
-                      {author}
-                      <span className="genre-tag-interest">
-                        {getDraftTagScore("author", author)}
+                  {draft.authors.map((author) => {
+                    const score = getDraftTagScore("author", author);
+
+                    return (
+                      <span key={author} className="genre-tag">
+                        {author}
+                        {score ? (
+                          <span className="genre-tag-interest">{score}</span>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="tag-remove"
+                          onClick={() => removeDraftTag("author", author)}
+                          aria-label={`Remove author ${author} from this book`}
+                        >
+                          x
+                        </button>
                       </span>
-                      <button
-                        type="button"
-                        className="tag-remove"
-                        onClick={() => removeDraftTag("author", author)}
-                        aria-label={`Remove author ${author} from this book`}
-                      >
-                        x
-                      </button>
-                    </span>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : null}
             </div>
           </div>
 
           <div className="field entry-genre">
-            <span>Genres / topics + my current interest</span>
+            <span>Genre(s) / topic(s) + my current interest</span>
             <div className="tag-editor">
               <div className="tag-entry-row">
                 <div className="inline-composite">
@@ -1047,22 +1051,26 @@ export default function App() {
               </div>
               {draft.genres.length > 0 ? (
                 <div className="draft-tag-list">
-                  {draft.genres.map((genre) => (
-                    <span key={genre} className="genre-tag">
-                      {genre}
-                      <span className="genre-tag-interest">
-                        {getDraftTagScore("genre", genre)}
+                  {draft.genres.map((genre) => {
+                    const score = getDraftTagScore("genre", genre);
+
+                    return (
+                      <span key={genre} className="genre-tag">
+                        {genre}
+                        {score ? (
+                          <span className="genre-tag-interest">{score}</span>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="tag-remove"
+                          onClick={() => removeDraftTag("genre", genre)}
+                          aria-label={`Remove genre ${genre} from this book`}
+                        >
+                          x
+                        </button>
                       </span>
-                      <button
-                        type="button"
-                        className="tag-remove"
-                        onClick={() => removeDraftTag("genre", genre)}
-                        aria-label={`Remove genre ${genre} from this book`}
-                      >
-                        x
-                      </button>
-                    </span>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : null}
             </div>
