@@ -755,6 +755,12 @@ input:focus {
     background: rgba(23, 20, 17, 0.72);
 }
 
+.tag-action-shell {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
 .tag-action-menu {
     display: inline-flex;
     align-items: center;
