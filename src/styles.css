@@ -238,6 +238,8 @@ h3 {
   gap: 8px;
   background: var(--accent-soft);
   border-color: rgba(180, 83, 9, 0.12);
+  overflow: hidden;
+  min-width: 0;
 }
 
 .leader-detail {
