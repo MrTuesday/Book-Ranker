@@ -36,7 +36,7 @@ type RankedBook = Book & {
 
 const GLOBAL_MEAN = 3.8;
 const SMOOTHING_FACTOR = 1500;
-const FULL_STARS = 5;
+
 
 function createDraft(): BookDraft {
   return {
@@ -134,18 +134,6 @@ function ScoreDistribution({ scores }: { scores: number[] }) {
   );
 }
 
-function Stars({ rating }: { rating: number }) {
-  const filled = Math.round(rating);
-  return (
-    <span className="stars" aria-label={`${rating} out of 5 stars`}>
-      {Array.from({ length: FULL_STARS }, (_, i) => (
-        <span key={i} className={i < filled ? "star-filled" : "star-empty"}>
-          {i < filled ? "★" : "☆"}
-        </span>
-      ))}
-    </span>
-  );
-}
 
 export default function App() {
   const [books, setBooks] = useState<Book[]>([]);
@@ -221,10 +209,10 @@ export default function App() {
         if (b.score !== a.score) {
           return b.score - a.score;
         }
-        if (b.starRating !== a.starRating) {
-          return b.starRating - a.starRating;
+        if ((b.starRating ?? 0) !== (a.starRating ?? 0)) {
+          return (b.starRating ?? 0) - (a.starRating ?? 0);
         }
-        return b.ratingCount - a.ratingCount;
+        return (b.ratingCount ?? 0) - (a.ratingCount ?? 0);
       })
       .map((book, index) => ({ ...book, rank: index + 1 }));
   }, [books, genreInterests, authorExperiences]);
