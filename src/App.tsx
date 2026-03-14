@@ -285,7 +285,7 @@ export default function App() {
     if (scrollToForm) {
       document
         .querySelector(".control-panel")
-        ?.scrollIntoView({ behavior: "smooth" });
+        ?.scrollIntoView({ behavior: "instant" });
       setScrollToForm(false);
     }
   }, [scrollToForm]);
