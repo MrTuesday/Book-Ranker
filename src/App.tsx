@@ -64,16 +64,24 @@ function messageFromError(error: unknown) {
 
 function ScoreDistribution({ scores }: { scores: number[] }) {
   if (scores.length === 0) return null;
-  const min = 0;
-  const max = 5;
-  const range = max - min;
-  const w = 280;
-  const h = 48;
-  const r = 4;
 
-  const positions = scores
-    .map((s) => ((s - min) / range) * (w - r * 2) + r)
-    .sort((a, b) => a - b);
+  const dataMin = Math.min(...scores);
+  const dataMax = Math.max(...scores);
+  const padding = Math.max((dataMax - dataMin) * 0.15, 0.1);
+  const lo = Math.max(0, Math.floor((dataMin - padding) * 10) / 10);
+  const hi = Math.min(5, Math.ceil((dataMax + padding) * 10) / 10);
+  const range = hi - lo || 1;
+
+  const w = 280;
+  const h = 56;
+  const r = 4;
+  const trackY = 20;
+  const pad = 20;
+  const trackW = w - pad * 2;
+
+  const toX = (v: number) => pad + ((v - lo) / range) * trackW;
+
+  const positions = scores.map(toX).sort((a, b) => a - b);
 
   return (
     <svg
@@ -81,23 +89,20 @@ function ScoreDistribution({ scores }: { scores: number[] }) {
       viewBox={`0 0 ${w} ${h}`}
       aria-label="Score distribution"
     >
-      <line x1={r} y1={h / 2} x2={w - r} y2={h / 2} stroke="var(--line)" strokeWidth="1" />
-      {[0, 1, 2, 3, 4, 5].map((tick) => {
-        const x = (tick / max) * (w - r * 2) + r;
-        return (
-          <line
-            key={tick}
-            x1={x} y1={h / 2 - 4} x2={x} y2={h / 2 + 4}
-            stroke="var(--line-strong)"
-            strokeWidth="1"
-          />
-        );
-      })}
+      <line x1={pad} y1={trackY} x2={w - pad} y2={trackY} stroke="var(--line)" strokeWidth="1" />
+      <line x1={pad} y1={trackY - 4} x2={pad} y2={trackY + 4} stroke="var(--line-strong)" strokeWidth="1" />
+      <line x1={w - pad} y1={trackY - 4} x2={w - pad} y2={trackY + 4} stroke="var(--line-strong)" strokeWidth="1" />
+      <text x={pad} y={h - 2} fill="var(--muted)" fontSize="10" textAnchor="middle">
+        {lo.toFixed(1)}
+      </text>
+      <text x={w - pad} y={h - 2} fill="var(--muted)" fontSize="10" textAnchor="middle">
+        {hi.toFixed(1)}
+      </text>
       {positions.map((x, i) => (
         <circle
           key={i}
           cx={x}
-          cy={h / 2}
+          cy={trackY}
           r={r}
           fill="var(--accent)"
           opacity={0.7}
