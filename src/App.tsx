@@ -678,6 +678,7 @@ export default function App() {
                             </button>
                           </div>
                         </div>
+
                       </div>
 
                       <strong className="score-value">

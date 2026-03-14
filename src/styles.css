@@ -468,7 +468,6 @@ input:focus {
   display: flex;
   gap: 6px;
   align-items: center;
-  margin-left: auto;
 }
 
 .action-dot {
