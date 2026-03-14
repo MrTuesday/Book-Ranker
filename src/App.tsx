@@ -58,6 +58,7 @@ type BookTagDrag = {
   tag: string;
 };
 type TagActionScope = "draft" | "book";
+type ScoreDisplayMode = "score" | "percent";
 type DraftTextField =
   | "title"
   | "starRating"
@@ -232,6 +233,14 @@ function formatScore(value: number, places = 2) {
   return value.toFixed(places);
 }
 
+function formatMainResult(value: number, displayMode: ScoreDisplayMode) {
+  if (displayMode === "percent") {
+    return `${Math.round(Math.max(0, Math.min(100, (value / 5) * 100)))}%`;
+  }
+
+  return formatScore(value);
+}
+
 function formatCount(value: number) {
   return new Intl.NumberFormat("en-US").format(Number(value.toPrecision(2)));
 }
@@ -344,6 +353,8 @@ export default function App() {
   const [activeTagActionMenu, setActiveTagActionMenu] = useState<string | null>(
     null,
   );
+  const [scoreDisplayMode, setScoreDisplayMode] =
+    useState<ScoreDisplayMode>("score");
   const [draftTagDrag, setDraftTagDrag] = useState<DraftTagDrag | null>(null);
   const [draftTagDropTarget, setDraftTagDropTarget] = useState<{
     field: SuggestionField;
@@ -429,6 +440,8 @@ export default function App() {
     rankedCount > 0
       ? rankedBooks.reduce((total, book) => total + book.score, 0) / rankedCount
       : null;
+  const mainResultLabel =
+    scoreDisplayMode === "percent" ? "Likelihood" : "Score";
   const isEditing = editingBookId !== null;
 
   const knownGenres = useMemo(() => {
@@ -1218,9 +1231,15 @@ export default function App() {
               </article>
 
               <article className="summary-tile">
-                <span className="summary-label">Avg. score</span>
+                <span className="summary-label">
+                  {scoreDisplayMode === "percent"
+                    ? "Avg. likelihood"
+                    : "Avg. score"}
+                </span>
                 <strong className="summary-number">
-                  {averageScore === null ? "—" : formatScore(averageScore)}
+                  {averageScore === null
+                    ? "—"
+                    : formatMainResult(averageScore, scoreDisplayMode)}
                 </strong>
               </article>
 
@@ -1231,7 +1250,11 @@ export default function App() {
             </div>
 
             <article className="summary-tile summary-tile-leader">
-              <span className="summary-label">Top pick</span>
+              <span className="summary-label">
+                {scoreDisplayMode === "percent"
+                  ? "Top pick likelihood"
+                  : "Top pick score"}
+              </span>
               {leader ? (
                 <div className="leader-detail">
                   <div>
@@ -1241,7 +1264,7 @@ export default function App() {
                     </p>
                   </div>
                   <span className="leader-score">
-                    {formatScore(leader.score)}
+                    {formatMainResult(leader.score, scoreDisplayMode)}
                   </span>
                 </div>
               ) : (
@@ -1775,6 +1798,31 @@ export default function App() {
       </section>
 
       <section className="panel board">
+        <div className="board-toolbar">
+          <span className="section-label">Main result display</span>
+          <div
+            className="display-toggle"
+            role="group"
+            aria-label="Score display"
+          >
+            <button
+              type="button"
+              className={`display-toggle-btn${scoreDisplayMode === "score" ? " is-active" : ""}`}
+              onClick={() => setScoreDisplayMode("score")}
+              aria-pressed={scoreDisplayMode === "score"}
+            >
+              Score
+            </button>
+            <button
+              type="button"
+              className={`display-toggle-btn${scoreDisplayMode === "percent" ? " is-active" : ""}`}
+              onClick={() => setScoreDisplayMode("percent")}
+              aria-pressed={scoreDisplayMode === "percent"}
+            >
+              Likelihood %
+            </button>
+          </div>
+        </div>
         <div className="ranking-list">
           {isLoading ? (
             <div className="empty-state">Loading your rankings...</div>
@@ -2150,9 +2198,12 @@ export default function App() {
                         </div>
                       </div>
 
-                      <strong className="score-value">
-                        {formatScore(book.score)}
-                      </strong>
+                      <div className="score-block score-block-inline">
+                        <span className="score-label">{mainResultLabel}</span>
+                        <strong className="score-value">
+                          {formatMainResult(book.score, scoreDisplayMode)}
+                        </strong>
+                      </div>
                     </div>
 
                     <div className="score-meter" aria-hidden="true">
