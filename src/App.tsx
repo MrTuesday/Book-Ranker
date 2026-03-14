@@ -471,7 +471,7 @@ export default function App() {
       <section className="hero">
         <div className="hero-copy">
           <h1>
-            Rank your reading list, based on what actually{" "}
+            Sort your reading list by what actually{" "}
             <span className="hero-title-accent">matters to you.</span>
           </h1>
           <p className="hero-text">
