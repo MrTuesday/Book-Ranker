@@ -139,6 +139,7 @@ export default function App() {
   const [books, setBooks] = useState<Book[]>([]);
   const [draft, setDraft] = useState<BookDraft>(createDraft());
   const [editingBookId, setEditingBookId] = useState<number | null>(null);
+  const [scrollToForm, setScrollToForm] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
@@ -249,6 +250,13 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (scrollToForm) {
+      document.querySelector(".control-panel")?.scrollIntoView({ behavior: "smooth" });
+      setScrollToForm(false);
+    }
+  }, [scrollToForm]);
+
+  useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape" && isEditing) {
         resetDraft();
@@ -315,6 +323,7 @@ export default function App() {
 
   function startEditing(book: Book) {
     setEditingBookId(book.id);
+    setScrollToForm(true);
     setDraft({
       title: book.title,
       author: book.author,
@@ -492,7 +501,7 @@ export default function App() {
           </label>
 
           <div className="field entry-author">
-            <span>Author + my rating</span>
+            <span>Author + my experience</span>
             <div className="inline-composite">
               <input
                 type="text"
@@ -523,7 +532,7 @@ export default function App() {
           </div>
 
           <div className="field entry-genre">
-            <span>Genre / topic + my rating</span>
+            <span>Genre / topic + my current interest</span>
             <div className="inline-composite">
               <input
                 type="text"
