@@ -70,7 +70,7 @@ function formatScore(value: number, places = 2) {
 }
 
 function formatCount(value: number) {
-  return new Intl.NumberFormat("en-US").format(value);
+  return new Intl.NumberFormat("en-US").format(Number(value.toPrecision(2)));
 }
 
 function clampPercentage(value: number) {
@@ -283,6 +283,9 @@ export default function App() {
       if (value.trim() && Number.isFinite(num)) {
         if (field === "ratingCount" && num < 0) {
           clamped = "0";
+        }
+        if (field === "ratingCount" && num > 0) {
+          clamped = String(Number(num.toPrecision(2)));
         }
         if (
           (field === "starRating" ||
@@ -583,7 +586,7 @@ export default function App() {
               type="number"
               step="1"
               min="0"
-              placeholder="366,000"
+              placeholder="370000"
               value={draft.ratingCount}
               onChange={(event) =>
                 updateDraft("ratingCount", event.target.value)
