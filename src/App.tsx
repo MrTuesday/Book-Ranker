@@ -31,7 +31,9 @@ type BookDraft = {
   ratingCount: string;
   authorInput: string;
   genreInterest: string;
+  genreInterestIsManual: boolean;
   authorExperience: string;
+  authorExperienceIsManual: boolean;
   authors: string[];
   authorScores: Record<string, string>;
   genreInput: string;
@@ -65,7 +67,9 @@ function createDraft(): BookDraft {
     ratingCount: "",
     authorInput: "",
     genreInterest: "",
+    genreInterestIsManual: false,
     authorExperience: "",
+    authorExperienceIsManual: false,
     authors: [],
     authorScores: {},
     genreInput: "",
@@ -80,6 +84,45 @@ function uniqueTags(values: string[]) {
       values.map((value) => value.trim()).filter((value) => value.length > 0),
     ),
   );
+}
+
+function matchingSuggestions(
+  query: string,
+  selectedTags: string[],
+  knownTags: string[],
+) {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+
+  if (!normalizedQuery) {
+    return [];
+  }
+
+  return knownTags
+    .filter(
+      (tag) =>
+        !selectedTags.includes(tag) &&
+        tag.toLocaleLowerCase().includes(normalizedQuery),
+    )
+    .slice(0, MAX_SUGGESTIONS);
+}
+
+function resolvedSuggestion(
+  query: string,
+  selectedTags: string[],
+  knownTags: string[],
+) {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+
+  if (!normalizedQuery) {
+    return null;
+  }
+
+  const suggestions = matchingSuggestions(query, selectedTags, knownTags);
+  const exactMatch = suggestions.find(
+    (tag) => tag.toLocaleLowerCase() === normalizedQuery,
+  );
+
+  return exactMatch ?? (suggestions.length === 1 ? suggestions[0] : null);
 }
 
 function averageTagPreference(tags: string[], scores: Record<string, number>) {
@@ -343,35 +386,11 @@ export default function App() {
   }, [books, authorExperiences]);
 
   const authorSuggestions = useMemo(() => {
-    const query = draft.authorInput.trim().toLocaleLowerCase();
-
-    if (!query) {
-      return [];
-    }
-
-    return knownAuthors
-      .filter(
-        (author) =>
-          !draft.authors.includes(author) &&
-          author.toLocaleLowerCase().includes(query),
-      )
-      .slice(0, MAX_SUGGESTIONS);
+    return matchingSuggestions(draft.authorInput, draft.authors, knownAuthors);
   }, [draft.authorInput, draft.authors, knownAuthors]);
 
   const genreSuggestions = useMemo(() => {
-    const query = draft.genreInput.trim().toLocaleLowerCase();
-
-    if (!query) {
-      return [];
-    }
-
-    return knownGenres
-      .filter(
-        (genre) =>
-          !draft.genres.includes(genre) &&
-          genre.toLocaleLowerCase().includes(query),
-      )
-      .slice(0, MAX_SUGGESTIONS);
+    return matchingSuggestions(draft.genreInput, draft.genres, knownGenres);
   }, [draft.genreInput, draft.genres, knownGenres]);
 
   const resetDraft = useCallback(() => {
@@ -453,20 +472,76 @@ export default function App() {
       }
 
       const next = { ...current, [field]: clamped };
+      if (field === "authorExperience") {
+        next.authorExperienceIsManual = true;
+        return next;
+      }
+
+      if (field === "genreInterest") {
+        next.genreInterestIsManual = true;
+        return next;
+      }
+
       if (field === "genreInput") {
-        const match = value.trim();
-        next.genreInterest =
-          match && genreInterests[match] != null
-            ? String(genreInterests[match])
+        const currentMatch = resolvedSuggestion(
+          current.genreInput,
+          current.genres,
+          knownGenres,
+        );
+        const nextMatch = resolvedSuggestion(
+          clamped,
+          current.genres,
+          knownGenres,
+        );
+        const nextScore =
+          nextMatch != null && genreInterests[nextMatch] != null
+            ? String(genreInterests[nextMatch])
             : "";
+
+        if (!clamped.trim()) {
+          next.genreInterest = "";
+          next.genreInterestIsManual = false;
+        } else if (
+          nextScore &&
+          (!current.genreInterestIsManual || currentMatch !== nextMatch)
+        ) {
+          next.genreInterest = nextScore;
+          next.genreInterestIsManual = false;
+        } else if (!nextScore && currentMatch !== nextMatch) {
+          next.genreInterest = "";
+          next.genreInterestIsManual = false;
+        }
       }
 
       if (field === "authorInput") {
-        const match = value.trim();
-        next.authorExperience =
-          match && authorExperiences[match] != null
-            ? String(authorExperiences[match])
+        const currentMatch = resolvedSuggestion(
+          current.authorInput,
+          current.authors,
+          knownAuthors,
+        );
+        const nextMatch = resolvedSuggestion(
+          clamped,
+          current.authors,
+          knownAuthors,
+        );
+        const nextScore =
+          nextMatch != null && authorExperiences[nextMatch] != null
+            ? String(authorExperiences[nextMatch])
             : "";
+
+        if (!clamped.trim()) {
+          next.authorExperience = "";
+          next.authorExperienceIsManual = false;
+        } else if (
+          nextScore &&
+          (!current.authorExperienceIsManual || currentMatch !== nextMatch)
+        ) {
+          next.authorExperience = nextScore;
+          next.authorExperienceIsManual = false;
+        } else if (!nextScore && currentMatch !== nextMatch) {
+          next.authorExperience = "";
+          next.authorExperienceIsManual = false;
+        }
       }
 
       return next;
@@ -485,7 +560,27 @@ export default function App() {
   }
 
   function selectSuggestedValue(field: SuggestionField, value: string) {
-    addDraftTag(field, value);
+    setDraft((current) => {
+      const isAuthor = field === "author";
+      const inputKey = isAuthor ? "authorInput" : "genreInput";
+      const ratingKey = isAuthor ? "authorExperience" : "genreInterest";
+      const manualKey = isAuthor
+        ? "authorExperienceIsManual"
+        : "genreInterestIsManual";
+      const globalScores = isAuthor ? authorExperiences : genreInterests;
+      const next = { ...current, [inputKey]: value };
+      const existingScore = globalScores[value];
+
+      if (existingScore != null) {
+        next[ratingKey] = String(existingScore);
+        next[manualKey] = false;
+      } else if (!current[manualKey]) {
+        next[ratingKey] = "";
+        next[manualKey] = false;
+      }
+
+      return next;
+    });
     setActiveSuggestionField(null);
   }
 
@@ -512,6 +607,9 @@ export default function App() {
       const isAuthor = field === "author";
       const inputKey = isAuthor ? "authorInput" : "genreInput";
       const ratingKey = isAuthor ? "authorExperience" : "genreInterest";
+      const manualKey = isAuthor
+        ? "authorExperienceIsManual"
+        : "genreInterestIsManual";
       const tagsKey = isAuthor ? "authors" : "genres";
       const scoresKey = isAuthor ? "authorScores" : "genreScores";
       const rawTag = (explicitValue ?? current[inputKey]).trim();
@@ -537,6 +635,7 @@ export default function App() {
           : current[scoresKey],
         [inputKey]: "",
         [ratingKey]: "",
+        [manualKey]: false,
       };
     });
   }
@@ -578,7 +677,9 @@ export default function App() {
       ratingCount: book.ratingCount != null ? String(book.ratingCount) : "",
       authorInput: "",
       genreInterest: "",
+      genreInterestIsManual: false,
       authorExperience: "",
+      authorExperienceIsManual: false,
       authors: [...book.authors],
       authorScores: buildDraftScores(book.authors, authorExperiences),
       genreInput: "",
@@ -691,6 +792,10 @@ export default function App() {
             current.authorInput.trim() === tag ? "" : current.authorInput,
           authorExperience:
             current.authorInput.trim() === tag ? "" : current.authorExperience,
+          authorExperienceIsManual:
+            current.authorInput.trim() === tag
+              ? false
+              : current.authorExperienceIsManual,
         }));
       } else {
         const nextBooks = await renameGenreInBooks(tag, "");
@@ -706,6 +811,10 @@ export default function App() {
             current.genreInput.trim() === tag ? "" : current.genreInput,
           genreInterest:
             current.genreInput.trim() === tag ? "" : current.genreInterest,
+          genreInterestIsManual:
+            current.genreInput.trim() === tag
+              ? false
+              : current.genreInterestIsManual,
         }));
       }
     } catch (error) {
@@ -833,7 +942,7 @@ export default function App() {
           </label>
 
           <div className="field entry-author">
-            <span>Author(s) + my experience</span>
+            <span>Author(s) + my experience with them</span>
             <div className="tag-editor">
               <div className="tag-entry-row">
                 <div className="inline-composite">
@@ -958,7 +1067,7 @@ export default function App() {
           </div>
 
           <div className="field entry-genre">
-            <span>Genre(s) / topic(s) + my current interest</span>
+            <span>Genre(s) / topic(s) + my current interest in them</span>
             <div className="tag-editor">
               <div className="tag-entry-row">
                 <div className="inline-composite">
