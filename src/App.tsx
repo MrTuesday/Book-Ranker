@@ -413,9 +413,9 @@ export default function App() {
             <span className="hero-title-accent">matters to you.</span>
           </h1>
           <p className="hero-text">
-            Bayesian modelling blends your author experience and genre
-            interest with each book's average rating and popularity into a
-            single score.
+            Bayesian modelling blends your experience with the author and
+            current interest in the genre / topic with each book's average
+            rating and popularity into a single score.
           </p>
         </div>
 
