@@ -17,6 +17,12 @@ import {
   updateBookRecord,
   writeGenreInterest,
   writeAuthorExperience,
+  deleteGenreInterest,
+  deleteAuthorExperience,
+  renameGenreInterest,
+  renameGenreInBooks,
+  renameAuthorExperience,
+  renameAuthorInBooks,
 } from "./lib/books-api";
 
 type BookDraft = {
@@ -435,6 +441,23 @@ export default function App() {
         }
       }
 
+      // Rename author/genre globally across all books if changed during edit
+      if (isEditing) {
+        const oldBook = books.find((b) => b.id === editingBookId);
+        if (oldBook) {
+          if (oldBook.author && oldBook.author !== payload.author) {
+            await renameAuthorInBooks(oldBook.author, payload.author);
+            const nextExps = renameAuthorExperience(oldBook.author, payload.author);
+            setAuthorExperiences(nextExps);
+          }
+          if (oldBook.genre && oldBook.genre !== (payload.genre ?? "")) {
+            await renameGenreInBooks(oldBook.genre, payload.genre ?? "");
+            const nextInterests = renameGenreInterest(oldBook.genre, payload.genre ?? "");
+            setGenreInterests(nextInterests);
+          }
+        }
+      }
+
       const nextBooks = isEditing
         ? await updateBookRecord(editingBookId, payload)
         : await createBookRecord(payload);
@@ -445,6 +468,24 @@ export default function App() {
       setErrorMessage(messageFromError(error));
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function clearTag(bookId: number, field: "author" | "genre") {
+    try {
+      const book = books.find((b) => b.id === bookId);
+      if (!book) return;
+      const payload = {
+        title: book.title,
+        author: field === "author" ? "" : book.author,
+        starRating: book.starRating,
+        ratingCount: book.ratingCount,
+        genre: field === "genre" ? undefined : book.genre,
+      };
+      const nextBooks = await updateBookRecord(bookId, payload);
+      setBooks(nextBooks);
+    } catch (error) {
+      setErrorMessage(messageFromError(error));
     }
   }
 
@@ -709,6 +750,16 @@ export default function App() {
                                 {authorExperiences[book.author]}
                               </span>
                             ) : null}
+                            {book.author ? (
+                              <button
+                                type="button"
+                                className="tag-remove"
+                                onClick={() => void clearTag(book.id, "author")}
+                                aria-label={`Remove author ${book.author}`}
+                              >
+                                ×
+                              </button>
+                            ) : null}
                           </span>
                           {book.genre ? (
                             <span className="genre-tag">
@@ -718,6 +769,14 @@ export default function App() {
                                   {genreInterests[book.genre]}
                                 </span>
                               ) : null}
+                              <button
+                                type="button"
+                                className="tag-remove"
+                                onClick={() => void clearTag(book.id, "genre")}
+                                aria-label={`Remove genre ${book.genre}`}
+                              >
+                                ×
+                              </button>
                             </span>
                           ) : null}
                         </div>

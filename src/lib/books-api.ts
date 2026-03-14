@@ -220,6 +220,35 @@ export function writeGenreInterest(genre: string, interest: number) {
   return { ...map };
 }
 
+export function deleteGenreInterest(genre: string) {
+  const storage = getStorage();
+  const map = readGenreInterests();
+  delete map[genre.trim()];
+  storage.setItem(GENRE_INTEREST_KEY, JSON.stringify(map));
+  return { ...map };
+}
+
+export function renameGenreInterest(oldGenre: string, newGenre: string) {
+  const storage = getStorage();
+  const map = readGenreInterests();
+  const old = oldGenre.trim();
+  const next = newGenre.trim();
+  if (old in map) {
+    map[next] = map[old];
+    delete map[old];
+    storage.setItem(GENRE_INTEREST_KEY, JSON.stringify(map));
+  }
+  return { ...map };
+}
+
+export async function renameGenreInBooks(oldGenre: string, newGenre: string) {
+  const books = readBooks();
+  const updated = books.map((book) =>
+    book.genre === oldGenre.trim() ? { ...book, genre: newGenre.trim() || undefined } : book,
+  );
+  return writeBooks(updated);
+}
+
 export type AuthorExperienceMap = Record<string, number>;
 
 export function readAuthorExperiences(): AuthorExperienceMap {
@@ -251,6 +280,35 @@ export function writeAuthorExperience(author: string, experience: number) {
   map[author.trim()] = Math.max(0, Math.min(5, experience));
   storage.setItem(AUTHOR_EXP_KEY, JSON.stringify(map));
   return { ...map };
+}
+
+export function deleteAuthorExperience(author: string) {
+  const storage = getStorage();
+  const map = readAuthorExperiences();
+  delete map[author.trim()];
+  storage.setItem(AUTHOR_EXP_KEY, JSON.stringify(map));
+  return { ...map };
+}
+
+export function renameAuthorExperience(oldAuthor: string, newAuthor: string) {
+  const storage = getStorage();
+  const map = readAuthorExperiences();
+  const old = oldAuthor.trim();
+  const next = newAuthor.trim();
+  if (old in map) {
+    map[next] = map[old];
+    delete map[old];
+    storage.setItem(AUTHOR_EXP_KEY, JSON.stringify(map));
+  }
+  return { ...map };
+}
+
+export async function renameAuthorInBooks(oldAuthor: string, newAuthor: string) {
+  const books = readBooks();
+  const updated = books.map((book) =>
+    book.author === oldAuthor.trim() ? { ...book, author: newAuthor.trim() } : book,
+  );
+  return writeBooks(updated);
 }
 
 export async function deleteBookRecord(id: number) {
