@@ -10,7 +10,13 @@ import {
   deleteBookRecord,
   fetchBooks,
   type Book,
+  type GenreInterestMap,
+  type AuthorExperienceMap,
+  readGenreInterests,
+  readAuthorExperiences,
   updateBookRecord,
+  writeGenreInterest,
+  writeAuthorExperience,
 } from "./lib/books-api";
 
 type BookDraft = {
@@ -18,6 +24,9 @@ type BookDraft = {
   author: string;
   starRating: string;
   ratingCount: string;
+  genre: string;
+  genreInterest: string;
+  authorExperience: string;
 };
 
 type RankedBook = Book & {
@@ -26,7 +35,7 @@ type RankedBook = Book & {
 };
 
 const GLOBAL_MEAN = 3.8;
-const SMOOTHING_FACTOR = 500;
+const SMOOTHING_FACTOR = 1500;
 const FULL_STARS = 5;
 
 function createDraft(): BookDraft {
@@ -35,11 +44,25 @@ function createDraft(): BookDraft {
     author: "",
     starRating: "",
     ratingCount: "",
+    genre: "",
+    genreInterest: "",
+    authorExperience: "",
   };
 }
 
 function bayesianScore(R: number, v: number, C: number, m: number) {
   return (v / (v + m)) * R + (m / (v + m)) * C;
+}
+
+function personalizedMean(
+  globalMean: number,
+  genreInterest?: number,
+  authorExperience?: number,
+) {
+  const values = [globalMean];
+  if (genreInterest != null) values.push(genreInterest);
+  if (authorExperience != null) values.push(authorExperience);
+  return values.reduce((a, b) => a + b, 0) / values.length;
 }
 
 function formatScore(value: number, places = 2) {
@@ -67,9 +90,8 @@ function ScoreDistribution({ scores }: { scores: number[] }) {
 
   const dataMin = Math.min(...scores);
   const dataMax = Math.max(...scores);
-  const padding = Math.max((dataMax - dataMin) * 0.15, 0.1);
-  const lo = Math.max(0, Math.floor((dataMin - padding) * 10) / 10);
-  const hi = Math.min(5, Math.ceil((dataMax + padding) * 10) / 10);
+  const lo = Math.max(0, Math.floor(dataMin * 10) / 10);
+  const hi = Math.min(5, Math.ceil(dataMax * 10) / 10);
   const range = hi - lo || 1;
 
   const w = 280;
@@ -133,6 +155,8 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [genreInterests, setGenreInterests] = useState<GenreInterestMap>({});
+  const [authorExperiences, setAuthorExperiences] = useState<AuthorExperienceMap>({});
 
   useEffect(() => {
     let isActive = true;
@@ -143,9 +167,13 @@ export default function App() {
 
       try {
         const savedBooks = await fetchBooks();
+        const savedGenreInterests = readGenreInterests();
+        const savedAuthorExperiences = readAuthorExperiences();
 
         if (isActive) {
           setBooks(savedBooks);
+          setGenreInterests(savedGenreInterests);
+          setAuthorExperiences(savedAuthorExperiences);
         }
       } catch (error) {
         if (isActive) {
@@ -167,16 +195,28 @@ export default function App() {
 
   const rankedBooks = useMemo<RankedBook[]>(() => {
     return books
-      .map((book) => ({
-        ...book,
-        score: bayesianScore(
-          book.starRating,
-          book.ratingCount,
+      .map((book) => {
+        const genreInterest =
+          book.genre && genreInterests[book.genre] != null
+            ? genreInterests[book.genre]
+            : undefined;
+        const authorExp =
+          book.author && authorExperiences[book.author] != null
+            ? authorExperiences[book.author]
+            : undefined;
+        const C = personalizedMean(
           GLOBAL_MEAN,
-          SMOOTHING_FACTOR,
-        ),
-        rank: 0,
-      }))
+          genreInterest,
+          authorExp,
+        );
+        const R = book.starRating ?? C;
+        const v = book.ratingCount ?? 0;
+        return {
+          ...book,
+          score: bayesianScore(R, v, C, SMOOTHING_FACTOR),
+          rank: 0,
+        };
+      })
       .sort((a, b) => {
         if (b.score !== a.score) {
           return b.score - a.score;
@@ -187,7 +227,7 @@ export default function App() {
         return b.ratingCount - a.ratingCount;
       })
       .map((book, index) => ({ ...book, rank: index + 1 }));
-  }, [books]);
+  }, [books, genreInterests, authorExperiences]);
 
   const rankedCount = rankedBooks.length;
   const leader = rankedBooks[0];
@@ -196,6 +236,28 @@ export default function App() {
       ? rankedBooks.reduce((total, book) => total + book.score, 0) / rankedCount
       : null;
   const isEditing = editingBookId !== null;
+
+  const knownGenres = useMemo(() => {
+    const set = new Set<string>();
+    for (const book of books) {
+      if (book.genre) set.add(book.genre);
+    }
+    for (const genre of Object.keys(genreInterests)) {
+      set.add(genre);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [books, genreInterests]);
+
+  const knownAuthors = useMemo(() => {
+    const set = new Set<string>();
+    for (const book of books) {
+      if (book.author) set.add(book.author);
+    }
+    for (const author of Object.keys(authorExperiences)) {
+      set.add(author);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [books, authorExperiences]);
 
   const resetDraft = useCallback(() => {
     setDraft(createDraft());
@@ -212,22 +274,59 @@ export default function App() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isEditing, resetDraft]);
 
-  const parsedDraftRating = Number(draft.starRating);
-  const parsedDraftCount = Number(draft.ratingCount);
+  const parsedDraftRating = draft.starRating.trim() ? Number(draft.starRating) : undefined;
+  const parsedDraftCount = draft.ratingCount.trim() ? Number(draft.ratingCount) : undefined;
   const canSubmit =
     !isLoading &&
     !isSaving &&
     draft.title.trim().length > 0 &&
-    draft.starRating.trim().length > 0 &&
-    draft.ratingCount.trim().length > 0 &&
-    Number.isFinite(parsedDraftRating) &&
-    Number.isFinite(parsedDraftCount) &&
-    parsedDraftRating >= 0 &&
-    parsedDraftRating <= 5 &&
-    parsedDraftCount >= 0;
+    (parsedDraftRating == null || (Number.isFinite(parsedDraftRating) && parsedDraftRating >= 0 && parsedDraftRating <= 5)) &&
+    (parsedDraftCount == null || (Number.isFinite(parsedDraftCount) && parsedDraftCount >= 0));
 
   function updateDraft(field: keyof BookDraft, value: string) {
-    setDraft((current) => ({ ...current, [field]: value }));
+    setDraft((current) => {
+      let clamped = value;
+      const num = Number(value);
+
+      if (value.trim() && Number.isFinite(num)) {
+        if (field === "ratingCount" && num < 0) {
+          clamped = "0";
+        }
+        if (
+          (field === "starRating" ||
+            field === "genreInterest" ||
+            field === "authorExperience") &&
+          num < 0
+        ) {
+          clamped = "0";
+        }
+        if (
+          (field === "starRating" ||
+            field === "genreInterest" ||
+            field === "authorExperience") &&
+          num > 5
+        ) {
+          clamped = "5";
+        }
+        if (
+          (field === "genreInterest" || field === "authorExperience") &&
+          !Number.isInteger(num)
+        ) {
+          clamped = String(Math.round(num));
+        }
+      }
+
+      const next = { ...current, [field]: clamped };
+      // Auto-fill genre interest when genre changes
+      if (field === "genre" && value.trim() && genreInterests[value.trim()] != null) {
+        next.genreInterest = String(genreInterests[value.trim()]);
+      }
+      // Auto-fill author experience when author changes
+      if (field === "author" && value.trim() && authorExperiences[value.trim()] != null) {
+        next.authorExperience = String(authorExperiences[value.trim()]);
+      }
+      return next;
+    });
   }
 
   function startEditing(book: Book) {
@@ -235,8 +334,17 @@ export default function App() {
     setDraft({
       title: book.title,
       author: book.author,
-      starRating: String(book.starRating),
-      ratingCount: String(book.ratingCount),
+      starRating: book.starRating != null ? String(book.starRating) : "",
+      ratingCount: book.ratingCount != null ? String(book.ratingCount) : "",
+      genre: book.genre ?? "",
+      genreInterest:
+        book.genre && genreInterests[book.genre] != null
+          ? String(genreInterests[book.genre])
+          : "",
+      authorExperience:
+        book.author && authorExperiences[book.author] != null
+          ? String(authorExperiences[book.author])
+          : "",
     });
     setErrorMessage(null);
   }
@@ -252,12 +360,34 @@ export default function App() {
     setErrorMessage(null);
 
     try {
+      const genre = draft.genre.trim() || undefined;
+
       const payload = {
         title: draft.title.trim(),
         author: draft.author.trim(),
         starRating: parsedDraftRating,
         ratingCount: parsedDraftCount,
+        genre,
       };
+
+      // Save genre interest globally if genre and interest are both provided
+      if (genre && draft.genreInterest.trim()) {
+        const parsedInterest = Number(draft.genreInterest);
+        if (Number.isFinite(parsedInterest)) {
+          const nextInterests = writeGenreInterest(genre, parsedInterest);
+          setGenreInterests(nextInterests);
+        }
+      }
+
+      // Save author experience globally if author and experience are both provided
+      const authorName = draft.author.trim();
+      if (authorName && draft.authorExperience.trim()) {
+        const parsedExp = Number(draft.authorExperience);
+        if (Number.isFinite(parsedExp)) {
+          const nextExps = writeAuthorExperience(authorName, parsedExp);
+          setAuthorExperiences(nextExps);
+        }
+      }
 
       const nextBooks = isEditing
         ? await updateBookRecord(editingBookId, payload)
@@ -294,16 +424,10 @@ export default function App() {
     <main className="app-shell">
       <section className="hero">
         <div className="hero-copy">
-          <p className="eyebrow">Bayesian Book Ranker</p>
           <h1>
-            Book ratings
-            <span className="hero-title-accent">made smarter.</span>
+            Rank your reading list, based on what actually{" "}
+            <span className="hero-title-accent">matters to you.</span>
           </h1>
-          <p className="hero-text">
-            The more people have rated a book, the more weight its stars carry.
-            The big numbers on the right tell you the scores a book has really
-            earned - not just what it claims.
-          </p>
         </div>
 
         <aside className="hero-overview" aria-label="List overview">
@@ -374,28 +498,82 @@ export default function App() {
             <span>Title</span>
             <input
               type="text"
-              placeholder="e.g. The Remains of the Day"
+              placeholder="The Remains of the Day"
               value={draft.title}
               onChange={(event) => updateDraft("title", event.target.value)}
             />
           </label>
 
-          <label className="field entry-author">
-            <span>Author</span>
-            <input
-              type="text"
-              placeholder="e.g. Kazuo Ishiguro"
-              value={draft.author}
-              onChange={(event) => updateDraft("author", event.target.value)}
-            />
-          </label>
+          <div className="field entry-author">
+            <span>Author + my rating</span>
+            <div className="inline-composite">
+              <input
+                type="text"
+                list="author-options"
+                placeholder="Kazuo Ishiguro"
+                value={draft.author}
+                onChange={(event) => updateDraft("author", event.target.value)}
+              />
+              <input
+                className="inline-rating"
+                type="number"
+                step="1"
+                min="0"
+                max="5"
+                placeholder="-"
+                title="Experience with author (0–5)"
+                value={draft.authorExperience}
+                onChange={(event) =>
+                  updateDraft("authorExperience", event.target.value)
+                }
+              />
+            </div>
+            <datalist id="author-options">
+              {knownAuthors.map((a) => (
+                <option key={a} value={a} />
+              ))}
+            </datalist>
+          </div>
+
+          <div className="field entry-genre">
+            <span>Genre / topic + my rating</span>
+            <div className="inline-composite">
+              <input
+                type="text"
+                list="genre-options"
+                placeholder="Historical Fiction"
+                value={draft.genre}
+                onChange={(event) => updateDraft("genre", event.target.value)}
+              />
+              <input
+                className="inline-rating"
+                type="number"
+                step="1"
+                min="0"
+                max="5"
+                placeholder="-"
+                title="Genre / topic interest (0–5)"
+                value={draft.genreInterest}
+                onChange={(event) =>
+                  updateDraft("genreInterest", event.target.value)
+                }
+              />
+            </div>
+            <datalist id="genre-options">
+              {knownGenres.map((g) => (
+                <option key={g} value={g} />
+              ))}
+            </datalist>
+          </div>
 
           <label className="field entry-rating">
-            <span>Star rating</span>
+            <span>Avg. star rating</span>
             <input
               type="number"
               step="0.01"
-              placeholder="0 – 5"
+              min="0"
+              max="5"
+              placeholder="4.14"
               value={draft.starRating}
               onChange={(event) =>
                 updateDraft("starRating", event.target.value)
@@ -404,11 +582,12 @@ export default function App() {
           </label>
 
           <label className="field entry-count">
-            <span>Ratings</span>
+            <span>Number of ratings</span>
             <input
               type="number"
               step="1"
-              placeholder="e.g. 50000"
+              min="0"
+              placeholder="366,000"
               value={draft.ratingCount}
               onChange={(event) =>
                 updateDraft("ratingCount", event.target.value)
@@ -418,23 +597,20 @@ export default function App() {
 
           <div className="form-actions">
             <button
+              type="button"
+              className="btn btn-tertiary"
+              onClick={resetDraft}
+              disabled={isSaving}
+            >
+              {isEditing ? "Cancel" : "Clear"}
+            </button>
+            <button
               type="submit"
               className="btn btn-primary"
               disabled={!canSubmit}
             >
-              {isSaving ? "Saving..." : isEditing ? "Save changes" : "Add book"}
+              {isSaving ? "Saving..." : isEditing ? "Update" : "Add book"}
             </button>
-
-            {isEditing ? (
-              <button
-                type="button"
-                className="btn btn-tertiary"
-                onClick={resetDraft}
-                disabled={isSaving}
-              >
-                Cancel
-              </button>
-            ) : null}
           </div>
         </form>
       </section>
@@ -445,8 +621,7 @@ export default function App() {
             <div className="empty-state">Loading your rankings...</div>
           ) : rankedBooks.length === 0 ? (
             <div className="empty-state">
-              No books yet. Add a title, star rating, and number of ratings
-              above to see your first ranking.
+              No books yet. Add a title above to see your first ranking.
             </div>
           ) : (
             rankedBooks.map((book, index) => {
@@ -473,15 +648,29 @@ export default function App() {
                     <div className="ranking-topline">
                       <div className="ranking-info">
                         <h3>{book.title}</h3>
-                        <p className="book-byline">
-                          {book.author || "Author unknown"}
-                        </p>
-                        <div className="meta-row">
-                          <span>
-                            <Stars rating={book.starRating} />{" "}
-                            {formatScore(book.starRating)} avg
+                        <div className="book-tags">
+                          <span className="genre-tag">
+                            {book.author || "Author unknown"}
+                            {book.author && authorExperiences[book.author] != null ? (
+                              <span className="genre-tag-interest">{authorExperiences[book.author]}</span>
+                            ) : null}
                           </span>
-                          <span>{formatCount(book.ratingCount)} ratings</span>
+                          {book.genre ? (
+                            <span className="genre-tag">
+                              {book.genre}
+                              {genreInterests[book.genre] != null ? (
+                                <span className="genre-tag-interest">{genreInterests[book.genre]}</span>
+                              ) : null}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="meta-row">
+                          {book.starRating != null ? (
+                            <span>{formatScore(book.starRating)} avg</span>
+                          ) : null}
+                          {book.ratingCount != null ? (
+                            <span>{formatCount(book.ratingCount)} ratings</span>
+                          ) : null}
                           <div className="inline-actions">
                             <button
                               type="button"
