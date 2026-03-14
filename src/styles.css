@@ -120,7 +120,7 @@ h3 {
 }
 
 .hero-text {
-  max-width: 44ch;
+  max-width: 60ch;
   color: var(--muted);
   font-size: 1.05rem;
   line-height: 1.6;
