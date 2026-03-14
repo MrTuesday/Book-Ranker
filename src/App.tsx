@@ -441,7 +441,7 @@ export default function App() {
       ? rankedBooks.reduce((total, book) => total + book.score, 0) / rankedCount
       : null;
   const mainResultLabel =
-    scoreDisplayMode === "percent" ? "Likelihood" : "Score";
+    scoreDisplayMode === "percent" ? "Likelihood" : "Score / 5";
   const isEditing = editingBookId !== null;
 
   const knownGenres = useMemo(() => {
@@ -1234,7 +1234,7 @@ export default function App() {
                 <span className="summary-label">
                   {scoreDisplayMode === "percent"
                     ? "Avg. likelihood"
-                    : "Avg. score"}
+                    : "Avg. score / 5"}
                 </span>
                 <strong className="summary-number">
                   {averageScore === null
@@ -1253,7 +1253,7 @@ export default function App() {
               <span className="summary-label">
                 {scoreDisplayMode === "percent"
                   ? "Top pick likelihood"
-                  : "Top pick score"}
+                  : "Top pick score / 5"}
               </span>
               {leader ? (
                 <div className="leader-detail">
@@ -1799,7 +1799,7 @@ export default function App() {
 
       <section className="panel board">
         <div className="board-toolbar">
-          <span className="section-label">Main result display</span>
+          <span className="section-label">My List</span>
           <div
             className="display-toggle"
             role="group"
@@ -1811,7 +1811,7 @@ export default function App() {
               onClick={() => setScoreDisplayMode("score")}
               aria-pressed={scoreDisplayMode === "score"}
             >
-              Score
+              Score / 5
             </button>
             <button
               type="button"
