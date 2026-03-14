@@ -461,7 +461,7 @@ h3 {
     min-width: 0;
 }
 
-.field span {
+.field > span {
     color: var(--muted);
     font-size: 0.8rem;
 }
