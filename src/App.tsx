@@ -187,11 +187,11 @@ export default function App() {
         const genreInterest =
           book.genre && genreInterests[book.genre] != null
             ? genreInterests[book.genre]
-            : undefined;
+            : 3;
         const authorExp =
           book.author && authorExperiences[book.author] != null
             ? authorExperiences[book.author]
-            : undefined;
+            : 3;
         const R = book.starRating ?? GLOBAL_MEAN;
         const v = book.ratingCount ?? 0;
         const bScore = bayesianScore(R, v, GLOBAL_MEAN, SMOOTHING_FACTOR);
