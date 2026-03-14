@@ -1,4 +1,5 @@
 import {
+  type DragEvent as ReactDragEvent,
   type FocusEvent as ReactFocusEvent,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -47,6 +48,10 @@ type RankedBook = Book & {
 };
 
 type SuggestionField = "author" | "genre";
+type DraftTagDrag = {
+  field: SuggestionField;
+  tag: string;
+};
 type DraftTextField =
   | "title"
   | "starRating"
@@ -155,6 +160,42 @@ function removeTagFromScores(scores: Record<string, string>, tag: string) {
   const nextScores = { ...scores };
   delete nextScores[tag];
   return nextScores;
+}
+
+function reorderTags(tags: string[], draggedTag: string, targetTag: string) {
+  if (draggedTag === targetTag) {
+    return tags;
+  }
+
+  const next = [...tags];
+  const draggedIndex = next.indexOf(draggedTag);
+
+  if (draggedIndex === -1) {
+    return tags;
+  }
+
+  next.splice(draggedIndex, 1);
+
+  const targetIndex = next.indexOf(targetTag);
+
+  if (targetIndex === -1) {
+    next.push(draggedTag);
+    return next;
+  }
+
+  next.splice(targetIndex, 0, draggedTag);
+  return next;
+}
+
+function moveTagToEnd(tags: string[], draggedTag: string) {
+  const next = tags.filter((tag) => tag !== draggedTag);
+
+  if (next.length === tags.length) {
+    return tags;
+  }
+
+  next.push(draggedTag);
+  return next;
 }
 
 function formatTagSummary(tags: string[], fallback: string) {
@@ -283,6 +324,11 @@ export default function App() {
   const [pendingTagDelete, setPendingTagDelete] = useState<string | null>(null);
   const [activeSuggestionField, setActiveSuggestionField] =
     useState<SuggestionField | null>(null);
+  const [draftTagDrag, setDraftTagDrag] = useState<DraftTagDrag | null>(null);
+  const [draftTagDropTarget, setDraftTagDropTarget] = useState<{
+    field: SuggestionField;
+    tag: string | null;
+  } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [genreInterests, setGenreInterests] = useState<GenreInterestMap>({});
   const [authorExperiences, setAuthorExperiences] =
@@ -397,6 +443,8 @@ export default function App() {
     setDraft(createDraft());
     setEditingBookId(null);
     setActiveSuggestionField(null);
+    setDraftTagDrag(null);
+    setDraftTagDropTarget(null);
   }, []);
 
   useEffect(() => {
@@ -640,6 +688,30 @@ export default function App() {
     });
   }
 
+  function reorderDraftTags(
+    field: SuggestionField,
+    draggedTag: string,
+    targetTag: string | null,
+  ) {
+    setDraft((current) => {
+      const tagsKey = field === "author" ? "authors" : "genres";
+      const currentTags = current[tagsKey];
+      const nextTags =
+        targetTag == null
+          ? moveTagToEnd(currentTags, draggedTag)
+          : reorderTags(currentTags, draggedTag, targetTag);
+
+      if (nextTags === currentTags) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [tagsKey]: nextTags,
+      };
+    });
+  }
+
   function removeDraftTag(field: SuggestionField, tag: string) {
     setDraft((current) => {
       if (field === "author") {
@@ -666,6 +738,80 @@ export default function App() {
       event.preventDefault();
       addDraftTag(field);
     }
+  }
+
+  function handleDraftTagDragStart(
+    event: ReactDragEvent<HTMLSpanElement>,
+    field: SuggestionField,
+    tag: string,
+  ) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", `${field}:${tag}`);
+    setDraftTagDrag({ field, tag });
+    setDraftTagDropTarget(null);
+  }
+
+  function handleDraftTagListDragOver(
+    event: ReactDragEvent<HTMLDivElement>,
+    field: SuggestionField,
+  ) {
+    if (!draftTagDrag || draftTagDrag.field !== field) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDraftTagDropTarget((current) =>
+      current?.field === field && current.tag === null
+        ? current
+        : { field, tag: null },
+    );
+  }
+
+  function handleDraftTagDragOver(
+    event: ReactDragEvent<HTMLSpanElement>,
+    field: SuggestionField,
+    tag: string,
+  ) {
+    if (!draftTagDrag || draftTagDrag.field !== field) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "move";
+
+    if (draftTagDrag.tag === tag) {
+      setDraftTagDropTarget(null);
+      return;
+    }
+
+    setDraftTagDropTarget((current) =>
+      current?.field === field && current.tag === tag
+        ? current
+        : { field, tag },
+    );
+  }
+
+  function handleDraftTagDrop(
+    event: ReactDragEvent<HTMLElement>,
+    field: SuggestionField,
+    targetTag: string | null = null,
+  ) {
+    if (!draftTagDrag || draftTagDrag.field !== field) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    reorderDraftTags(field, draftTagDrag.tag, targetTag);
+    setDraftTagDrag(null);
+    setDraftTagDropTarget(null);
+  }
+
+  function handleDraftTagDragEnd() {
+    setDraftTagDrag(null);
+    setDraftTagDropTarget(null);
   }
 
   function startEditing(book: Book) {
@@ -1040,12 +1186,58 @@ export default function App() {
                 </button>
               </div>
               {draft.authors.length > 0 ? (
-                <div className="draft-tag-list">
+                <div
+                  className={[
+                    "draft-tag-list",
+                    draftTagDrag?.field === "author" ? "is-drag-active" : "",
+                    draftTagDropTarget?.field === "author" &&
+                    draftTagDropTarget.tag === null
+                      ? "is-drop-target-end"
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  onDragOver={(event) =>
+                    handleDraftTagListDragOver(event, "author")
+                  }
+                  onDrop={(event) => handleDraftTagDrop(event, "author")}
+                >
                   {draft.authors.map((author) => {
                     const score = getDraftTagScore("author", author);
+                    const deleteKey = `author:${author}`;
+                    const isDragging =
+                      draftTagDrag?.field === "author" &&
+                      draftTagDrag.tag === author;
+                    const isDropTarget =
+                      draftTagDropTarget?.field === "author" &&
+                      draftTagDropTarget.tag === author;
+                    const isDeletingTag = pendingTagDelete === deleteKey;
 
                     return (
-                      <span key={author} className="genre-tag">
+                      <span
+                        key={author}
+                        className={[
+                          "genre-tag",
+                          "draft-tag-chip",
+                          isDragging ? "is-dragging" : "",
+                          isDropTarget ? "is-drag-target" : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                        draggable
+                        onDragStart={(event) =>
+                          handleDraftTagDragStart(event, "author", author)
+                        }
+                        onDragOver={(event) =>
+                          handleDraftTagDragOver(event, "author", author)
+                        }
+                        onDrop={(event) =>
+                          handleDraftTagDrop(event, "author", author)
+                        }
+                        onDragEnd={handleDraftTagDragEnd}
+                        aria-grabbed={isDragging}
+                        title={`Drag to reorder ${author}`}
+                      >
                         {author}
                         {score ? (
                           <span className="genre-tag-interest">{score}</span>
@@ -1053,10 +1245,24 @@ export default function App() {
                         <button
                           type="button"
                           className="tag-remove"
+                          onMouseDown={(event) => event.preventDefault()}
                           onClick={() => removeDraftTag("author", author)}
                           aria-label={`Remove author ${author} from this book`}
+                          title={`Remove author ${author} from this book`}
+                          disabled={isDeletingTag}
                         >
                           x
+                        </button>
+                        <button
+                          type="button"
+                          className="tag-remove tag-remove-global"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => void removeGlobalTag("author", author)}
+                          aria-label={`Delete author tag ${author} everywhere`}
+                          title={`Delete author tag ${author} everywhere`}
+                          disabled={isDeletingTag}
+                        >
+                          {isDeletingTag ? "..." : "all"}
                         </button>
                       </span>
                     );
@@ -1163,12 +1369,58 @@ export default function App() {
                 </button>
               </div>
               {draft.genres.length > 0 ? (
-                <div className="draft-tag-list">
+                <div
+                  className={[
+                    "draft-tag-list",
+                    draftTagDrag?.field === "genre" ? "is-drag-active" : "",
+                    draftTagDropTarget?.field === "genre" &&
+                    draftTagDropTarget.tag === null
+                      ? "is-drop-target-end"
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  onDragOver={(event) =>
+                    handleDraftTagListDragOver(event, "genre")
+                  }
+                  onDrop={(event) => handleDraftTagDrop(event, "genre")}
+                >
                   {draft.genres.map((genre) => {
                     const score = getDraftTagScore("genre", genre);
+                    const deleteKey = `genre:${genre}`;
+                    const isDragging =
+                      draftTagDrag?.field === "genre" &&
+                      draftTagDrag.tag === genre;
+                    const isDropTarget =
+                      draftTagDropTarget?.field === "genre" &&
+                      draftTagDropTarget.tag === genre;
+                    const isDeletingTag = pendingTagDelete === deleteKey;
 
                     return (
-                      <span key={genre} className="genre-tag">
+                      <span
+                        key={genre}
+                        className={[
+                          "genre-tag",
+                          "draft-tag-chip",
+                          isDragging ? "is-dragging" : "",
+                          isDropTarget ? "is-drag-target" : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                        draggable
+                        onDragStart={(event) =>
+                          handleDraftTagDragStart(event, "genre", genre)
+                        }
+                        onDragOver={(event) =>
+                          handleDraftTagDragOver(event, "genre", genre)
+                        }
+                        onDrop={(event) =>
+                          handleDraftTagDrop(event, "genre", genre)
+                        }
+                        onDragEnd={handleDraftTagDragEnd}
+                        aria-grabbed={isDragging}
+                        title={`Drag to reorder ${genre}`}
+                      >
                         {genre}
                         {score ? (
                           <span className="genre-tag-interest">{score}</span>
@@ -1176,10 +1428,24 @@ export default function App() {
                         <button
                           type="button"
                           className="tag-remove"
+                          onMouseDown={(event) => event.preventDefault()}
                           onClick={() => removeDraftTag("genre", genre)}
                           aria-label={`Remove genre ${genre} from this book`}
+                          title={`Remove genre ${genre} from this book`}
+                          disabled={isDeletingTag}
                         >
                           x
+                        </button>
+                        <button
+                          type="button"
+                          className="tag-remove tag-remove-global"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => void removeGlobalTag("genre", genre)}
+                          aria-label={`Delete genre tag ${genre} everywhere`}
+                          title={`Delete genre tag ${genre} everywhere`}
+                          disabled={isDeletingTag}
+                        >
+                          {isDeletingTag ? "..." : "all"}
                         </button>
                       </span>
                     );
@@ -1273,55 +1539,97 @@ export default function App() {
                         <h3>{book.title}</h3>
                         <div className="book-tags">
                           {book.authors.length > 0 ? (
-                            book.authors.map((author) => (
+                            book.authors.map((author) =>
+                              (() => {
+                                const deleteKey = `author:${author}`;
+                                const isDeletingTag =
+                                  pendingTagDelete === deleteKey;
+
+                                return (
+                                  <span
+                                    key={`author-${book.id}-${author}`}
+                                    className="genre-tag"
+                                  >
+                                    {author}
+                                    {authorExperiences[author] != null ? (
+                                      <span className="genre-tag-interest">
+                                        {authorExperiences[author]}
+                                      </span>
+                                    ) : null}
+                                    <button
+                                      type="button"
+                                      className="tag-remove"
+                                      onClick={() =>
+                                        void clearTag(book.id, "author", author)
+                                      }
+                                      aria-label={`Remove author ${author}`}
+                                      title={`Remove author ${author} from this book`}
+                                      disabled={isDeletingTag}
+                                    >
+                                      x
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="tag-remove tag-remove-global"
+                                      onClick={() =>
+                                        void removeGlobalTag("author", author)
+                                      }
+                                      aria-label={`Delete author tag ${author} everywhere`}
+                                      title={`Delete author tag ${author} everywhere`}
+                                      disabled={isDeletingTag}
+                                    >
+                                      {isDeletingTag ? "..." : "all"}
+                                    </button>
+                                  </span>
+                                );
+                              })(),
+                            )
+                          ) : (
+                            <span className="genre-tag">Author unknown</span>
+                          )}
+                          {book.genres.map((genre) => {
+                            const deleteKey = `genre:${genre}`;
+                            const isDeletingTag =
+                              pendingTagDelete === deleteKey;
+
+                            return (
                               <span
-                                key={`author-${book.id}-${author}`}
+                                key={`genre-${book.id}-${genre}`}
                                 className="genre-tag"
                               >
-                                {author}
-                                {authorExperiences[author] != null ? (
+                                {genre}
+                                {genreInterests[genre] != null ? (
                                   <span className="genre-tag-interest">
-                                    {authorExperiences[author]}
+                                    {genreInterests[genre]}
                                   </span>
                                 ) : null}
                                 <button
                                   type="button"
                                   className="tag-remove"
                                   onClick={() =>
-                                    void clearTag(book.id, "author", author)
+                                    void clearTag(book.id, "genre", genre)
                                   }
-                                  aria-label={`Remove author ${author}`}
+                                  aria-label={`Remove genre ${genre}`}
+                                  title={`Remove genre ${genre} from this book`}
+                                  disabled={isDeletingTag}
                                 >
                                   x
                                 </button>
+                                <button
+                                  type="button"
+                                  className="tag-remove tag-remove-global"
+                                  onClick={() =>
+                                    void removeGlobalTag("genre", genre)
+                                  }
+                                  aria-label={`Delete genre tag ${genre} everywhere`}
+                                  title={`Delete genre tag ${genre} everywhere`}
+                                  disabled={isDeletingTag}
+                                >
+                                  {isDeletingTag ? "..." : "all"}
+                                </button>
                               </span>
-                            ))
-                          ) : (
-                            <span className="genre-tag">Author unknown</span>
-                          )}
-                          {book.genres.map((genre) => (
-                            <span
-                              key={`genre-${book.id}-${genre}`}
-                              className="genre-tag"
-                            >
-                              {genre}
-                              {genreInterests[genre] != null ? (
-                                <span className="genre-tag-interest">
-                                  {genreInterests[genre]}
-                                </span>
-                              ) : null}
-                              <button
-                                type="button"
-                                className="tag-remove"
-                                onClick={() =>
-                                  void clearTag(book.id, "genre", genre)
-                                }
-                                aria-label={`Remove genre ${genre}`}
-                              >
-                                x
-                              </button>
-                            </span>
-                          ))}
+                            );
+                          })}
                         </div>
                         <div className="meta-row">
                           {book.starRating != null ? (
