@@ -1,4 +1,10 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   createBookRecord,
   deleteBookRecord,
@@ -54,6 +60,51 @@ function messageFromError(error: unknown) {
   }
 
   return "Something went wrong while saving your books in this browser.";
+}
+
+function ScoreDistribution({ scores }: { scores: number[] }) {
+  if (scores.length === 0) return null;
+  const min = 0;
+  const max = 5;
+  const range = max - min;
+  const w = 280;
+  const h = 48;
+  const r = 4;
+
+  const positions = scores
+    .map((s) => ((s - min) / range) * (w - r * 2) + r)
+    .sort((a, b) => a - b);
+
+  return (
+    <svg
+      className="distribution-chart"
+      viewBox={`0 0 ${w} ${h}`}
+      aria-label="Score distribution"
+    >
+      <line x1={r} y1={h / 2} x2={w - r} y2={h / 2} stroke="var(--line)" strokeWidth="1" />
+      {[0, 1, 2, 3, 4, 5].map((tick) => {
+        const x = (tick / max) * (w - r * 2) + r;
+        return (
+          <line
+            key={tick}
+            x1={x} y1={h / 2 - 4} x2={x} y2={h / 2 + 4}
+            stroke="var(--line-strong)"
+            strokeWidth="1"
+          />
+        );
+      })}
+      {positions.map((x, i) => (
+        <circle
+          key={i}
+          cx={x}
+          cy={h / 2}
+          r={r}
+          fill="var(--accent)"
+          opacity={0.7}
+        />
+      ))}
+    </svg>
+  );
 }
 
 function Stars({ rating }: { rating: number }) {
@@ -244,9 +295,9 @@ export default function App() {
             <span className="hero-title-accent">made smarter.</span>
           </h1>
           <p className="hero-text">
-            The more ratings a book has, the more its star rating is
-            trusted. Books with a handful of perfect scores can&rsquo;t
-            jump ahead of consistently well-rated titles.
+            The more people have rated a book, the more weight its stars carry.
+            The big numbers on the right tell you the scores a book has really
+            earned - not just what it claims.
           </p>
         </div>
 
@@ -254,27 +305,42 @@ export default function App() {
           <p className="section-label">Your library</p>
 
           <div className="hero-summary">
-            <article className="summary-tile">
-              <span className="summary-label">Ranked</span>
-              <strong>{rankedCount}</strong>
-            </article>
+            <div className="summary-stats">
+              <article className="summary-tile">
+                <span className="summary-label">Ranked</span>
+                <strong className="summary-number">{rankedCount}</strong>
+              </article>
 
-            <article className="summary-tile">
-              <span className="summary-label">Avg. score</span>
-              <strong>
-                {averageScore === null ? "--" : formatScore(averageScore)}
-              </strong>
-            </article>
+              <article className="summary-tile">
+                <span className="summary-label">Avg. score</span>
+                <strong className="summary-number">
+                  {averageScore === null ? "—" : formatScore(averageScore)}
+                </strong>
+              </article>
 
-            <article className="summary-tile summary-tile-wide">
+              <article className="summary-tile summary-tile-wide">
+                <span className="summary-label">Distribution</span>
+                <ScoreDistribution scores={rankedBooks.map((b) => b.score)} />
+              </article>
+            </div>
+
+            <article className="summary-tile summary-tile-leader">
               <span className="summary-label">Top pick</span>
-              <strong>
-                {leader
-                  ? leader.title
-                  : isLoading
-                    ? "Loading..."
-                    : "Waiting for entries"}
-              </strong>
+              {leader ? (
+                <div className="leader-detail">
+                  <div>
+                    <strong className="summary-number">{leader.title}</strong>
+                    <p className="leader-author">{leader.author || "Author unknown"}</p>
+                  </div>
+                  <span className="leader-score">
+                    {formatScore(leader.score)}
+                  </span>
+                </div>
+              ) : (
+                <strong className="summary-number">
+                  {isLoading ? "Loading..." : "Waiting for entries"}
+                </strong>
+              )}
             </article>
           </div>
         </aside>
@@ -400,55 +466,52 @@ export default function App() {
 
                   <div className="ranking-body">
                     <div className="ranking-topline">
-                      <div>
+                      <div className="ranking-info">
                         <h3>{book.title}</h3>
                         <p className="book-byline">
                           {book.author || "Author unknown"}
                         </p>
-                      </div>
-
-                      <div className="ranking-actions">
-                        <div className="score-block score-block-inline">
-                          <span className="score-label">Weighted score</span>
-                          <strong className="score-value">
-                            {formatScore(book.score)}
-                          </strong>
-                        </div>
-
-                        <div className="action-group">
-                          <button
-                            type="button"
-                            className="btn btn-secondary"
-                            onClick={() => startEditing(book)}
-                            disabled={isSaving || isDeleting}
-                          >
-                            {editingBookId === book.id ? "Editing" : "Edit"}
-                          </button>
-
-                          <button
-                            type="button"
-                            className="btn btn-tertiary"
-                            onClick={() => void removeBook(book.id)}
-                            disabled={isSaving || isDeleting}
-                          >
-                            {isDeleting ? "Removing..." : "Remove"}
-                          </button>
+                        <div className="meta-row">
+                          <span>
+                            <Stars rating={book.starRating} />{" "}
+                            {formatScore(book.starRating)} avg
+                          </span>
+                          <span>{formatCount(book.ratingCount)} ratings</span>
+                          <div className="inline-actions">
+                            <button
+                              type="button"
+                              className="link-btn"
+                              onClick={() => startEditing(book)}
+                              disabled={isSaving || isDeleting}
+                            >
+                              {editingBookId === book.id ? "Editing" : "Edit"}
+                            </button>
+                            <span className="action-dot">·</span>
+                            <button
+                              type="button"
+                              className="link-btn link-btn-danger"
+                              onClick={() => void removeBook(book.id)}
+                              disabled={isSaving || isDeleting}
+                            >
+                              {isDeleting ? "Removing..." : "Remove"}
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="meta-row">
-                      <span>
-                        <Stars rating={book.starRating} />{" "}
-                        {formatScore(book.starRating)} avg
-                      </span>
-                      <span>{formatCount(book.ratingCount)} ratings</span>
+                      <strong className="score-value">
+                        {formatScore(book.score)}
+                      </strong>
                     </div>
 
                     <div className="score-meter" aria-hidden="true">
                       <span
                         className="score-meter-fill"
-                        style={{ "--fill-width": `${scoreFill}%` } as React.CSSProperties}
+                        style={
+                          {
+                            "--fill-width": `${scoreFill}%`,
+                          } as React.CSSProperties
+                        }
                       />
                     </div>
                   </div>

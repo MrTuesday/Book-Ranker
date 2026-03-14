@@ -7,8 +7,8 @@
   --muted: #6d655c;
   --line: rgba(23, 20, 17, 0.1);
   --line-strong: rgba(23, 20, 17, 0.18);
-  --accent: #1e4d45;
-  --accent-soft: rgba(30, 77, 69, 0.08);
+  --accent: #b45309;
+  --accent-soft: rgba(180, 83, 9, 0.08);
   --shadow: 0 18px 50px rgba(52, 42, 30, 0.08);
   --radius-xl: 32px;
   --radius-lg: 22px;
@@ -79,7 +79,7 @@ h3 {
   grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
   gap: 24px;
   margin-bottom: 28px;
-  align-items: end;
+  align-items: stretch;
 }
 
 .eyebrow,
@@ -144,6 +144,12 @@ h3 {
   gap: 10px;
 }
 
+.summary-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
 .panel {
   display: grid;
   gap: 20px;
@@ -203,22 +209,65 @@ h3 {
 
 .summary-tile {
   display: grid;
-  gap: 4px;
-  padding: 14px 16px;
+  gap: 6px;
+  padding: 16px 18px;
   border: 1px solid var(--line);
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.58);
 }
 
-.summary-tile strong {
-  font-size: 1.15rem;
-  line-height: 1.2;
+.summary-tile-wide {
+  grid-column: 1 / -1;
 }
 
-.summary-tile-wide strong {
+.distribution-chart {
+  width: 100%;
+  height: 48px;
+}
+
+.summary-number {
+  font-family: "Iowan Old Style", "Palatino Linotype", serif;
+  font-size: 1.8rem;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.summary-tile-leader {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--accent-soft);
+  border-color: rgba(180, 83, 9, 0.12);
+}
+
+.leader-detail {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.leader-detail .summary-number {
+  display: block;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.leader-author {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.leader-score {
+  font-family: "Iowan Old Style", "Palatino Linotype", serif;
+  font-size: 2.2rem;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: -0.03em;
+  flex-shrink: 0;
 }
 
 .entry-form {
@@ -271,10 +320,10 @@ input::placeholder {
 
 input:focus {
   outline: none;
-  border-color: rgba(30, 77, 69, 0.3);
+  border-color: rgba(180, 83, 9, 0.3);
   box-shadow:
-    inset 0 0 0 1px rgba(30, 77, 69, 0.26),
-    0 0 0 4px rgba(30, 77, 69, 0.08);
+    inset 0 0 0 1px rgba(180, 83, 9, 0.26),
+    0 0 0 4px rgba(180, 83, 9, 0.08);
   transform: translateY(-1px);
 }
 
@@ -304,13 +353,13 @@ input:focus {
 }
 
 .ranking-row.is-editing {
-  border-color: rgba(30, 77, 69, 0.26);
-  background: rgba(247, 252, 250, 0.92);
+  border-color: rgba(180, 83, 9, 0.26);
+  background: rgba(255, 251, 245, 0.92);
 }
 
 .ranking-row.is-leader {
-  border-color: rgba(30, 77, 69, 0.18);
-  background: rgba(247, 252, 250, 0.82);
+  border-color: rgba(180, 83, 9, 0.18);
+  background: rgba(255, 251, 245, 0.82);
 }
 
 .rank-badge {
@@ -354,11 +403,17 @@ input:focus {
 .ranking-topline {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
-  align-items: start;
+  align-items: center;
+  gap: 20px;
 }
 
-.ranking-topline h3 {
+.ranking-info {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ranking-info h3 {
   font-size: 1.55rem;
   line-height: 1.02;
 }
@@ -369,16 +424,40 @@ input:focus {
   line-height: 1.5;
 }
 
-.ranking-actions {
+.inline-actions {
   display: flex;
-  align-items: end;
-  gap: 12px;
+  gap: 6px;
+  align-items: center;
+  margin-left: auto;
 }
 
-.action-group {
-  display: flex;
-  gap: 10px;
-  align-items: center;
+.action-dot {
+  color: var(--muted);
+  opacity: 0.4;
+  font-size: 0.8rem;
+}
+
+.link-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: color 160ms ease;
+}
+
+.link-btn:hover {
+  color: var(--accent);
+}
+
+.link-btn-danger:hover {
+  color: #a64b2a;
+}
+
+.link-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .score-block {
@@ -393,10 +472,11 @@ input:focus {
 
 .score-value {
   font-family: "Iowan Old Style", "Palatino Linotype", serif;
-  font-size: 2rem;
+  font-size: 3.2rem;
   font-weight: 600;
-  line-height: 0.95;
+  line-height: 1;
   letter-spacing: -0.04em;
+  color: var(--accent);
 }
 
 .meta-row {
@@ -435,7 +515,7 @@ input:focus {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #2f6a5f 0%, #8fb7ae 100%);
+  background: linear-gradient(90deg, #b45309 0%, #f59e0b 100%);
   width: var(--fill-width, 0%);
   animation: meter-grow 600ms ease-out both;
   animation-delay: inherit;
@@ -454,7 +534,8 @@ input:focus {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  padding: 12px 18px;
+  padding: 9px 14px;
+  font-size: 0.88rem;
   cursor: pointer;
   transition:
     transform 160ms ease,
@@ -476,15 +557,18 @@ input:focus {
 .btn-primary {
   color: #f7f4ee;
   background: var(--accent);
+  padding: 13px 18px;
+  font-size: inherit;
+  border-radius: 14px;
 }
 
 .btn-secondary {
   color: var(--accent);
-  background: rgba(30, 77, 69, 0.1);
+  background: rgba(180, 83, 9, 0.1);
 }
 
 .btn-secondary:hover {
-  background: rgba(30, 77, 69, 0.16);
+  background: rgba(180, 83, 9, 0.16);
 }
 
 .btn-tertiary {
@@ -520,14 +604,12 @@ input:focus {
 
 @media (max-width: 980px) {
   .hero,
-  .section-heading,
-  .ranking-topline {
+  .section-heading {
     grid-template-columns: 1fr;
   }
 
   .hero,
-  .section-heading,
-  .ranking-topline {
+  .section-heading {
     display: grid;
   }
 
@@ -540,18 +622,6 @@ input:focus {
   .entry-author,
   .form-actions {
     grid-column: 1 / -1;
-  }
-
-  .ranking-actions {
-    justify-content: space-between;
-  }
-
-  .action-group {
-    justify-content: flex-end;
-  }
-
-  .score-block-inline {
-    justify-items: start;
   }
 
   .section-note {
@@ -582,23 +652,7 @@ input:focus {
     min-width: 74px;
   }
 
-  .ranking-actions {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .action-group {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .score-block-inline {
-    justify-items: start;
-  }
-
-  .btn-primary,
-  .btn-secondary,
-  .btn-tertiary {
+  .btn-primary {
     width: 100%;
   }
 }
