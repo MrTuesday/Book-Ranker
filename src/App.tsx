@@ -475,8 +475,8 @@ export default function App() {
             <span className="hero-title-accent">matters to you.</span>
           </h1>
           <p className="hero-text">
-            Bayesian statistical modelling is applied to the inputs you provide
-            to estimate how likely you are to enjoy each book.
+            Statistical modelling is applied to the inputs you provide to
+            estimate how likely you are to enjoy each book.
           </p>
         </div>
 
