@@ -82,14 +82,12 @@ function uniqueTags(values: string[]) {
   );
 }
 
-function averageTagPreference(tags: string[], scores: Record<string, number>) {
+function tagPreferences(tags: string[], scores: Record<string, number>) {
   if (tags.length === 0) {
-    return 3;
+    return [3];
   }
 
-  return (
-    tags.reduce((total, tag) => total + (scores[tag] ?? 3), 0) / tags.length
-  );
+  return tags.map((tag) => scores[tag] ?? 3);
 }
 
 function buildDraftScores(tags: string[], scores: Record<string, number>) {
@@ -114,14 +112,8 @@ function bayesianScore(R: number, v: number, C: number, m: number) {
   return (v / (v + m)) * R + (m / (v + m)) * C;
 }
 
-function compositeScore(
-  bayesian: number,
-  authorExperience?: number,
-  genreInterest?: number,
-) {
-  const values = [bayesian];
-  if (authorExperience != null) values.push(authorExperience);
-  if (genreInterest != null) values.push(genreInterest);
+function compositeScore(bayesian: number, ...inputs: number[]) {
+  const values = [bayesian, ...inputs];
   return values.reduce((a, b) => a + b, 0) / values.length;
 }
 
@@ -281,14 +273,16 @@ export default function App() {
   const rankedBooks = useMemo<RankedBook[]>(() => {
     return books
       .map((book) => {
-        const genreInterest = averageTagPreference(book.genres, genreInterests);
-        const authorExp = averageTagPreference(book.authors, authorExperiences);
+        const preferences = [
+          ...tagPreferences(book.authors, authorExperiences),
+          ...tagPreferences(book.genres, genreInterests),
+        ];
         const R = book.starRating ?? GLOBAL_MEAN;
         const v = book.ratingCount ?? 0;
         const bScore = bayesianScore(R, v, GLOBAL_MEAN, SMOOTHING_FACTOR);
         return {
           ...book,
-          score: compositeScore(bScore, authorExp, genreInterest),
+          score: compositeScore(bScore, ...preferences),
           rank: 0,
         };
       })
@@ -1077,7 +1071,7 @@ export default function App() {
           </div>
 
           <label className="field entry-rating">
-            <span>Avg. star rating</span>
+            <span>Average rating</span>
             <input
               type="number"
               step="0.01"
