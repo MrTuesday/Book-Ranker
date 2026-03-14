@@ -256,6 +256,7 @@ h3 {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  padding-bottom: 4px;
 }
 
 .leader-author {
