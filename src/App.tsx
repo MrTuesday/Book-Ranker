@@ -416,6 +416,10 @@ export default function App() {
             Rank your reading list, based on what actually{" "}
             <span className="hero-title-accent">matters to you.</span>
           </h1>
+          <p className="hero-text">
+            Scores blend each book's average rating and popularity with your
+            author experience and genre interest ratings.
+          </p>
         </div>
 
         <aside className="hero-overview" aria-label="List overview">

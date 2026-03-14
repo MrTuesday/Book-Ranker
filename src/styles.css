@@ -79,7 +79,7 @@ h3 {
   grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
   gap: 24px;
   margin-bottom: 28px;
-  align-items: stretch;
+  align-items: center;
 }
 
 .eyebrow,
@@ -106,7 +106,7 @@ h3 {
 
 .hero-copy {
   display: grid;
-  gap: 14px;
+  gap: 10px;
   max-width: 680px;
 }
 
