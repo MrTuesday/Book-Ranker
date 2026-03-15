@@ -976,11 +976,7 @@ export default function App() {
         return [...current, tag];
       }
 
-      if (existingIndex === current.length - 1) {
-        return current.slice(0, -1);
-      }
-
-      return current.slice(0, existingIndex + 1);
+      return current.slice(0, existingIndex);
     });
     setPathRecommendation(null);
     setPathRecommendationError(null);
