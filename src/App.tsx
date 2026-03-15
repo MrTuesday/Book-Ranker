@@ -1145,36 +1145,48 @@ export default function App() {
   );
 
   /* ── scroll-driven graph expansion ── */
+  const graphStageRef = useRef<HTMLElement>(null);
   useEffect(() => {
     if (!hasInterestMap) return;
 
-    const stage = document.querySelector<HTMLElement>(".graph-stage");
-    if (!stage) return;
+    // Delay to ensure DOM is rendered after conditional
+    const initTimer = setTimeout(() => {
+      const stage = graphStageRef.current;
+      if (!stage) {
+        console.warn("[graph-expand] graph-stage ref not found");
+        return;
+      }
+      console.log("[graph-expand] activated");
 
-    // Auto-scroll so panels are visible on load
-    const timer = setTimeout(() => {
+      // Auto-scroll so panels are visible on load
       window.scrollTo({ top: window.innerHeight * 0.6, behavior: "instant" as ScrollBehavior });
-    }, 120);
 
-    // Scale the graph based on scroll position:
-    // scrollY = 0 → fully expanded (scale 1.0)
-    // scrollY >= threshold → compact (scale 0.55)
-    function onScroll() {
-      const threshold = window.innerHeight * 0.6;
-      const t = Math.min(1, window.scrollY / threshold); // 0 at top, 1 at threshold
-      const scale = 1.0 - t * 0.45; // 1.0 → 0.55
-      stage!.style.transform = `translateX(-50%) scale(${scale})`;
-      stage!.style.transformOrigin = "top center";
-    }
+      // Scale the graph based on scroll position
+      function onScroll() {
+        const threshold = window.innerHeight * 0.6;
+        const t = Math.min(1, window.scrollY / threshold);
+        const scale = 1.0 - t * 0.45; // 1.0 at top → 0.55 when scrolled
+        stage!.style.transform = `translateX(-50%) scale(${scale})`;
+        stage!.style.transformOrigin = "top center";
+      }
 
-    window.addEventListener("scroll", onScroll, { passive: true });
-    onScroll(); // apply immediately
+      window.addEventListener("scroll", onScroll, { passive: true });
+      onScroll();
+
+      // Store cleanup ref
+      (stage as any).__cleanupScroll = () => {
+        window.removeEventListener("scroll", onScroll);
+        stage!.style.transform = "translateX(-50%)";
+        stage!.style.transformOrigin = "";
+      };
+    }, 200);
 
     return () => {
-      clearTimeout(timer);
-      window.removeEventListener("scroll", onScroll);
-      stage!.style.transform = "translateX(-50%)";
-      stage!.style.transformOrigin = "";
+      clearTimeout(initTimer);
+      const stage = graphStageRef.current;
+      if (stage && (stage as any).__cleanupScroll) {
+        (stage as any).__cleanupScroll();
+      }
     };
   }, [hasInterestMap]);
 
@@ -2028,7 +2040,7 @@ export default function App() {
         .join(" ")}
     >
       {hasInterestMap ? (
-        <section className="graph-stage" aria-label="Interest map">
+        <section ref={graphStageRef} className="graph-stage" aria-label="Interest map">
           <div className="graph-stage-frame">
             <InterestMap
               books={books}
