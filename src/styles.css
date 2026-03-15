@@ -374,6 +374,10 @@ h3 {
     box-shadow: 0 28px 80px rgba(23, 20, 17, 0.18);
 }
 
+.interest-map-overlay {
+    width: min(1080px, calc(100vw - 48px));
+}
+
 .overlay-head {
     display: flex;
     justify-content: space-between;
@@ -394,12 +398,12 @@ h3 {
     display: flex;
     align-items: center;
     justify-content: center;
+    width: 100%;
     max-height: calc(100vh - 240px);
 }
 
 .interest-map-overlay .interest-map-chart {
-    width: auto;
-    max-width: 100%;
+    width: 100%;
     max-height: calc(100vh - 252px);
 }
 
