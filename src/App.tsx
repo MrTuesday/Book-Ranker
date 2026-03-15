@@ -25,9 +25,6 @@ import {
   writeAuthorExperience,
   renameGenreInBooks,
   renameAuthorInBooks,
-  readUserLinks,
-  writeUserLinks,
-  type UserLink,
 } from "./lib/books-api";
 import {
   GLOBAL_MEAN,
@@ -248,14 +245,12 @@ function InterestMap({
   compact = false,
   selectedPath = [],
   onSelectTag,
-  userLinks = [],
 }: {
   books: Book[];
   interests: GenreInterestMap;
   compact?: boolean;
   selectedPath?: string[];
   onSelectTag?: (tag: string) => void;
-  userLinks?: UserLink[];
 }) {
   const data = useMemo(() => {
     const tagCounts = new Map<string, number>();
@@ -851,10 +846,7 @@ function InterestMap({
     return { ...node, index, labelX, labelY, labelAnchor };
   });
 
-  const validUserLinks = userLinks.filter(
-    ([a, b]) => nodeMap.has(a) && nodeMap.has(b),
-  );
-  const hasLinks = data.links.length > 0 || validUserLinks.length > 0;
+  const hasLinks = data.links.length > 0;
   const interestLabel =
     data.nodes.length === 1 ? "1 interest" : `${data.nodes.length} interests`;
   const connectionLabel =
@@ -975,44 +967,38 @@ function InterestMap({
               />
             );
           })}
-          {validUserLinks.map(([a, b]) => {
-            const source = nodeMap.get(a);
-            const target = nodeMap.get(b);
+          {/* Selection web: connect all selected path nodes */}
+          {selectedPath.length >= 2 &&
+            selectedPath.flatMap((a, i) =>
+              selectedPath.slice(i + 1).map((b) => {
+                const source = nodeMap.get(a);
+                const target = nodeMap.get(b);
+                if (!source || !target) return null;
 
-            if (!source || !target) {
-              return null;
-            }
+                const dx = target.x - source.x;
+                const dy = target.y - source.y;
+                const distance = Math.max(1, Math.hypot(dx, dy));
+                const unitX = dx / distance;
+                const unitY = dy / distance;
+                const startX = source.x + unitX * (source.radius + 1);
+                const startY = source.y + unitY * (source.radius + 1);
+                const endX = target.x - unitX * (target.radius + 1);
+                const endY = target.y - unitY * (target.radius + 1);
 
-            const dx = target.x - source.x;
-            const dy = target.y - source.y;
-            const distance = Math.max(1, Math.hypot(dx, dy));
-            const unitX = dx / distance;
-            const unitY = dy / distance;
-            const startX = source.x + unitX * (source.radius + 1);
-            const startY = source.y + unitY * (source.radius + 1);
-            const endX = target.x - unitX * (target.radius + 1);
-            const endY = target.y - unitY * (target.radius + 1);
-            const isHighlighted =
-              selectedPathSet.has(a) && selectedPathSet.has(b);
-
-            return (
-              <line
-                key={`user-link:${a}:${b}`}
-                x1={startX}
-                y1={startY}
-                x2={endX}
-                y2={endY}
-                stroke={
-                  isHighlighted
-                    ? "rgba(59, 130, 246, 0.8)"
-                    : "rgba(59, 130, 246, 0.4)"
-                }
-                strokeWidth={isHighlighted ? 2.2 : 1.5}
-                strokeDasharray="6 4"
-                strokeLinecap="round"
-              />
-            );
-          })}
+                return (
+                  <line
+                    key={`selection-web:${a}:${b}`}
+                    x1={startX}
+                    y1={startY}
+                    x2={endX}
+                    y2={endY}
+                    stroke="rgba(180, 83, 9, 0.6)"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                );
+              }),
+            )}
           {renderNodes.map((node) => (
             <g
               key={node.tag}
@@ -1038,17 +1024,17 @@ function InterestMap({
                 <circle
                   cx={node.x}
                   cy={node.y}
-                  r={node.radius + 4}
-                  fill="rgba(180, 83, 9, 0.08)"
-                  stroke="rgba(180, 83, 9, 0.62)"
-                  strokeWidth="1.4"
+                  r={node.radius + 5}
+                  fill="rgba(180, 83, 9, 0.12)"
+                  stroke="rgba(180, 83, 9, 0.7)"
+                  strokeWidth="2"
                 />
               ) : null}
               <circle
                 cx={node.x}
                 cy={node.y}
                 r={node.radius}
-                fill="rgba(180, 83, 9, 0.55)"
+                fill={selectedPathSet.has(node.tag) ? "rgba(180, 83, 9, 0.85)" : "rgba(180, 83, 9, 0.55)"}
                 stroke="rgba(180, 83, 9, 0.3)"
                 strokeWidth="1"
               />
@@ -1118,7 +1104,6 @@ export default function App() {
   const [genreInterests, setGenreInterests] = useState<GenreInterestMap>({});
   const [authorExperiences, setAuthorExperiences] =
     useState<AuthorExperienceMap>({});
-  const [userLinks, setUserLinks] = useState<UserLink[]>([]);
   const [recommendations, setRecommendations] =
     useState<PathRecommendationResponse | null>(null);
   const [isLoadingRecs, setIsLoadingRecs] = useState(false);
@@ -1138,13 +1123,10 @@ export default function App() {
         const savedBooks = await fetchBooks();
         const savedGenreInterests = readGenreInterests();
         const savedAuthorExperiences = readAuthorExperiences();
-        const savedUserLinks = readUserLinks();
-
         if (isActive) {
           setBooks(savedBooks);
           setGenreInterests(savedGenreInterests);
           setAuthorExperiences(savedAuthorExperiences);
-          setUserLinks(savedUserLinks);
         }
       } catch (error) {
         if (isActive) {
@@ -1175,59 +1157,6 @@ export default function App() {
       return current.filter((currentTag) => currentTag !== tag);
     });
   }
-
-  function linkSelectedNodes() {
-    if (selectedInterestPath.length < 2) return;
-
-    const existingKeys = new Set(
-      userLinks.map(([a, b]) => {
-        const sorted = a < b ? [a, b] : [b, a];
-        return `${sorted[0]}\0${sorted[1]}`;
-      }),
-    );
-
-    const newLinks: UserLink[] = [];
-    for (let i = 0; i < selectedInterestPath.length; i++) {
-      for (let j = i + 1; j < selectedInterestPath.length; j++) {
-        const a = selectedInterestPath[i];
-        const b = selectedInterestPath[j];
-        const sorted: UserLink = a < b ? [a, b] : [b, a];
-        const key = `${sorted[0]}\0${sorted[1]}`;
-        if (!existingKeys.has(key)) {
-          newLinks.push(sorted);
-          existingKeys.add(key);
-        }
-      }
-    }
-
-    if (newLinks.length > 0) {
-      const updated = writeUserLinks([...userLinks, ...newLinks]);
-      setUserLinks(updated);
-    }
-    setSelectedInterestPath([]);
-  }
-
-  function unlinkSelectedNodes() {
-    if (selectedInterestPath.length < 2) return;
-
-    const selectedSet = new Set(selectedInterestPath);
-    const filtered = userLinks.filter(
-      ([a, b]) => !(selectedSet.has(a) && selectedSet.has(b)),
-    );
-
-    const updated = writeUserLinks(filtered);
-    setUserLinks(updated);
-    setSelectedInterestPath([]);
-  }
-
-  const selectedHaveUserLink = useMemo(() => {
-    if (selectedInterestPath.length < 2) return false;
-    const selectedSet = new Set(selectedInterestPath);
-    return userLinks.some(
-      ([a, b]) => selectedSet.has(a) && selectedSet.has(b),
-    );
-  }, [selectedInterestPath, userLinks]);
-
 
   // Calibrate genre interests by blending stated interests with myRating data.
   // This lets personal ratings influence all books indirectly via genre weights.
@@ -2650,16 +2579,13 @@ export default function App() {
             interests={genreInterests}
             selectedPath={selectedInterestPath}
             onSelectTag={toggleInterestPathTag}
-            userLinks={userLinks}
           />
+        </section>
+
+        {/* ── Right column: recommendations ── */}
+        <aside className="right-column">
           {selectedInterestPath.length >= 2 ? (
-            <div className="interest-map-actions">
-              <button
-                className="interest-map-action-btn link-btn"
-                onClick={linkSelectedNodes}
-              >
-                Link {selectedInterestPath.length} selected
-              </button>
+            <div className="right-column-actions">
               <button
                 className="interest-map-action-btn find-btn"
                 onClick={() => void findBooks()}
@@ -2667,25 +2593,13 @@ export default function App() {
               >
                 {isLoadingRecs ? "Searching..." : "Find Books"}
               </button>
-              {selectedHaveUserLink ? (
-                <button
-                  className="interest-map-action-btn unlink-btn"
-                  onClick={unlinkSelectedNodes}
-                >
-                  Unlink
-                </button>
-              ) : null}
             </div>
           ) : null}
           {recError ? (
-            <div className="interest-map-actions">
+            <div className="right-column-actions">
               <p className="panel-error">{recError}</p>
             </div>
           ) : null}
-        </section>
-
-        {/* ── Right column: recommendations ── */}
-        <aside className="right-column">
           {isLoadingRecs ? (
             <div className="right-column-status">
               <p>Searching for books...</p>

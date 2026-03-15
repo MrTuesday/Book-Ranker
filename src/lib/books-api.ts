@@ -20,7 +20,6 @@ export type BookPayload = Omit<Book, "id">;
 const STORAGE_KEY = "book-ranker.books.v1";
 const GENRE_INTEREST_KEY = "book-ranker.genre-interests.v1";
 const AUTHOR_EXP_KEY = "book-ranker.author-experiences.v1";
-const USER_LINKS_KEY = "book-ranker.user-links.v1";
 const seededBooks: Book[] = [];
 
 function cloneBooks(books: Book[]) {
@@ -386,66 +385,6 @@ export async function renameAuthorInBooks(oldAuthor: string, newAuthor: string) 
     authors: replaceTag(book.authors, oldAuthor, newAuthor),
   }));
   return writeBooks(updated);
-}
-
-export type UserLink = [string, string];
-
-function normalizeLink(a: string, b: string): UserLink {
-  return a < b ? [a, b] : [b, a];
-}
-
-function linkKey(link: UserLink): string {
-  return `${link[0]}\0${link[1]}`;
-}
-
-export function readUserLinks(): UserLink[] {
-  try {
-    const storage = getStorage();
-    const raw = storage.getItem(USER_LINKS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    if (Array.isArray(parsed)) {
-      const seen = new Set<string>();
-      const links: UserLink[] = [];
-      for (const item of parsed) {
-        if (
-          Array.isArray(item) &&
-          item.length === 2 &&
-          typeof item[0] === "string" &&
-          typeof item[1] === "string" &&
-          item[0].trim() &&
-          item[1].trim()
-        ) {
-          const link = normalizeLink(item[0].trim(), item[1].trim());
-          const key = linkKey(link);
-          if (!seen.has(key)) {
-            seen.add(key);
-            links.push(link);
-          }
-        }
-      }
-      return links;
-    }
-  } catch {
-    // ignore
-  }
-  return [];
-}
-
-export function writeUserLinks(links: UserLink[]): UserLink[] {
-  const storage = getStorage();
-  const seen = new Set<string>();
-  const deduped: UserLink[] = [];
-  for (const [a, b] of links) {
-    const link = normalizeLink(a.trim(), b.trim());
-    const key = linkKey(link);
-    if (link[0] && link[1] && link[0] !== link[1] && !seen.has(key)) {
-      seen.add(key);
-      deduped.push(link);
-    }
-  }
-  storage.setItem(USER_LINKS_KEY, JSON.stringify(deduped));
-  return deduped;
 }
 
 export async function deleteBookRecord(id: number) {
