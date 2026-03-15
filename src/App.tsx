@@ -386,7 +386,6 @@ function InterestMap({
           (interests[rightTag] ?? 3) - (interests[leftTag] ?? 3) ||
           leftTag.localeCompare(rightTag),
       )
-      .slice(0, 8)
       .map(([tag, count]) => ({
         tag,
         count,
@@ -408,8 +407,7 @@ function InterestMap({
           right.count - left.count ||
           left.source.localeCompare(right.source) ||
           left.target.localeCompare(right.target),
-      )
-      .slice(0, 16);
+      );
 
     return { nodes, links };
   }, [books, interests]);
@@ -419,13 +417,6 @@ function InterestMap({
       return null;
     }
 
-    const width = 700;
-    const height = 340;
-    const padding = 42;
-    const centerX = width / 2;
-    const centerY = height / 2;
-    const maxNodeCount = Math.max(...data.nodes.map((node) => node.count), 1);
-    const maxLinkCount = Math.max(...data.links.map((link) => link.count), 1);
     const degreeMap = new Map<string, number>();
 
     for (const node of data.nodes) {
@@ -461,9 +452,29 @@ function InterestMap({
           left.tag.localeCompare(right.tag),
       );
     const rankedNodes = [...connectedNodes, ...isolatedNodes];
-    const innerRingCount = Math.min(Math.max(0, connectedNodes.length - 1), 4);
-    const outerRingStart = 1 + innerRingCount;
-    const outerRingCount = Math.max(0, rankedNodes.length - outerRingStart);
+    const ringCapacities = [5, 8, 10, 12, 14];
+    const ringSizes: number[] = [];
+    let remainingNodes = Math.max(0, rankedNodes.length - 1);
+    let ringIndex = 0;
+
+    while (remainingNodes > 0) {
+      const capacity =
+        ringCapacities[ringIndex] ??
+        ringCapacities[ringCapacities.length - 1] +
+          (ringIndex - ringCapacities.length + 1) * 2;
+      const nextRingSize = Math.min(capacity, remainingNodes);
+      ringSizes.push(nextRingSize);
+      remainingNodes -= nextRingSize;
+      ringIndex += 1;
+    }
+
+    const width = 720;
+    const height = Math.max(340, 300 + ringSizes.length * 64);
+    const padding = 42;
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const maxNodeCount = Math.max(...data.nodes.map((node) => node.count), 1);
+    const maxLinkCount = Math.max(...data.links.map((link) => link.count), 1);
 
     const positionedNodes = rankedNodes.map((node, index) => {
       const seed = hashTag(node.tag);
@@ -473,16 +484,20 @@ function InterestMap({
       let y = centerY;
 
       if (index > 0) {
-        const isInnerRing = index <= innerRingCount;
-        const ringIndex = isInnerRing ? index - 1 : index - outerRingStart;
-        const ringTotal = isInnerRing
-          ? innerRingCount
-          : Math.max(outerRingCount, 1);
-        const ringRadius = isInnerRing ? 90 : 158 + ((seed >> 10) % 26);
+        let ringNumber = 0;
+        let slotIndex = index - 1;
+
+        while (slotIndex >= (ringSizes[ringNumber] ?? 0)) {
+          slotIndex -= ringSizes[ringNumber] ?? 0;
+          ringNumber += 1;
+        }
+
+        const ringTotal = Math.max(ringSizes[ringNumber] ?? 1, 1);
+        const ringRadius = 88 + ringNumber * 54 + ((seed >> 10) % 14);
         const angleOffset = ((seed >> 5) % 21) / 21;
         const angle =
           -Math.PI / 2 +
-          ((ringIndex + angleOffset * 0.22) / ringTotal) * Math.PI * 2;
+          ((slotIndex + angleOffset * 0.22) / ringTotal) * Math.PI * 2;
 
         x = centerX + Math.cos(angle) * ringRadius;
         y = centerY + Math.sin(angle) * ringRadius * 0.72;
