@@ -884,8 +884,8 @@ function InterestMap({
   const connectionLabel =
     data.links.length === 1 ? "1 link" : `${data.links.length} links`;
   const selectedPathSet = new Set(selectedPath);
-  const selectedSegments = selectedPath.flatMap((tag, index) =>
-    index === 0 ? [] : [[selectedPath[index - 1], tag] as const],
+  const highlightedLinks = data.links.filter(
+    (link) => selectedPathSet.has(link.source) && selectedPathSet.has(link.target),
   );
   const isSelectable = !compact && typeof onSelectTag === "function";
 
@@ -903,7 +903,9 @@ function InterestMap({
     }
   }
 
-  function handleNodeClick(tag: string) {
+  function handleNodeClick(event: React.MouseEvent, tag: string) {
+    event.stopPropagation();
+
     if (wasDraggedRef.current) {
       wasDraggedRef.current = false;
       return;
@@ -967,9 +969,9 @@ function InterestMap({
               </g>
             );
           })}
-          {selectedSegments.map(([sourceTag, targetTag]) => {
-            const source = nodeMap.get(sourceTag);
-            const target = nodeMap.get(targetTag);
+          {highlightedLinks.map((link) => {
+            const source = nodeMap.get(link.source);
+            const target = nodeMap.get(link.target);
 
             if (!source || !target) {
               return null;
@@ -987,7 +989,7 @@ function InterestMap({
 
             return (
               <line
-                key={`selected:${sourceTag}:${targetTag}`}
+                key={`highlight:${link.source}:${link.target}`}
                 x1={startX}
                 y1={startY}
                 x2={endX}
@@ -1003,7 +1005,9 @@ function InterestMap({
               key={node.tag}
               className={`interest-map-node${isSelectable ? " is-selectable" : ""}${selectedPathSet.has(node.tag) ? " is-selected" : ""}`}
               onClick={
-                onSelectTag ? () => handleNodeClick(node.tag) : undefined
+                onSelectTag
+                  ? (event: React.MouseEvent) => handleNodeClick(event, node.tag)
+                  : undefined
               }
               onPointerDown={
                 !compact
@@ -2110,197 +2114,23 @@ export default function App() {
             }
           >
             {isInterestMapOpen ? (
-              <div className="interest-map-overlay">
-                <div className="overlay-head">
-                  <div>
-                    <p className="summary-label">Interest map</p>
-                    <h2 id="interest-map-overlay-title">Interest map</h2>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn btn-tertiary"
-                    onClick={() => setIsInterestMapOpen(false)}
-                  >
-                    Close
-                  </button>
-                </div>
-                <div className="interest-map-overlay-body">
-                  <div className="interest-map-overlay-main">
-                    <InterestMap
-                      books={books}
-                      interests={genreInterests}
-                      selectedPath={selectedInterestPath}
-                      onSelectTag={toggleInterestPathTag}
-                    />
-                  </div>
-                  <aside className="interest-map-overlay-sidebar">
-                    <section className="interest-map-builder">
-                      <p className="interest-map-builder-copy">
-                        Click interests in order to build a path, then ask for
-                        the book that best fits that route and your saved
-                        profile.
-                      </p>
-                      <div className="interest-map-selection">
-                        {selectedInterestPath.length > 0 ? (
-                          selectedInterestPath.map((tag, index) => (
-                            <span
-                              key={`${tag}:${index}`}
-                              className="interest-map-selection-chip"
-                            >
-                              <span className="interest-map-selection-index">
-                                {index + 1}
-                              </span>
-                              {tag}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="interest-map-selection-empty">
-                            Choose at least two interests.
-                          </span>
-                        )}
-                      </div>
-                      <div className="interest-map-builder-actions">
-                        <button
-                          type="button"
-                          className="btn btn-tertiary"
-                          onClick={() => {
-                            setSelectedInterestPath([]);
-                            setPathRecommendation(null);
-                            setPathRecommendationError(null);
-                          }}
-                          disabled={
-                            selectedInterestPath.length === 0 ||
-                            isFindingPathBook
-                          }
-                        >
-                          Clear path
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-primary"
-                          onClick={() => void findPathBook()}
-                          disabled={
-                            selectedInterestPath.length < 2 || isFindingPathBook
-                          }
-                        >
-                          {isFindingPathBook ? "Finding..." : "Find a book"}
-                        </button>
-                      </div>
-                      {pathRecommendationError ? (
-                        <p className="panel-error">{pathRecommendationError}</p>
-                      ) : null}
-                    </section>
-                    {pathRecommendation?.bestMatch ? (
-                      <section className="path-recommendation">
-                        <div className="path-recommendation-head">
-                          <div>
-                            <p className="summary-label">Recommended</p>
-                            <h3>{pathRecommendation.bestMatch.title}</h3>
-                          </div>
-                          <strong className="summary-number">
-                            {formatMainResult(
-                              pathRecommendation.bestMatch.score,
-                            )}
-                          </strong>
-                        </div>
-                        {pathRecommendation.bestMatch.authors.length > 0 ? (
-                          <p className="path-recommendation-authors">
-                            {pathRecommendation.bestMatch.authors.join(", ")}
-                          </p>
-                        ) : null}
-                        <div className="path-recommendation-meta">
-                          <span>
-                            {pathRecommendation.bestMatch.averageRating != null
-                              ? `${formatScore(pathRecommendation.bestMatch.averageRating, 2)} average`
-                              : "No provider rating"}
-                          </span>
-                          <span>
-                            {pathRecommendation.bestMatch.ratingsCount != null
-                              ? `${formatCount(pathRecommendation.bestMatch.ratingsCount)} ratings`
-                              : "No ratings count"}
-                          </span>
-                          <span>
-                            {`${pathRecommendation.bestMatch.matchedSelectedTags.length}/${selectedInterestPath.length} path interests`}
-                          </span>
-                        </div>
-                        {pathRecommendation.bestMatch.matchedSelectedTags
-                          .length > 0 ? (
-                          <div className="path-recommendation-tags">
-                            {pathRecommendation.bestMatch.matchedSelectedTags.map(
-                              (tag) => (
-                                <span className="genre-tag" key={tag}>
-                                  {tag}
-                                </span>
-                              ),
-                            )}
-                          </div>
-                        ) : null}
-                        {pathRecommendation.bestMatch.description ? (
-                          <p className="path-recommendation-description">
-                            {pathRecommendation.bestMatch.description}
-                          </p>
-                        ) : null}
-                        <div className="path-recommendation-links">
-                          {pathRecommendation.bestMatch.infoLink ? (
-                            <a
-                              className="btn btn-secondary"
-                              href={pathRecommendation.bestMatch.infoLink}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              View source
-                            </a>
-                          ) : null}
-                        </div>
-                        {pathRecommendation.candidates.length > 1 ? (
-                          <div className="path-recommendation-alternates">
-                            <p className="summary-label">Alternates</p>
-                            <div className="path-recommendation-list">
-                              {pathRecommendation.candidates
-                                .slice(1, 4)
-                                .map((candidate) => (
-                                  <article
-                                    className="path-recommendation-item"
-                                    key={candidate.id}
-                                  >
-                                    <div>
-                                      <h4>{candidate.title}</h4>
-                                      {candidate.authors.length > 0 ? (
-                                        <p>{candidate.authors.join(", ")}</p>
-                                      ) : null}
-                                    </div>
-                                    <div className="path-recommendation-item-meta">
-                                      <strong>
-                                        {formatMainResult(candidate.score)}
-                                      </strong>
-                                      {candidate.infoLink ? (
-                                        <a
-                                          href={candidate.infoLink}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                        >
-                                          Open
-                                        </a>
-                                      ) : null}
-                                    </div>
-                                  </article>
-                                ))}
-                            </div>
-                          </div>
-                        ) : null}
-                      </section>
-                    ) : pathRecommendation ? (
-                      <div className="path-recommendation path-recommendation-empty">
-                        No strong match came back for that path yet. Try a
-                        different combination of interests.
-                      </div>
-                    ) : null}
-                  </aside>
-                </div>
-              </div>
-            ) : (
-              <InterestMap books={books} interests={genreInterests} />
-            )}
+              <button
+                type="button"
+                className="btn btn-tertiary graph-stage-close"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setIsInterestMapOpen(false);
+                }}
+              >
+                Close
+              </button>
+            ) : null}
+            <InterestMap
+              books={books}
+              interests={genreInterests}
+              selectedPath={isInterestMapOpen ? selectedInterestPath : []}
+              onSelectTag={isInterestMapOpen ? toggleInterestPathTag : undefined}
+            />
           </div>
         </section>
       ) : (
