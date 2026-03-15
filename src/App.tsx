@@ -1161,14 +1161,12 @@ export default function App() {
     }
 
     function handleWheel(event: WheelEvent) {
-      if (window.scrollY <= 0 && event.deltaY < 0) {
-        // At top, scrolling up — expand the graph
-        expansion = Math.min(1, expansion + Math.abs(event.deltaY) / 300);
+      if (window.scrollY <= 2 && event.deltaY < 0) {
+        expansion = Math.min(1, expansion + Math.abs(event.deltaY) / 150);
         applyExpansion();
         event.preventDefault();
       } else if (expansion > 0) {
-        // Graph is expanded — scrolling down shrinks it first
-        expansion = Math.max(0, expansion - event.deltaY / 300);
+        expansion = Math.max(0, expansion - event.deltaY / 150);
         applyExpansion();
         if (expansion > 0) {
           event.preventDefault();
