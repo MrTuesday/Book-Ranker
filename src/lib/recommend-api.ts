@@ -1,12 +1,8 @@
 import type { AuthorExperienceMap, Book, GenreInterestMap } from "./books-api";
-import { searchGoogleBooks, type GoogleBooksResult } from "./google-books";
+import { searchBooks, type BookSearchResult } from "./book-search";
 import {
   GLOBAL_MEAN,
-  SMOOTHING_FACTOR,
   bayesianScore,
-  averageTagPreference,
-  tagPreferences,
-  compositeScore,
 } from "./scoring";
 
 export type PathRecommendationRequest = {
@@ -29,23 +25,14 @@ export type RecommendedBook = {
   infoLink?: string;
   thumbnail?: string;
   score: number;
-  matchedSelectedTags: string[];
-  matchedProfileGenres: string[];
-  matchedAuthors: string[];
-  breakdown: {
-    bayesian: number;
-    author: number;
-    pathCoverage: number;
-    pathInterest: number;
-    genreMatches: number[];
-  };
+  tagOverlap: number;
 };
 
 export type PathRecommendationResponse = {
   bestMatch: RecommendedBook | null;
   candidates: RecommendedBook[];
   queries: string[];
-  provider: "google-books";
+  provider: "open-library";
 };
 
 function normalizeForMatch(s: string) {
@@ -53,7 +40,7 @@ function normalizeForMatch(s: string) {
 }
 
 function bookAlreadyExists(
-  candidate: GoogleBooksResult,
+  candidate: BookSearchResult,
   existingBooks: Book[],
 ) {
   const candidateTitle = normalizeForMatch(candidate.title);
@@ -63,67 +50,84 @@ function bookAlreadyExists(
 
   return existingBooks.some((book) => {
     if (normalizeForMatch(book.title) !== candidateTitle) return false;
-    // Title matches — check if at least one author overlaps
     if (candidateAuthors.size === 0 && book.authors.length === 0) return true;
     return book.authors.some((a) => candidateAuthors.has(normalizeForMatch(a)));
   });
 }
 
+/**
+ * Count how many of the user's selected tags appear in the candidate's subjects.
+ * Uses fuzzy substring matching since Open Library subjects are verbose
+ * (e.g. "Science fiction" vs "Science Fiction" or "Dystopian fiction" vs "Dystopian").
+ */
+function countTagOverlap(
+  candidateGenres: string[],
+  selectedTags: string[],
+): number {
+  const candidateLower = candidateGenres.map(normalizeForMatch);
+  let matches = 0;
+  for (const tag of selectedTags) {
+    const tagLower = normalizeForMatch(tag);
+    const hit = candidateLower.some(
+      (g) => g.includes(tagLower) || tagLower.includes(g),
+    );
+    if (hit) matches++;
+  }
+  return matches;
+}
+
 function scoreCandidate(
-  candidate: GoogleBooksResult,
+  candidate: BookSearchResult,
   selectedTags: string[],
   genreInterests: GenreInterestMap,
   authorExperiences: AuthorExperienceMap,
-  myRatingsByAuthor: Record<string, number>,
 ): RecommendedBook {
+  // Use lower smoothing factor for Open Library's smaller rating counts
   const R = candidate.starRating ?? GLOBAL_MEAN;
   const v = candidate.ratingCount ?? 0;
-  const bScore = bayesianScore(R, v, GLOBAL_MEAN, SMOOTHING_FACTOR);
+  const bScore = bayesianScore(R, v, GLOBAL_MEAN, 50);
 
-  // Author preference — use myRating-based scores if available
-  const authorScores = { ...authorExperiences };
-  for (const author of candidate.authors) {
-    if (myRatingsByAuthor[normalizeForMatch(author)] != null) {
-      authorScores[author] = myRatingsByAuthor[normalizeForMatch(author)];
-    }
-  }
-  const authorPref = averageTagPreference(candidate.authors, authorScores);
-
-  // Genre preferences from user interests
-  const genrePrefs = tagPreferences(candidate.genres, genreInterests);
-
-  // Path coverage: how many selected tags does this book match?
-  const candidateGenresLower = candidate.genres.map(normalizeForMatch);
-  const matchedSelected = selectedTags.filter((tag) =>
-    candidateGenresLower.some(
-      (g) => g.includes(normalizeForMatch(tag)) || normalizeForMatch(tag).includes(g),
-    ),
+  // Author familiarity bonus
+  const authorScores = candidate.authors.map(
+    (a) => authorExperiences[a] ?? 3,
   );
-  const pathCoverage = selectedTags.length > 0
-    ? matchedSelected.length / selectedTags.length
-    : 0;
+  const authorPref =
+    authorScores.length > 0
+      ? authorScores.reduce((sum, s) => sum + s, 0) / authorScores.length
+      : 3;
 
-  // Path interest: average interest score of matched selected tags
-  const matchedInterests = matchedSelected.map(
-    (tag) => genreInterests[tag] ?? 3,
-  );
-  const pathInterest = matchedInterests.length > 0
-    ? matchedInterests.reduce((a, b) => a + b, 0) / matchedInterests.length
-    : 3;
+  // Genre interest match — average interest of candidate's genres the user cares about
+  const genreScores = candidate.genres
+    .map((g) => {
+      // Try exact match first, then fuzzy
+      if (genreInterests[g] != null) return genreInterests[g];
+      const gLower = normalizeForMatch(g);
+      for (const [key, val] of Object.entries(genreInterests)) {
+        if (normalizeForMatch(key) === gLower) return val;
+      }
+      return null;
+    })
+    .filter((v): v is number => v != null);
+  const genrePref =
+    genreScores.length > 0
+      ? genreScores.reduce((sum, s) => sum + s, 0) / genreScores.length
+      : 3;
 
-  // Matched profile genres (genres the user has any interest data for)
-  const matchedProfileGenres = candidate.genres.filter(
-    (g) => genreInterests[g] != null,
-  );
+  // Tag overlap: how many selected tags does this book match?
+  const tagOverlap = countTagOverlap(candidate.genres, selectedTags);
+  const overlapRatio =
+    selectedTags.length > 0 ? tagOverlap / selectedTags.length : 0;
 
-  // Matched authors
-  const matchedAuthors = candidate.authors.filter(
-    (a) => authorExperiences[a] != null || myRatingsByAuthor[normalizeForMatch(a)] != null,
-  );
-
-  // Composite: base score + path coverage bonus (scaled to 0-5)
-  const pathBonus = pathCoverage * pathInterest;
-  const score = compositeScore(bScore, authorPref, ...genrePrefs, pathBonus);
+  // Final score: weighted combination
+  // - Bayesian rating quality: 30%
+  // - Genre interest alignment: 25%
+  // - Tag overlap with selection: 35% (this is the key signal)
+  // - Author familiarity: 10%
+  const score =
+    bScore * 0.3 +
+    genrePref * 0.25 +
+    overlapRatio * 5 * 0.35 + // scale to 0-5 range
+    authorPref * 0.1;
 
   return {
     id: `${candidate.title}::${candidate.authors.join(",")}`,
@@ -133,19 +137,10 @@ function scoreCandidate(
     averageRating: candidate.starRating,
     ratingsCount: candidate.ratingCount,
     description: candidate.description,
-    infoLink: candidate.googleBooksUrl,
+    infoLink: candidate.infoUrl,
     thumbnail: candidate.thumbnail,
     score,
-    matchedSelectedTags: matchedSelected,
-    matchedProfileGenres,
-    matchedAuthors,
-    breakdown: {
-      bayesian: bScore,
-      author: authorPref,
-      pathCoverage,
-      pathInterest,
-      genreMatches: genrePrefs,
-    },
+    tagOverlap,
   };
 }
 
@@ -154,22 +149,7 @@ export async function requestPathRecommendation(
 ): Promise<PathRecommendationResponse> {
   const { selectedTags, profile } = payload;
 
-  // Build myRating lookup by author (lowercased)
-  const myRatingsByAuthor: Record<string, number> = {};
-  for (const book of profile.books) {
-    if (book.myRating != null) {
-      for (const author of book.authors) {
-        const key = normalizeForMatch(author);
-        const existing = myRatingsByAuthor[key];
-        // Average if multiple books by same author
-        myRatingsByAuthor[key] = existing != null
-          ? (existing + book.myRating) / 2
-          : book.myRating;
-      }
-    }
-  }
-
-  const results = await searchGoogleBooks(selectedTags);
+  const results = await searchBooks(selectedTags);
 
   const candidates = results
     .filter((r) => !bookAlreadyExists(r, profile.books))
@@ -179,7 +159,6 @@ export async function requestPathRecommendation(
         selectedTags,
         profile.genreInterests,
         profile.authorExperiences,
-        myRatingsByAuthor,
       ),
     )
     .sort((a, b) => b.score - a.score);
@@ -188,6 +167,6 @@ export async function requestPathRecommendation(
     bestMatch: candidates[0] ?? null,
     candidates,
     queries: selectedTags,
-    provider: "google-books",
+    provider: "open-library",
   };
 }
