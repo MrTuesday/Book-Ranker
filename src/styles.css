@@ -188,6 +188,20 @@ h3 {
     transform: none;
 }
 
+.graph-stage:not(.is-expanded) .graph-stage-frame {
+    gap: 0;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+.graph-stage:not(.is-expanded) .graph-stage-frame:hover {
+    transform: none;
+    box-shadow: none;
+}
+
 .graph-stage-head {
     display: flex;
     justify-content: space-between;
@@ -403,7 +417,8 @@ h3 {
 }
 
 .graph-stage:not(.is-expanded) .interest-map-meta,
-.graph-stage:not(.is-expanded) .interest-map-note {
+.graph-stage:not(.is-expanded) .interest-map-note,
+.graph-stage:not(.is-expanded) .interest-map-label {
     display: none;
 }
 

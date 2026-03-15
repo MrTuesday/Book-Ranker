@@ -2003,20 +2003,7 @@ export default function App() {
                 </div>
               </div>
             ) : (
-              <>
-                <div className="graph-stage-head">
-                  <div className="graph-stage-copy">
-                    <p className="section-label">Interest map</p>
-                    <h1>
-                      Start from the shape of what you already care about.
-                    </h1>
-                  </div>
-                  <p className="graph-stage-hint">
-                    Scroll up or click to open the graph
-                  </p>
-                </div>
-                <InterestMap books={books} interests={genreInterests} />
-              </>
+              <InterestMap books={books} interests={genreInterests} />
             )}
           </div>
         </section>
