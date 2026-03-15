@@ -396,7 +396,7 @@ function InterestMap({
 
     const width = 1200;
     const height = Math.max(750, 600 + ringSizes.length * 40);
-    const padding = 50;
+    const padding = 80;
     const centerX = width / 2;
     const centerY = height / 2;
     const maxNodeCount = Math.max(...data.nodes.map((node) => node.count), 1);
@@ -419,7 +419,7 @@ function InterestMap({
         }
 
         const ringTotal = Math.max(ringSizes[ringNumber] ?? 1, 1);
-        const ringRadius = 250 + ringNumber * 120 + ((seed >> 10) % 20);
+        const ringRadius = 200 + ringNumber * 100 + ((seed >> 10) % 16);
         const angleOffset = ((seed >> 5) % 21) / 21;
         const angle =
           -Math.PI / 2 +
