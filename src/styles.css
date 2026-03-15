@@ -94,7 +94,7 @@ h3 {
 
 
 .app-shell.has-graph-stage .app-content {
-    padding-top: 100vh;
+    padding-top: 0;
 }
 
 .graph-stage,
@@ -112,17 +112,10 @@ h3 {
 }
 
 .graph-stage {
-    position: fixed;
-    top: 0;
-    left: 50%;
-    width: min(1120px, calc(100vw - 32px));
-    transform: translateX(-50%);
-    z-index: 0;
-    pointer-events: none;
+    width: 100%;
 }
 
 .graph-stage-frame {
-    pointer-events: auto;
     display: grid;
     padding: 24px 0 0;
     min-height: 100vh;
