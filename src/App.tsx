@@ -924,10 +924,10 @@ function InterestMap({
         <svg
           ref={svgRef}
           className={`interest-map-chart${dragRef.current ? " is-dragging" : ""}`}
-          preserveAspectRatio="xMidYMid meet"
+          preserveAspectRatio="xMidYMid slice"
           viewBox={(() => {
-            // When expanded (scrolled to top), zoom in gently
-            const zoomFactor = 1 - expansion * 0.3; // 1.0 → 0.7
+            // Subtle zoom as graph is revealed — graph is already full-size
+            const zoomFactor = 1 - expansion * 0.15; // 1.0 → 0.85
             const w = initialLayout.width * zoomFactor;
             const h = initialLayout.height * zoomFactor;
             const x = (initialLayout.width - w) / 2;
@@ -1161,15 +1161,15 @@ export default function App() {
   useEffect(() => {
     if (!hasInterestMap) return;
 
-    // Auto-scroll so panels are visible on load
+    // Auto-scroll so only a strip of graph peeks out (iceberg effect)
     const timer = setTimeout(() => {
-      window.scrollTo({ top: window.innerHeight * 0.6, behavior: "instant" as ScrollBehavior });
+      window.scrollTo({ top: window.innerHeight * 0.85, behavior: "instant" as ScrollBehavior });
     }, 200);
 
     function onScroll() {
-      const threshold = window.innerHeight * 0.6;
+      const threshold = window.innerHeight * 0.85;
       const scrollY = window.scrollY ?? window.pageYOffset;
-      const t = 1 - Math.min(1, scrollY / threshold); // 1 at top, 0 when scrolled past threshold
+      const t = 1 - Math.min(1, scrollY / threshold); // 1 at top, 0 when scrolled down
       setGraphExpansion(t);
     }
 
