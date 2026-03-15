@@ -1144,18 +1144,38 @@ export default function App() {
     [books],
   );
 
-  /* ── auto-scroll past graph so panels are visible on load ── */
-  const didAutoScroll = useRef(false);
+  /* ── scroll-driven graph expansion ── */
   useEffect(() => {
-    if (!hasInterestMap || didAutoScroll.current) return;
-    didAutoScroll.current = true;
-    // Wait for layout, then scroll past the graph so panels are visible.
-    // User scrolls up to reveal the full graph behind the panels.
+    if (!hasInterestMap) return;
+
+    const stage = document.querySelector<HTMLElement>(".graph-stage");
+    if (!stage) return;
+
+    // Auto-scroll so panels are visible on load
     const timer = setTimeout(() => {
-      const target = window.innerHeight * 0.6;
-      window.scrollTo({ top: target, behavior: "instant" as ScrollBehavior });
+      window.scrollTo({ top: window.innerHeight * 0.6, behavior: "instant" as ScrollBehavior });
     }, 120);
-    return () => clearTimeout(timer);
+
+    // Scale the graph based on scroll position:
+    // scrollY = 0 → fully expanded (scale 1.0)
+    // scrollY >= threshold → compact (scale 0.55)
+    function onScroll() {
+      const threshold = window.innerHeight * 0.6;
+      const t = Math.min(1, window.scrollY / threshold); // 0 at top, 1 at threshold
+      const scale = 1.0 - t * 0.45; // 1.0 → 0.55
+      stage!.style.transform = `translateX(-50%) scale(${scale})`;
+      stage!.style.transformOrigin = "top center";
+    }
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll(); // apply immediately
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("scroll", onScroll);
+      stage!.style.transform = "translateX(-50%)";
+      stage!.style.transformOrigin = "";
+    };
   }, [hasInterestMap]);
 
   const rankedBooks = useMemo<RankedBook[]>(() => {
