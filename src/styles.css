@@ -88,7 +88,7 @@ h3 {
     grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
     gap: 24px;
     margin-bottom: 28px;
-    align-items: center;
+    align-items: stretch;
 }
 
 .eyebrow,
@@ -116,6 +116,8 @@ h3 {
     display: grid;
     gap: 10px;
     max-width: 680px;
+    height: 100%;
+    align-content: space-between;
 }
 
 .hero h1 {
