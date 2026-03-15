@@ -1164,10 +1164,14 @@ export default function App() {
       // Scale the graph based on scroll position
       function onScroll() {
         const threshold = window.innerHeight * 0.6;
-        const t = Math.min(1, window.scrollY / threshold);
-        const scale = 1.0 - t * 0.45; // 1.0 at top → 0.55 when scrolled
+        const scrollY = window.scrollY ?? window.pageYOffset;
+        const t = Math.min(1, scrollY / threshold);
+        const scale = 1.0 - t * 0.6; // 1.0 at top → 0.4 when scrolled (very dramatic)
+        console.log("[graph-expand] scroll", scrollY, "t", t, "scale", scale);
         stage!.style.transform = `translateX(-50%) scale(${scale})`;
         stage!.style.transformOrigin = "top center";
+        // Debug: tint the background so we can SEE the scroll effect
+        stage!.style.backgroundColor = `rgba(180, 83, 9, ${0.15 * (1 - t)})`;
       }
 
       window.addEventListener("scroll", onScroll, { passive: true });
