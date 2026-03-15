@@ -1102,7 +1102,7 @@ export default function App() {
     useState<PathRecommendationResponse | null>(null);
   const [isLoadingRecs, setIsLoadingRecs] = useState(false);
   const [recError, setRecError] = useState<string | null>(null);
-  const [addedRecIds, setAddedRecIds] = useState<Set<string>>(new Set());
+  const [addedRecIds] = useState<Set<string>>(new Set());
 
 
   useEffect(() => {
