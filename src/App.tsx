@@ -829,6 +829,13 @@ function InterestMap({
     }
   }
 
+  function handleSvgClick(event: React.MouseEvent) {
+    if (wasDraggedRef.current) {
+      event.stopPropagation();
+      wasDraggedRef.current = false;
+    }
+  }
+
   if (!initialLayout) {
     return (
       <p className={`interest-map-empty${compact ? " is-compact" : ""}`}>
@@ -919,6 +926,7 @@ function InterestMap({
           className={`interest-map-chart${dragRef.current ? " is-dragging" : ""}`}
           viewBox={`0 0 ${initialLayout.width} ${initialLayout.height}`}
           aria-label="Interest graph showing how genre and topic tags connect across your books"
+          onClick={!compact ? handleSvgClick : undefined}
           onPointerMove={!compact ? handlePointerMove : undefined}
           onPointerUp={!compact ? handlePointerUp : undefined}
         >
@@ -1189,6 +1197,26 @@ export default function App() {
     },
     [hasInterestMap, isInterestMapOpen],
   );
+
+  // Expand graph when scrolling up at the top of the page
+  useEffect(() => {
+    if (!hasInterestMap || isInterestMapOpen) {
+      return;
+    }
+
+    function handleWheel(event: WheelEvent) {
+      if (window.scrollY <= 1 && event.deltaY < -6) {
+        event.preventDefault();
+        setIsInterestMapOpen(true);
+      }
+    }
+
+    window.addEventListener("wheel", handleWheel, { passive: false });
+
+    return () => {
+      window.removeEventListener("wheel", handleWheel);
+    };
+  }, [hasInterestMap, isInterestMapOpen]);
 
   async function findPathBook() {
     if (selectedInterestPath.length < 2) {
