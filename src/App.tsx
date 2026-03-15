@@ -258,11 +258,11 @@ function ScoreDistribution({ scores }: { scores: number[] }) {
   const hi = Math.min(100, Math.ceil(dataMax));
   const range = hi - lo || 1;
 
-  const w = 280;
-  const h = 56;
-  const r = 4;
-  const trackY = 20;
-  const pad = 20;
+  const w = 340;
+  const h = 60;
+  const r = 4.5;
+  const trackY = 22;
+  const pad = 24;
   const trackW = w - pad * 2;
 
   const toX = (v: number) => pad + ((v - lo) / range) * trackW;
@@ -1693,19 +1693,19 @@ export default function App() {
 
           <div className="hero-summary">
             <div className="summary-stats">
-              <article className="summary-tile">
+              <article className="summary-tile summary-tile-metric">
                 <span className="summary-label">Ranked</span>
                 <strong className="summary-number">{rankedCount}</strong>
               </article>
 
-              <article className="summary-tile">
+              <article className="summary-tile summary-tile-metric">
                 <span className="summary-label">Average</span>
                 <strong className="summary-number">
                   {averageScore === null ? "—" : formatMainResult(averageScore)}
                 </strong>
               </article>
 
-              <article className="summary-tile">
+              <article className="summary-tile summary-tile-distribution">
                 <span className="summary-label">Distribution</span>
                 <ScoreDistribution scores={rankedBooks.map((b) => b.score)} />
               </article>

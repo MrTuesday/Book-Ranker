@@ -155,8 +155,17 @@ h3 {
 
 .summary-stats {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 10px;
+}
+
+.summary-tile-metric {
+    grid-column: span 1;
+}
+
+.summary-tile-distribution,
+.summary-tile-map {
+    grid-column: span 2;
 }
 
 .panel {
@@ -1076,6 +1085,12 @@ input:focus {
 
     .summary-stats {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .summary-tile-metric,
+    .summary-tile-distribution,
+    .summary-tile-map {
+        grid-column: auto;
     }
 
     .entry-form {
