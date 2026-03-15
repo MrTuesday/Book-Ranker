@@ -58,7 +58,6 @@ type BookTagDrag = {
   tag: string;
 };
 type TagActionScope = "draft" | "book";
-type ScoreDisplayMode = "score" | "percent";
 type DraftTextField =
   | "title"
   | "starRating"
@@ -233,12 +232,8 @@ function formatScore(value: number, places = 2) {
   return value.toFixed(places);
 }
 
-function formatMainResult(value: number, displayMode: ScoreDisplayMode) {
-  if (displayMode === "percent") {
-    return `${Math.round(Math.max(0, Math.min(100, (value / 5) * 100)))}%`;
-  }
-
-  return formatScore(value);
+function formatMainResult(value: number) {
+  return `${Math.round(Math.max(0, Math.min(100, (value / 5) * 100)))}%`;
 }
 
 function formatCount(value: number) {
@@ -353,8 +348,6 @@ export default function App() {
   const [activeTagActionMenu, setActiveTagActionMenu] = useState<string | null>(
     null,
   );
-  const [scoreDisplayMode, setScoreDisplayMode] =
-    useState<ScoreDisplayMode>("score");
   const [draftTagDrag, setDraftTagDrag] = useState<DraftTagDrag | null>(null);
   const [draftTagDropTarget, setDraftTagDropTarget] = useState<{
     field: SuggestionField;
@@ -1231,9 +1224,7 @@ export default function App() {
               <article className="summary-tile">
                 <span className="summary-label">Average</span>
                 <strong className="summary-number">
-                  {averageScore === null
-                    ? "—"
-                    : formatMainResult(averageScore, scoreDisplayMode)}
+                  {averageScore === null ? "—" : formatMainResult(averageScore)}
                 </strong>
               </article>
 
@@ -1254,7 +1245,7 @@ export default function App() {
                     </p>
                   </div>
                   <span className="leader-score">
-                    {formatMainResult(leader.score, scoreDisplayMode)}
+                    {formatMainResult(leader.score)}
                   </span>
                 </div>
               ) : (
@@ -1790,28 +1781,6 @@ export default function App() {
       <section className="panel board">
         <div className="board-toolbar">
           <h2>My list</h2>
-          <div
-            className="display-toggle"
-            role="group"
-            aria-label="Score display"
-          >
-            <button
-              type="button"
-              className={`display-toggle-btn${scoreDisplayMode === "score" ? " is-active" : ""}`}
-              onClick={() => setScoreDisplayMode("score")}
-              aria-pressed={scoreDisplayMode === "score"}
-            >
-              Score / 5
-            </button>
-            <button
-              type="button"
-              className={`display-toggle-btn${scoreDisplayMode === "percent" ? " is-active" : ""}`}
-              onClick={() => setScoreDisplayMode("percent")}
-              aria-pressed={scoreDisplayMode === "percent"}
-            >
-              Likelihood %
-            </button>
-          </div>
         </div>
         <div className="ranking-list">
           {isLoading ? (
@@ -2189,7 +2158,7 @@ export default function App() {
                       </div>
 
                       <strong className="score-value">
-                        {formatMainResult(book.score, scoreDisplayMode)}
+                        {formatMainResult(book.score)}
                       </strong>
                     </div>
 

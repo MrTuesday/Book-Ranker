@@ -93,7 +93,6 @@ h3 {
 
 .eyebrow,
 .section-label,
-.score-label,
 .summary-label {
     display: inline-flex;
     align-items: center;
@@ -236,41 +235,6 @@ h3 {
 
 .summary-tile-wide {
     grid-column: 1 / -1;
-}
-
-.display-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px;
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.58);
-}
-
-.display-toggle-btn {
-    border: none;
-    border-radius: 999px;
-    padding: 8px 12px;
-    background: transparent;
-    color: var(--muted);
-    font-size: 0.8rem;
-    font-weight: 700;
-    letter-spacing: 0.03em;
-    cursor: pointer;
-    transition:
-        background-color 0.15s ease,
-        color 0.15s ease,
-        transform 0.15s ease;
-}
-
-.display-toggle-btn:hover {
-    color: var(--accent);
-}
-
-.display-toggle-btn.is-active {
-    background: rgba(180, 83, 9, 0.12);
-    color: var(--accent);
 }
 
 .distribution-chart {
