@@ -270,12 +270,14 @@ function InterestMap({
   compact = false,
   selectedPath = [],
   onSelectTag,
+  expansion = 0,
 }: {
   books: Book[];
   interests: GenreInterestMap;
   compact?: boolean;
   selectedPath?: string[];
   onSelectTag?: (tag: string) => void;
+  expansion?: number; // 0 = default, 1 = fully expanded
 }) {
   const data = useMemo(() => {
     const tagCounts = new Map<string, number>();
@@ -921,7 +923,15 @@ function InterestMap({
         <svg
           ref={svgRef}
           className={`interest-map-chart${dragRef.current ? " is-dragging" : ""}`}
-          viewBox={`0 0 ${initialLayout.width} ${initialLayout.height}`}
+          viewBox={(() => {
+            // When expanded, shrink the viewBox to zoom into the center
+            const zoomFactor = 1 - expansion * 0.5; // 1.0 → 0.5
+            const w = initialLayout.width * zoomFactor;
+            const h = initialLayout.height * zoomFactor;
+            const x = (initialLayout.width - w) / 2;
+            const y = (initialLayout.height - h) / 2;
+            return `${x} ${y} ${w} ${h}`;
+          })()}
           aria-label="Interest graph showing how genre and topic tags connect across your books"
           onClick={!compact ? handleSvgClick : undefined}
           onPointerMove={!compact ? handlePointerMove : undefined}
@@ -1145,52 +1155,28 @@ export default function App() {
   );
 
   /* ── scroll-driven graph expansion ── */
-  const graphStageRef = useRef<HTMLElement>(null);
+  const [graphExpansion, setGraphExpansion] = useState(0);
   useEffect(() => {
     if (!hasInterestMap) return;
 
-    // Delay to ensure DOM is rendered after conditional
-    const initTimer = setTimeout(() => {
-      const stage = graphStageRef.current;
-      if (!stage) {
-        console.warn("[graph-expand] graph-stage ref not found");
-        return;
-      }
-      console.log("[graph-expand] activated");
-
-      // Auto-scroll so panels are visible on load
+    // Auto-scroll so panels are visible on load
+    const timer = setTimeout(() => {
       window.scrollTo({ top: window.innerHeight * 0.6, behavior: "instant" as ScrollBehavior });
-
-      // Scale the graph based on scroll position
-      function onScroll() {
-        const threshold = window.innerHeight * 0.6;
-        const scrollY = window.scrollY ?? window.pageYOffset;
-        const t = Math.min(1, scrollY / threshold);
-        const scale = 1.0 - t * 0.6; // 1.0 at top → 0.4 when scrolled (very dramatic)
-        console.log("[graph-expand] scroll", scrollY, "t", t, "scale", scale);
-        stage!.style.transform = `translateX(-50%) scale(${scale})`;
-        stage!.style.transformOrigin = "top center";
-        // Debug: tint the background so we can SEE the scroll effect
-        stage!.style.backgroundColor = `rgba(180, 83, 9, ${0.15 * (1 - t)})`;
-      }
-
-      window.addEventListener("scroll", onScroll, { passive: true });
-      onScroll();
-
-      // Store cleanup ref
-      (stage as any).__cleanupScroll = () => {
-        window.removeEventListener("scroll", onScroll);
-        stage!.style.transform = "translateX(-50%)";
-        stage!.style.transformOrigin = "";
-      };
     }, 200);
 
+    function onScroll() {
+      const threshold = window.innerHeight * 0.6;
+      const scrollY = window.scrollY ?? window.pageYOffset;
+      const t = 1 - Math.min(1, scrollY / threshold); // 1 at top, 0 when scrolled past threshold
+      setGraphExpansion(t);
+    }
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+
     return () => {
-      clearTimeout(initTimer);
-      const stage = graphStageRef.current;
-      if (stage && (stage as any).__cleanupScroll) {
-        (stage as any).__cleanupScroll();
-      }
+      clearTimeout(timer);
+      window.removeEventListener("scroll", onScroll);
     };
   }, [hasInterestMap]);
 
@@ -2044,13 +2030,14 @@ export default function App() {
         .join(" ")}
     >
       {hasInterestMap ? (
-        <section ref={graphStageRef} className="graph-stage" aria-label="Interest map">
+        <section className="graph-stage" aria-label="Interest map">
           <div className="graph-stage-frame">
             <InterestMap
               books={books}
               interests={genreInterests}
               selectedPath={selectedInterestPath}
               onSelectTag={toggleInterestPathTag}
+              expansion={graphExpansion}
             />
           </div>
         </section>
