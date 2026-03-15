@@ -125,8 +125,7 @@ h3 {
     pointer-events: auto;
     display: grid;
     padding: 24px 0 0;
-    min-height: calc(280px + var(--graph-expansion, 1) * 340px);
-    transition: min-height 60ms ease-out;
+    min-height: clamp(340px, 55vh, 620px);
 }
 
 .graph-stage-head {

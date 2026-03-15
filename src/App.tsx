@@ -664,13 +664,13 @@ function InterestMap({
       for (let i = 0; i < nodes.length; i += 1) {
         const hash = hashTag(nodes[i].tag);
         const px =
-          Math.sin(time * 0.012 + (hash & 0xff) * 0.05) * 0.035;
+          Math.sin(time * 0.008 + (hash & 0xff) * 0.05) * 0.02;
         const py =
-          Math.cos(time * 0.015 + ((hash >> 8) & 0xff) * 0.05) * 0.025;
+          Math.cos(time * 0.01 + ((hash >> 8) & 0xff) * 0.05) * 0.015;
         nodes[i].vx += px;
         nodes[i].vy += py;
 
-        const cp = nodes[i].degree > 0 ? 0.002 : 0.001;
+        const cp = nodes[i].degree > 0 ? 0.012 : 0.008;
         nodes[i].vx += (centerX - nodes[i].x) * cp;
         nodes[i].vy += (centerY - nodes[i].y) * cp;
       }
@@ -1144,29 +1144,6 @@ export default function App() {
     [books],
   );
 
-  const graphStageRef = useRef<HTMLElement>(null);
-
-  useEffect(() => {
-    if (!hasInterestMap) {
-      return;
-    }
-
-    function handleScroll() {
-      const threshold = 300;
-      const expansion = Math.max(0, 1 - window.scrollY / threshold);
-      graphStageRef.current?.style.setProperty(
-        "--graph-expansion",
-        String(expansion),
-      );
-    }
-
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    handleScroll();
-
-    return () => {
-      window.removeEventListener("scroll", handleScroll);
-    };
-  }, [hasInterestMap]);
 
   const rankedBooks = useMemo<RankedBook[]>(() => {
     return books
@@ -2018,7 +1995,7 @@ export default function App() {
         .join(" ")}
     >
       {hasInterestMap ? (
-        <section ref={graphStageRef} className="graph-stage" aria-label="Interest map">
+        <section className="graph-stage" aria-label="Interest map">
           <div className="graph-stage-frame">
             <InterestMap
               books={books}
