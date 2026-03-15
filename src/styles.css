@@ -155,8 +155,9 @@ h3 {
 
 .summary-stats {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 10px;
+    align-items: start;
 }
 
 .panel {
@@ -241,6 +242,24 @@ h3 {
     grid-column: 1 / -1;
 }
 
+.summary-tile-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+}
+
+.summary-tile-map {
+    gap: 10px;
+}
+
+.summary-tile-link {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
 .distribution-chart {
     width: 100%;
     height: 56px;
@@ -249,6 +268,10 @@ h3 {
 .interest-map {
     display: grid;
     gap: 12px;
+}
+
+.interest-map.is-compact {
+    gap: 0;
 }
 
 .interest-map-meta {
@@ -277,6 +300,32 @@ h3 {
     height: auto;
 }
 
+.interest-map-preview-button {
+    width: 100%;
+    padding: 0;
+    background: none;
+    text-align: left;
+    cursor: pointer;
+}
+
+.interest-map-preview-button:focus-visible {
+    outline: 2px solid rgba(180, 83, 9, 0.4);
+    outline-offset: 4px;
+    border-radius: 18px;
+}
+
+.interest-map.is-compact .interest-map-plot {
+    min-height: 112px;
+    padding: 0;
+    border: none;
+    border-radius: 14px;
+    background: transparent;
+}
+
+.interest-map.is-compact .interest-map-chart {
+    aspect-ratio: 16 / 9;
+}
+
 .interest-map-label {
     fill: rgba(23, 20, 17, 0.74);
     font-size: 10.5px;
@@ -301,6 +350,46 @@ h3 {
     border-radius: 16px;
     background: rgba(255, 255, 255, 0.3);
     text-align: center;
+}
+
+.interest-map-empty.is-compact {
+    min-height: 112px;
+    padding: 12px;
+    font-size: 0.8rem;
+}
+
+.overlay-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: rgba(23, 20, 17, 0.24);
+    backdrop-filter: blur(10px);
+}
+
+.overlay-panel {
+    width: min(920px, 100%);
+    max-height: calc(100vh - 48px);
+    overflow: auto;
+    padding: 22px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xl);
+    background: rgba(255, 252, 247, 0.96);
+    box-shadow: 0 28px 80px rgba(23, 20, 17, 0.18);
+}
+
+.overlay-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+    gap: 16px;
+    margin-bottom: 18px;
+}
+
+.overlay-head h2 {
+    font-size: 1.8rem;
 }
 
 .summary-number {
@@ -1010,6 +1099,19 @@ input:focus {
 
     .interest-map-plot {
         padding: 4px;
+    }
+
+    .overlay-backdrop {
+        padding: 16px;
+    }
+
+    .overlay-panel {
+        padding: 18px;
+    }
+
+    .overlay-head {
+        grid-template-columns: 1fr;
+        display: grid;
     }
 
     .ranking-row {

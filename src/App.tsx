@@ -349,9 +349,11 @@ function hashTag(value: string) {
 function InterestMap({
   books,
   interests,
+  compact = false,
 }: {
   books: Book[];
   interests: GenreInterestMap;
+  compact?: boolean;
 }) {
   const data = useMemo(() => {
     const tagCounts = new Map<string, number>();
@@ -691,7 +693,7 @@ function InterestMap({
 
   if (!graph) {
     return (
-      <p className="interest-map-empty">
+      <p className={`interest-map-empty${compact ? " is-compact" : ""}`}>
         Add genre and topic tags to see how your interests connect.
       </p>
     );
@@ -705,11 +707,13 @@ function InterestMap({
     data.links.length === 1 ? "1 link" : `${data.links.length} links`;
 
   return (
-    <div className="interest-map">
-      <div className="interest-map-meta">
-        <span>{interestLabel}</span>
-        <span>{hasLinks ? connectionLabel : "No links yet"}</span>
-      </div>
+    <div className={`interest-map${compact ? " is-compact" : ""}`}>
+      {!compact ? (
+        <div className="interest-map-meta">
+          <span>{interestLabel}</span>
+          <span>{hasLinks ? connectionLabel : "No links yet"}</span>
+        </div>
+      ) : null}
       <div className="interest-map-plot">
         <svg
           className="interest-map-chart"
@@ -760,23 +764,27 @@ function InterestMap({
                 stroke="rgba(180, 83, 9, 0.24)"
                 strokeWidth="1"
               />
-              <text
-                className="interest-map-label"
-                x={node.labelX}
-                y={node.labelY}
-                textAnchor={node.labelAnchor}
-              >
-                {shortenLabel(node.tag)}
-              </text>
+              {!compact ? (
+                <text
+                  className="interest-map-label"
+                  x={node.labelX}
+                  y={node.labelY}
+                  textAnchor={node.labelAnchor}
+                >
+                  {shortenLabel(node.tag)}
+                </text>
+              ) : null}
             </g>
           ))}
         </svg>
       </div>
-      <p className="interest-map-note">
-        {hasLinks
-          ? "Lines connect interests that appear together on the same book."
-          : "Your current books do not connect any two interests yet."}
-      </p>
+      {!compact ? (
+        <p className="interest-map-note">
+          {hasLinks
+            ? "Lines connect interests that appear together on the same book."
+            : "Your current books do not connect any two interests yet."}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -806,6 +814,7 @@ export default function App() {
     field: SuggestionField;
     tag: string | null;
   } | null>(null);
+  const [isInterestMapOpen, setIsInterestMapOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [genreInterests, setGenreInterests] = useState<GenreInterestMap>({});
   const [authorExperiences, setAuthorExperiences] =
@@ -845,6 +854,28 @@ export default function App() {
       isActive = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!isInterestMapOpen) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsInterestMapOpen(false);
+      }
+    }
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isInterestMapOpen]);
 
   const rankedBooks = useMemo<RankedBook[]>(() => {
     return books
@@ -1679,14 +1710,65 @@ export default function App() {
                 <ScoreDistribution scores={rankedBooks.map((b) => b.score)} />
               </article>
 
-              <article className="summary-tile summary-tile-wide">
-                <span className="summary-label">Interest map</span>
-                <InterestMap books={books} interests={genreInterests} />
+              <article className="summary-tile summary-tile-map">
+                <div className="summary-tile-head">
+                  <span className="summary-label">Interest map</span>
+                  <button
+                    type="button"
+                    className="link-btn summary-tile-link"
+                    onClick={() => setIsInterestMapOpen(true)}
+                  >
+                    Open
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  className="interest-map-preview-button"
+                  onClick={() => setIsInterestMapOpen(true)}
+                  aria-label="Open interest map"
+                >
+                  <InterestMap
+                    books={books}
+                    interests={genreInterests}
+                    compact
+                  />
+                </button>
               </article>
             </div>
           </div>
         </aside>
       </section>
+
+      {isInterestMapOpen ? (
+        <div
+          className="overlay-backdrop"
+          onClick={() => setIsInterestMapOpen(false)}
+          role="presentation"
+        >
+          <div
+            className="overlay-panel interest-map-overlay"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="interest-map-overlay-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="overlay-head">
+              <div>
+                <p className="summary-label">Interest map</p>
+                <h2 id="interest-map-overlay-title">Interest map</h2>
+              </div>
+              <button
+                type="button"
+                className="btn btn-tertiary"
+                onClick={() => setIsInterestMapOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+            <InterestMap books={books} interests={genreInterests} />
+          </div>
+        </div>
+      ) : null}
 
       <section className="panel control-panel">
         <div className="section-heading">
