@@ -255,10 +255,11 @@ function messageFromError(error: unknown) {
 function ScoreDistribution({ scores }: { scores: number[] }) {
   if (scores.length === 0) return null;
 
-  const dataMin = Math.min(...scores);
-  const dataMax = Math.max(...scores);
-  const lo = Math.max(0, Math.floor(dataMin * 10) / 10);
-  const hi = Math.min(5, Math.ceil(dataMax * 10) / 10);
+  const percentages = scores.map((score) => clampPercentage((score / 5) * 100));
+  const dataMin = Math.min(...percentages);
+  const dataMax = Math.max(...percentages);
+  const lo = Math.max(0, Math.floor(dataMin));
+  const hi = Math.min(100, Math.ceil(dataMax));
   const range = hi - lo || 1;
 
   const w = 280;
@@ -270,13 +271,13 @@ function ScoreDistribution({ scores }: { scores: number[] }) {
 
   const toX = (v: number) => pad + ((v - lo) / range) * trackW;
 
-  const positions = scores.map(toX).sort((a, b) => a - b);
+  const positions = percentages.map(toX).sort((a, b) => a - b);
 
   return (
     <svg
       className="distribution-chart"
       viewBox={`0 0 ${w} ${h}`}
-      aria-label="Score distribution"
+      aria-label="Likelihood distribution"
     >
       <line
         x1={pad}
@@ -309,7 +310,7 @@ function ScoreDistribution({ scores }: { scores: number[] }) {
         fontSize="10"
         textAnchor="middle"
       >
-        {lo.toFixed(1)}
+        {`${lo}%`}
       </text>
       <text
         x={w - pad}
@@ -318,7 +319,7 @@ function ScoreDistribution({ scores }: { scores: number[] }) {
         fontSize="10"
         textAnchor="middle"
       >
-        {hi.toFixed(1)}
+        {`${hi}%`}
       </text>
       {positions.map((x, i) => (
         <circle
