@@ -116,6 +116,18 @@ h3 {
     background: var(--surface);
 }
 
+.right-column-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.right-column-actions .interest-map-action-btn {
+    flex: 1;
+    min-width: 0;
+    text-align: center;
+}
+
 .right-column-head {
     display: flex;
     justify-content: space-between;
