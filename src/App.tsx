@@ -539,14 +539,10 @@ function InterestMap({
           node.x += node.vx;
           node.y += node.vy;
 
-          node.x = Math.max(
-            padding + node.radius,
-            Math.min(width - padding - node.radius, node.x),
-          );
-          node.y = Math.max(
-            padding + node.radius,
-            Math.min(height - padding - node.radius, node.y),
-          );
+          const xPad = padding + node.radius + 80;
+          const yPad = padding + node.radius + 40;
+          node.x = Math.max(xPad, Math.min(width - xPad, node.x));
+          node.y = Math.max(yPad, Math.min(height - yPad, node.y));
         }
       }
     } else {
@@ -570,14 +566,10 @@ function InterestMap({
     const offsetY = centerY - (minY + maxY) / 2;
 
     for (const node of positionedNodes) {
-      node.x = Math.max(
-        padding + node.radius,
-        Math.min(width - padding - node.radius, node.x + offsetX),
-      );
-      node.y = Math.max(
-        padding + node.radius,
-        Math.min(height - padding - node.radius, node.y + offsetY),
-      );
+      const xPad = padding + node.radius + 80;
+      const yPad = padding + node.radius + 40;
+      node.x = Math.max(xPad, Math.min(width - xPad, node.x + offsetX));
+      node.y = Math.max(yPad, Math.min(height - yPad, node.y + offsetY));
     }
 
     for (const node of positionedNodes) {
@@ -745,14 +737,10 @@ function InterestMap({
         nodes[i].vy *= 0.92;
         nodes[i].x += nodes[i].vx;
         nodes[i].y += nodes[i].vy;
-        nodes[i].x = Math.max(
-          padding + nodes[i].radius,
-          Math.min(width - padding - nodes[i].radius, nodes[i].x),
-        );
-        nodes[i].y = Math.max(
-          padding + nodes[i].radius,
-          Math.min(height - padding - nodes[i].radius, nodes[i].y),
-        );
+        const xPad = padding + nodes[i].radius + 80; // extra for labels
+        const yPad = padding + nodes[i].radius + 40; // extra for slice crop
+        nodes[i].x = Math.max(xPad, Math.min(width - xPad, nodes[i].x));
+        nodes[i].y = Math.max(yPad, Math.min(height - yPad, nodes[i].y));
       }
 
       setTick((t) => t + 1);
