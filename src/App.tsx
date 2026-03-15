@@ -419,11 +419,11 @@ function InterestMap({
       return null;
     }
 
-    const width = 660;
-    const height = 320;
-    const padding = 34;
+    const width = 700;
+    const height = 380;
+    const padding = 42;
     const centerX = width / 2;
-    const centerY = height / 2;
+    const centerY = height / 2 + 6;
     const maxNodeCount = Math.max(...data.nodes.map((node) => node.count), 1);
     const maxLinkCount = Math.max(...data.links.map((link) => link.count), 1);
     const degreeMap = new Map<string, number>();
@@ -443,19 +443,56 @@ function InterestMap({
       );
     }
 
-    const positionedNodes = data.nodes.map((node) => {
+    const connectedNodes = [...data.nodes]
+      .filter((node) => (degreeMap.get(node.tag) ?? 0) > 0)
+      .sort(
+        (left, right) =>
+          (degreeMap.get(right.tag) ?? 0) - (degreeMap.get(left.tag) ?? 0) ||
+          right.count - left.count ||
+          right.interest - left.interest ||
+          left.tag.localeCompare(right.tag),
+      );
+    const isolatedNodes = [...data.nodes]
+      .filter((node) => (degreeMap.get(node.tag) ?? 0) === 0)
+      .sort(
+        (left, right) =>
+          right.count - left.count ||
+          right.interest - left.interest ||
+          left.tag.localeCompare(right.tag),
+      );
+    const rankedNodes = [...connectedNodes, ...isolatedNodes];
+    const innerRingCount = Math.min(Math.max(0, connectedNodes.length - 1), 4);
+    const outerRingStart = 1 + innerRingCount;
+    const outerRingCount = Math.max(0, rankedNodes.length - outerRingStart);
+
+    const positionedNodes = rankedNodes.map((node, index) => {
       const seed = hashTag(node.tag);
-      const angle = ((seed % 360) / 360) * Math.PI * 2;
-      const orbitX = 48 + ((seed >> 8) % 160);
-      const orbitY = 32 + ((seed >> 16) % 112);
-      const radius = 9 + (node.count / maxNodeCount) * 10;
-      const fillOpacity = 0.18 + (node.interest / 5) * 0.46;
+      const radius = 5 + (node.count / maxNodeCount) * 5;
+      const fillOpacity = 0.2 + (node.interest / 5) * 0.42;
+      let x = centerX;
+      let y = centerY;
+
+      if (index > 0) {
+        const isInnerRing = index <= innerRingCount;
+        const ringIndex = isInnerRing ? index - 1 : index - outerRingStart;
+        const ringTotal = isInnerRing
+          ? innerRingCount
+          : Math.max(outerRingCount, 1);
+        const ringRadius = isInnerRing ? 90 : 158 + ((seed >> 10) % 26);
+        const angleOffset = ((seed >> 5) % 21) / 21;
+        const angle =
+          -Math.PI / 2 +
+          ((ringIndex + angleOffset * 0.22) / ringTotal) * Math.PI * 2;
+
+        x = centerX + Math.cos(angle) * ringRadius;
+        y = centerY + Math.sin(angle) * ringRadius * 0.72;
+      }
 
       return {
         ...node,
         degree: degreeMap.get(node.tag) ?? 0,
-        x: centerX + Math.cos(angle) * orbitX,
-        y: centerY + Math.sin(angle) * orbitY,
+        x,
+        y,
         vx: 0,
         vy: 0,
         radius,
@@ -464,9 +501,14 @@ function InterestMap({
     });
 
     if (positionedNodes.length > 1) {
-      for (let iteration = 0; iteration < 240; iteration += 1) {
+      const nodeIndex = new Map(
+        positionedNodes.map((node, index) => [node.tag, index] as const),
+      );
+
+      for (let iteration = 0; iteration < 220; iteration += 1) {
         const forceX = new Array(positionedNodes.length).fill(0);
         const forceY = new Array(positionedNodes.length).fill(0);
+        const cooling = 1 - iteration / 220;
 
         for (
           let leftIndex = 0;
@@ -493,9 +535,9 @@ function InterestMap({
             const minDistance = left.radius + right.radius + 34;
             const directionX = dx / distance;
             const directionY = dy / distance;
-            const baseRepulsion = 8800 / (distance * distance);
+            const baseRepulsion = 5200 / (distance * distance);
             const overlapRepulsion =
-              distance < minDistance ? (minDistance - distance) * 0.24 : 0;
+              distance < minDistance ? (minDistance - distance) * 0.34 : 0;
             const push = baseRepulsion + overlapRepulsion;
 
             forceX[leftIndex] -= directionX * push;
@@ -506,12 +548,8 @@ function InterestMap({
         }
 
         for (const link of data.links) {
-          const sourceIndex = positionedNodes.findIndex(
-            (node) => node.tag === link.source,
-          );
-          const targetIndex = positionedNodes.findIndex(
-            (node) => node.tag === link.target,
-          );
+          const sourceIndex = nodeIndex.get(link.source) ?? -1;
+          const targetIndex = nodeIndex.get(link.target) ?? -1;
 
           if (sourceIndex === -1 || targetIndex === -1) {
             continue;
@@ -524,9 +562,12 @@ function InterestMap({
           const distance = Math.max(1, Math.hypot(dx, dy));
           const directionX = dx / distance;
           const directionY = dy / distance;
-          const desiredDistance = 124 - (link.count / maxLinkCount) * 26;
-          const spring = (distance - desiredDistance) * 0.012;
-          const pull = spring * (0.7 + link.count / maxLinkCount);
+          const desiredDistance =
+            118 -
+            (link.count / maxLinkCount) * 22 -
+            (source.radius + target.radius);
+          const spring = (distance - desiredDistance) * 0.014;
+          const pull = spring * (0.8 + link.count / maxLinkCount);
 
           forceX[sourceIndex] += directionX * pull;
           forceY[sourceIndex] += directionY * pull;
@@ -536,23 +577,24 @@ function InterestMap({
 
         for (let index = 0; index < positionedNodes.length; index += 1) {
           const node = positionedNodes[index];
-          const centerPull = node.degree > 0 ? 0.0038 : 0.0022;
-          const jitterSeed = hashTag(`${node.tag}:${iteration}`);
-          const jitterX = (((jitterSeed & 15) - 7) / 7) * 0.015;
-          const jitterY = ((((jitterSeed >> 4) & 15) - 7) / 7) * 0.015;
+          const centerPull = node.degree > 0 ? 0.0034 : 0.0016;
+          const edgeBias =
+            node.degree > 0
+              ? 0
+              : ((hashTag(`${node.tag}:edge`) % 3) - 1) * 0.015;
 
           node.vx =
             (node.vx +
               forceX[index] +
               (centerX - node.x) * centerPull +
-              jitterX) *
-            0.84;
+              edgeBias) *
+            (0.8 - cooling * -0.03);
           node.vy =
             (node.vy +
               forceY[index] +
               (centerY - node.y) * centerPull +
-              jitterY) *
-            0.84;
+              edgeBias * 0.6) *
+            (0.8 - cooling * -0.03);
           node.x += node.vx;
           node.y += node.vy;
 
@@ -597,6 +639,16 @@ function InterestMap({
       );
     }
 
+    const backgroundDots = Array.from({ length: 34 }, (_, index) => {
+      const seed = hashTag(`interest-map-dot:${index}`);
+      return {
+        x: 18 + ((seed & 1023) / 1023) * (width - 36),
+        y: 18 + (((seed >> 10) & 1023) / 1023) * (height - 36),
+        radius: 0.6 + (((seed >> 20) & 15) / 15) * 1.2,
+        opacity: 0.05 + (((seed >> 24) & 15) / 15) * 0.12,
+      };
+    });
+
     const decoratedNodes = positionedNodes.map((node) => {
       const dx = node.x - centerX;
       const dy = node.y - centerY;
@@ -628,6 +680,7 @@ function InterestMap({
       width,
       height,
       maxLinkCount,
+      backgroundDots,
       nodes: decoratedNodes,
     };
   }, [data]);
@@ -659,6 +712,15 @@ function InterestMap({
           viewBox={`0 0 ${graph.width} ${graph.height}`}
           aria-label="Interest graph showing how genre and topic tags connect across your books"
         >
+          {graph.backgroundDots.map((dot, index) => (
+            <circle
+              key={index}
+              cx={dot.x}
+              cy={dot.y}
+              r={dot.radius}
+              fill={`rgba(255, 249, 240, ${dot.opacity})`}
+            />
+          ))}
           {data.links.map((link) => {
             const source = nodeMap.get(link.source);
             const target = nodeMap.get(link.target);
@@ -667,18 +729,39 @@ function InterestMap({
               return null;
             }
 
+            const dx = target.x - source.x;
+            const dy = target.y - source.y;
+            const distance = Math.max(1, Math.hypot(dx, dy));
+            const unitX = dx / distance;
+            const unitY = dy / distance;
+            const startX = source.x + unitX * (source.radius + 1);
+            const startY = source.y + unitY * (source.radius + 1);
+            const endX = target.x - unitX * (target.radius + 1);
+            const endY = target.y - unitY * (target.radius + 1);
+
             return (
-              <line
-                key={`${link.source}-${link.target}`}
-                x1={source.x}
-                y1={source.y}
-                x2={target.x}
-                y2={target.y}
-                stroke="var(--accent)"
-                strokeOpacity={0.12 + (link.count / graph.maxLinkCount) * 0.32}
-                strokeWidth={1 + (link.count / graph.maxLinkCount) * 2.6}
-                strokeLinecap="round"
-              />
+              <g key={`${link.source}-${link.target}`}>
+                <line
+                  x1={startX}
+                  y1={startY}
+                  x2={endX}
+                  y2={endY}
+                  stroke={`rgba(233, 165, 87, ${0.05 + (link.count / graph.maxLinkCount) * 0.12})`}
+                  strokeWidth={3 + (link.count / graph.maxLinkCount) * 2}
+                  strokeLinecap="round"
+                />
+                <line
+                  key={`${link.source}-${link.target}`}
+                  x1={startX}
+                  y1={startY}
+                  x2={endX}
+                  y2={endY}
+                  stroke="rgba(245, 199, 130, 0.34)"
+                  strokeOpacity={0.3 + (link.count / graph.maxLinkCount) * 0.28}
+                  strokeWidth={0.8 + (link.count / graph.maxLinkCount) * 1.4}
+                  strokeLinecap="round"
+                />
+              </g>
             );
           })}
           {graph.nodes.map((node) => (
@@ -687,16 +770,22 @@ function InterestMap({
               <circle
                 cx={node.x}
                 cy={node.y}
-                r={node.radius + 6}
-                fill={`rgba(180, 83, 9, ${Math.max(0.08, node.fillOpacity * 0.22)})`}
+                r={node.radius + 5}
+                fill={`rgba(244, 183, 104, ${Math.max(0.08, node.fillOpacity * 0.18)})`}
               />
               <circle
                 cx={node.x}
                 cy={node.y}
                 r={node.radius}
-                fill={`rgba(180, 83, 9, ${node.fillOpacity})`}
-                stroke="var(--accent)"
-                strokeWidth="1.5"
+                fill={`rgba(244, 183, 104, ${node.fillOpacity})`}
+                stroke="rgba(255, 226, 183, 0.75)"
+                strokeWidth="1"
+              />
+              <circle
+                cx={node.x}
+                cy={node.y}
+                r={Math.max(1.8, node.radius * 0.28)}
+                fill="rgba(255, 247, 234, 0.92)"
               />
               <text
                 className="interest-map-label"

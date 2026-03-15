@@ -256,32 +256,38 @@ h3 {
     justify-content: space-between;
     gap: 10px;
     flex-wrap: wrap;
-    color: var(--muted);
-    font-size: 0.7rem;
+    color: rgba(23, 20, 17, 0.52);
+    font-size: 0.68rem;
     font-weight: 700;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
 }
 
 .interest-map-plot {
     overflow: hidden;
-    padding: 8px;
-    border: 1px solid var(--line);
-    border-radius: 20px;
+    padding: 10px;
+    border: 1px solid rgba(23, 20, 17, 0.12);
+    border-radius: 22px;
     background:
         radial-gradient(
             circle at top,
-            rgba(255, 255, 255, 0.9),
-            rgba(255, 255, 255, 0.52) 62%,
-            rgba(255, 250, 244, 0.84) 100%
+            rgba(82, 65, 50, 0.72),
+            rgba(39, 31, 25, 0.96) 58%,
+            rgba(24, 20, 17, 0.98) 100%
         ),
-        radial-gradient(circle, rgba(180, 83, 9, 0.08) 1px, transparent 1px);
+        radial-gradient(circle, rgba(255, 238, 214, 0.06) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(0, 0, 0, 0));
     background-size:
         auto,
-        22px 22px;
+        24px 24px,
+        auto;
     background-position:
         0 0,
-        center;
+        center,
+        0 0;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.05),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.02);
 }
 
 .interest-map-chart {
@@ -291,14 +297,15 @@ h3 {
 }
 
 .interest-map-label {
-    fill: var(--text);
-    font-size: 12.5px;
+    fill: rgba(255, 247, 234, 0.94);
+    font-size: 11.5px;
     font-weight: 600;
-    letter-spacing: 0.01em;
+    letter-spacing: 0.02em;
     paint-order: stroke fill;
-    stroke: rgba(255, 252, 247, 0.95);
-    stroke-width: 6px;
+    stroke: rgba(24, 20, 17, 0.92);
+    stroke-width: 5px;
     stroke-linejoin: round;
+    font-family: "Avenir Next", "Segoe UI", sans-serif;
 }
 
 .interest-map-note,
@@ -1025,7 +1032,7 @@ input:focus {
     }
 
     .interest-map-plot {
-        padding: 6px;
+        padding: 8px;
     }
 
     .ranking-row {
