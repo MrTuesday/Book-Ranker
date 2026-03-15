@@ -2006,11 +2006,6 @@ export default function App() {
             </div>
           )}
           <section className="panel control-panel">
-          <div className="section-heading">
-            <div>
-              <h2>{isEditing ? "Edit book" : "Add a book"}</h2>
-            </div>
-          </div>
 
           {isLoading || errorMessage ? (
             <div className="panel-status-row">
