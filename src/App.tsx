@@ -1149,10 +1149,13 @@ export default function App() {
   useEffect(() => {
     if (!hasInterestMap || didAutoScroll.current) return;
     didAutoScroll.current = true;
-    // Scroll down so panels are in view; user scrolls up to reveal graph
-    requestAnimationFrame(() => {
-      window.scrollTo(0, window.innerHeight * 0.55);
-    });
+    // Wait for layout, then scroll past the graph so panels are visible.
+    // User scrolls up to reveal the full graph behind the panels.
+    const timer = setTimeout(() => {
+      const target = window.innerHeight * 0.6;
+      window.scrollTo({ top: target, behavior: "instant" as ScrollBehavior });
+    }, 120);
+    return () => clearTimeout(timer);
   }, [hasInterestMap]);
 
   const rankedBooks = useMemo<RankedBook[]>(() => {
