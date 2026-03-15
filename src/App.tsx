@@ -1144,77 +1144,15 @@ export default function App() {
     [books],
   );
 
-  /* ── scroll-up-to-expand graph ── */
-  const graphExpansionRef = useRef(0); // 0→55vh, 1→100vh
+  /* ── auto-scroll past graph so panels are visible on load ── */
+  const didAutoScroll = useRef(false);
   useEffect(() => {
-    if (!hasInterestMap) return;
-    const shell = document.querySelector<HTMLElement>(".app-shell");
-    const stage = document.querySelector<HTMLElement>(".graph-stage");
-    if (!shell) return;
-
-    const MIN_VH = 55;
-    const MAX_VH = 100;
-    const SPEED = 0.006;
-
-    function apply(t: number) {
-      const vh = MIN_VH + (MAX_VH - MIN_VH) * t;
-      const val = `${vh}vh`;
-      shell!.style.setProperty("--graph-h", val);
-      stage?.style.setProperty("--graph-h", val);
-    }
-
-    function onWheel(e: WheelEvent) {
-      const atTop = window.scrollY < 1;
-      const t = graphExpansionRef.current;
-
-      if (atTop && e.deltaY < 0) {
-        e.preventDefault();
-        graphExpansionRef.current = Math.min(1, t + Math.abs(e.deltaY) * SPEED);
-        apply(graphExpansionRef.current);
-      } else if (t > 0.001 && e.deltaY > 0) {
-        e.preventDefault();
-        graphExpansionRef.current = Math.max(0, t - Math.abs(e.deltaY) * SPEED);
-        apply(graphExpansionRef.current);
-      }
-    }
-
-    // Touch support (mobile / trackpad gestures)
-    let touchStartY = 0;
-    function onTouchStart(e: TouchEvent) {
-      touchStartY = e.touches[0].clientY;
-    }
-    function onTouchMove(e: TouchEvent) {
-      const dy = touchStartY - e.touches[0].clientY; // positive = scroll down
-      touchStartY = e.touches[0].clientY;
-      const atTop = window.scrollY < 1;
-      const t = graphExpansionRef.current;
-
-      if (atTop && dy < 0) {
-        e.preventDefault();
-        graphExpansionRef.current = Math.min(1, t + Math.abs(dy) * SPEED);
-        apply(graphExpansionRef.current);
-      } else if (t > 0.001 && dy > 0) {
-        e.preventDefault();
-        graphExpansionRef.current = Math.max(0, t - Math.abs(dy) * SPEED);
-        apply(graphExpansionRef.current);
-      }
-    }
-
-    document.documentElement.style.overscrollBehaviorY = "none";
-    document.body.style.overscrollBehaviorY = "none";
-
-    window.addEventListener("wheel", onWheel, { passive: false });
-    window.addEventListener("touchstart", onTouchStart, { passive: true });
-    window.addEventListener("touchmove", onTouchMove, { passive: false });
-    return () => {
-      window.removeEventListener("wheel", onWheel);
-      window.removeEventListener("touchstart", onTouchStart);
-      window.removeEventListener("touchmove", onTouchMove);
-      shell!.style.removeProperty("--graph-h");
-      stage?.style.removeProperty("--graph-h");
-      document.documentElement.style.overscrollBehaviorY = "";
-      document.body.style.overscrollBehaviorY = "";
-    };
+    if (!hasInterestMap || didAutoScroll.current) return;
+    didAutoScroll.current = true;
+    // Scroll down so panels are in view; user scrolls up to reveal graph
+    requestAnimationFrame(() => {
+      window.scrollTo(0, window.innerHeight * 0.55);
+    });
   }, [hasInterestMap]);
 
   const rankedBooks = useMemo<RankedBook[]>(() => {
