@@ -248,21 +248,82 @@ h3 {
 
 .interest-map {
     display: grid;
-    gap: 12px;
+    gap: 14px;
+}
+
+.interest-map-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    color: var(--muted);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.interest-map-plot {
+    padding: 18px 16px 10px;
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    background:
+        radial-gradient(
+            circle at top,
+            rgba(255, 255, 255, 0.88),
+            rgba(255, 255, 255, 0.48) 70%
+        ),
+        rgba(255, 250, 244, 0.72);
 }
 
 .interest-map-chart {
     display: block;
     width: 100%;
     height: auto;
-    overflow: visible;
 }
 
-.interest-map-label {
-    fill: var(--text);
-    font-size: 12px;
+.interest-map-legend {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.interest-map-chip {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    padding: 10px 12px;
+    border: 1px solid rgba(23, 20, 17, 0.08);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.72);
+}
+
+.interest-map-chip-swatch {
+    flex: 0 0 auto;
+    border-radius: 999px;
+    border: 1.5px solid var(--accent);
+    box-shadow: 0 0 0 4px rgba(180, 83, 9, 0.08);
+}
+
+.interest-map-chip-copy {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+}
+
+.interest-map-chip-label {
+    overflow: hidden;
+    font-size: 0.92rem;
     font-weight: 600;
-    letter-spacing: 0.01em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.interest-map-chip-meta {
+    color: var(--muted);
+    font-size: 0.76rem;
+    line-height: 1.35;
 }
 
 .interest-map-note,
@@ -954,6 +1015,10 @@ input:focus {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
+    .interest-map-legend {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
     .entry-form {
         grid-template-columns: 1fr 1fr;
     }
@@ -986,6 +1051,14 @@ input:focus {
 
     .summary-tile-wide {
         grid-column: auto;
+    }
+
+    .interest-map-plot {
+        padding: 14px 10px 8px;
+    }
+
+    .interest-map-legend {
+        grid-template-columns: 1fr;
     }
 
     .ranking-row {
