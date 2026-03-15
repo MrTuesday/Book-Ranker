@@ -40,6 +40,7 @@ import {
   type RecommendedBook,
   type PathRecommendationResponse,
 } from "./lib/recommend-api";
+import { BookCard } from "./components/BookCard";
 
 type BookDraft = {
   title: string;
@@ -207,9 +208,6 @@ function moveTagToEnd(tags: string[], draggedTag: string) {
 }
 
 
-function formatMainResult(value: number) {
-  return `${Math.round(Math.max(0, Math.min(100, (value / 5) * 100)))}%`;
-}
 
 
 
@@ -2496,60 +2494,52 @@ export default function App() {
                         : "";
 
                 return (
-                  <article
+                  <BookCard
                     key={book.id}
-                    className={`ranking-row${editingBookId === book.id ? " is-editing" : ""}${book.rank === 1 ? " is-leader" : ""}`}
-                    style={{ animationDelay: `${index * 60}ms` }}
-                  >
-                    <div className="ranking-body">
-                      <div className="ranking-topline">
-                        <div className={`rank-badge ${rankClass}`}>#{book.rank}</div>
-                        <div className="ranking-info">
-                          <h3>{book.title}</h3>
-                          <p className="ranking-author">
-                            {book.authors.join(", ") || "Unknown author"}
-                          </p>
-                          <span className="my-rating-stars">
-                            {[1, 2, 3, 4, 5].map((star) => (
-                              <button
-                                key={star}
-                                type="button"
-                                className={`my-rating-star${book.myRating != null && star <= book.myRating ? " is-filled" : ""}`}
-                                onClick={() => void updateMyRating(book.id, star)}
-                                aria-label={`Rate ${star} out of 5`}
-                              >
-                                {book.myRating != null && star <= book.myRating ? "\u2605" : "\u2606"}
-                              </button>
-                            ))}
-                          </span>
-                        </div>
-                        <strong className="score-value">
-                          {formatMainResult(book.score)}
-                        </strong>
-                      </div>
-                      <div className="ranking-meta">
-                        <span className="ranking-actions">
+                    rank={book.rank}
+                    title={book.title}
+                    authors={book.authors}
+                    score={book.score}
+                    rankClass={rankClass}
+                    className={`${editingBookId === book.id ? "is-editing" : ""}${book.rank === 1 ? " is-leader" : ""}`}
+                    animationDelay={`${index * 60}ms`}
+                    stars={
+                      <span className="my-rating-stars">
+                        {[1, 2, 3, 4, 5].map((star) => (
                           <button
+                            key={star}
                             type="button"
-                            className="link-btn"
-                            onClick={() => startEditing(book)}
-                            disabled={isSaving || isDeleting}
+                            className={`my-rating-star${book.myRating != null && star <= book.myRating ? " is-filled" : ""}`}
+                            onClick={() => void updateMyRating(book.id, star)}
+                            aria-label={`Rate ${star} out of 5`}
                           >
-                            {editingBookId === book.id ? "Editing" : "Edit"}
+                            {book.myRating != null && star <= book.myRating ? "\u2605" : "\u2606"}
                           </button>
-                          <span className="action-dot">·</span>
-                          <button
-                            type="button"
-                            className="link-btn link-btn-danger"
-                            onClick={() => void removeBook(book.id)}
-                            disabled={isSaving || isDeleting}
-                          >
-                            {isDeleting ? "Removing..." : "Remove"}
-                          </button>
-                        </span>
-                      </div>
-                    </div>
-                  </article>
+                        ))}
+                      </span>
+                    }
+                    actions={
+                      <>
+                        <button
+                          type="button"
+                          className="link-btn"
+                          onClick={() => startEditing(book)}
+                          disabled={isSaving || isDeleting}
+                        >
+                          {editingBookId === book.id ? "Editing" : "Edit"}
+                        </button>
+                        <span className="action-dot">·</span>
+                        <button
+                          type="button"
+                          className="link-btn link-btn-danger"
+                          onClick={() => void removeBook(book.id)}
+                          disabled={isSaving || isDeleting}
+                        >
+                          {isDeleting ? "Removing..." : "Remove"}
+                        </button>
+                      </>
+                    }
+                  />
                 );
               })
             )}
@@ -2582,32 +2572,17 @@ export default function App() {
                 <h3>Reading List</h3>
               </div>
               <div className="right-column-list">
-                {recommendations.candidates.map((rec) => (
-                  <div
+                {recommendations.candidates.slice(0, 5).map((rec, i) => (
+                  <BookCard
                     key={rec.id}
-                    className={`rec-card${addedRecIds.has(rec.id) ? " is-added" : ""}`}
-                  >
-                    <div className="rec-card-info">
-                      <h4>{rec.title}</h4>
-                      <p className="rec-card-author">
-                        {rec.authors.join(", ") || "Unknown author"}
-                      </p>
-                    </div>
-                    <strong className="rec-card-score">
-                      {addedRecIds.has(rec.id) ? "✓" : formatMainResult(rec.score)}
-                    </strong>
-                  </div>
+                    rank={i + 1}
+                    title={rec.title}
+                    authors={rec.authors}
+                    score={rec.score}
+                    className={addedRecIds.has(rec.id) ? "is-added" : undefined}
+                    scoreOverride={addedRecIds.has(rec.id) ? "✓" : undefined}
+                  />
                 ))}
-              </div>
-              <div className="right-column-footer">
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={() => void addSelectedBatch()}
-                  disabled={recommendations.candidates.every((r) => addedRecIds.has(r.id))}
-                >
-                  Add top {batchSize} to my list
-                </button>
               </div>
             </>
           ) : recommendations && recommendations.candidates.length === 0 ? (

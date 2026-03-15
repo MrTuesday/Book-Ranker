@@ -116,17 +116,7 @@ h3 {
     background: var(--surface);
 }
 
-.right-column-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-}
 
-.right-column-actions .interest-map-action-btn {
-    flex: 1;
-    min-width: 0;
-    text-align: center;
-}
 
 .right-column-head {
     display: flex;
@@ -605,53 +595,6 @@ h3 {
 }
 
 /* ---- Right column rec cards ---- */
-.rec-card {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    padding: 8px 12px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius-lg);
-    background: rgba(255, 255, 255, 0.72);
-    min-width: 0;
-    overflow: hidden;
-}
-
-.rec-card.is-added {
-    opacity: 0.5;
-}
-
-.rec-card-info {
-    flex: 1;
-    min-width: 0;
-}
-
-.rec-card-info h4 {
-    font-size: 0.88rem;
-    line-height: 1.3;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.rec-card-author {
-    color: var(--muted);
-    font-size: 0.78rem;
-    line-height: 1.3;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.rec-card-score {
-    font-family: "Iowan Old Style", "Palatino Linotype", serif;
-    font-size: 1.1rem;
-    font-weight: 600;
-    line-height: 1;
-    letter-spacing: -0.04em;
-    color: var(--accent);
-    flex-shrink: 0;
-}
 
 .summary-number {
     font-family: "Iowan Old Style", "Palatino Linotype", serif;
@@ -914,6 +857,10 @@ input:focus {
 .ranking-row.is-editing {
     border-color: rgba(180, 83, 9, 0.26);
     background: rgba(255, 251, 245, 0.92);
+}
+
+.ranking-row.is-added {
+    opacity: 0.45;
 }
 
 .ranking-row.is-leader {
