@@ -1236,7 +1236,6 @@ export default function App() {
             </div>
 
             <article className="summary-tile summary-tile-leader">
-              <span className="summary-label">Top pick</span>
               {leader ? (
                 <div className="leader-detail">
                   <div>
