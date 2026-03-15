@@ -768,7 +768,8 @@ function InterestMap({
       return;
     }
 
-    event.preventDefault();
+    // Don't call event.preventDefault() here — it suppresses the
+    // subsequent click event and breaks node selection.
     svgRef.current.setPointerCapture(event.pointerId);
     dragRef.current = {
       nodeIndex: nodeIdx,
