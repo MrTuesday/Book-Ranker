@@ -394,9 +394,9 @@ function InterestMap({
       ringIndex += 1;
     }
 
-    const width = 1400;
-    const height = Math.max(600, 480 + ringSizes.length * 60);
-    const padding = 50;
+    const width = 1000;
+    const height = Math.max(750, 600 + ringSizes.length * 50);
+    const padding = 40;
     const centerX = width / 2;
     const centerY = height / 2;
     const maxNodeCount = Math.max(...data.nodes.map((node) => node.count), 1);
@@ -419,7 +419,7 @@ function InterestMap({
         }
 
         const ringTotal = Math.max(ringSizes[ringNumber] ?? 1, 1);
-        const ringRadius = 140 + ringNumber * 80 + ((seed >> 10) % 16);
+        const ringRadius = 110 + ringNumber * 70 + ((seed >> 10) % 14);
         const angleOffset = ((seed >> 5) % 21) / 21;
         const angle =
           -Math.PI / 2 +
@@ -923,6 +923,7 @@ function InterestMap({
         <svg
           ref={svgRef}
           className={`interest-map-chart${dragRef.current ? " is-dragging" : ""}`}
+          preserveAspectRatio="xMidYMid slice"
           viewBox={(() => {
             // When expanded, shrink the viewBox to zoom into the center
             const zoomFactor = 1 - expansion * 0.5; // 1.0 → 0.5
