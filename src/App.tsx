@@ -419,7 +419,7 @@ function InterestMap({
         }
 
         const ringTotal = Math.max(ringSizes[ringNumber] ?? 1, 1);
-        const ringRadius = 130 + ringNumber * 80 + ((seed >> 10) % 14);
+        const ringRadius = 250 + ringNumber * 120 + ((seed >> 10) % 20);
         const angleOffset = ((seed >> 5) % 21) / 21;
         const angle =
           -Math.PI / 2 +
@@ -473,10 +473,10 @@ function InterestMap({
               distance = 0.01;
             }
 
-            const minDistance = left.radius + right.radius + 40;
+            const minDistance = left.radius + right.radius + 60;
             const directionX = dx / distance;
             const directionY = dy / distance;
-            const baseRepulsion = 12000 / (distance * distance);
+            const baseRepulsion = 30000 / (distance * distance);
             const overlapRepulsion =
               distance < minDistance ? (minDistance - distance) * 0.28 : 0;
             const push = baseRepulsion + overlapRepulsion;
@@ -504,8 +504,8 @@ function InterestMap({
           const directionX = dx / distance;
           const directionY = dy / distance;
           const desiredDistance =
-            160 -
-            (link.count / maxLinkCount) * 30 -
+            280 -
+            (link.count / maxLinkCount) * 50 -
             (source.radius + target.radius);
           const spring = (distance - desiredDistance) * 0.014;
           const pull = spring * (0.8 + link.count / maxLinkCount);
@@ -691,10 +691,10 @@ function InterestMap({
             dist = 0.01;
           }
 
-          const minDist = nodes[i].radius + nodes[j].radius + 40;
+          const minDist = nodes[i].radius + nodes[j].radius + 60;
           const ux = dx / dist;
           const uy = dy / dist;
-          const repulsion = 400 / (dist * dist);
+          const repulsion = 1000 / (dist * dist);
           const overlap =
             dist < minDist ? (minDist - dist) * 0.06 : 0;
           const push = repulsion + overlap;
@@ -721,8 +721,8 @@ function InterestMap({
         const ux = dx / dist;
         const uy = dy / dist;
         const desired =
-          160 -
-          (link.count / maxLinkCount) * 30 -
+          280 -
+          (link.count / maxLinkCount) * 50 -
           (nodes[si].radius + nodes[ti].radius);
         const spring = (dist - desired) * 0.002;
         const pull = spring * (0.8 + link.count / maxLinkCount);
