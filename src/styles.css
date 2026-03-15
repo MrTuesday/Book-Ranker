@@ -338,6 +338,14 @@ h3 {
     font-family: "Avenir Next", "Segoe UI", sans-serif;
 }
 
+.interest-map-node.is-selectable {
+    cursor: pointer;
+}
+
+.interest-map-node.is-selectable:focus-visible {
+    outline: none;
+}
+
 .interest-map-note,
 .interest-map-empty {
     color: var(--muted);
@@ -399,6 +407,62 @@ h3 {
     font-size: 1.8rem;
 }
 
+.interest-map-builder {
+    display: grid;
+    gap: 12px;
+    margin-bottom: 18px;
+}
+
+.interest-map-builder-copy {
+    color: var(--muted);
+    font-size: 0.92rem;
+    line-height: 1.5;
+}
+
+.interest-map-selection {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-height: 38px;
+}
+
+.interest-map-selection-empty {
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+
+.interest-map-selection-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border: 1px solid rgba(180, 83, 9, 0.16);
+    border-radius: 999px;
+    background: rgba(180, 83, 9, 0.08);
+    color: var(--accent);
+    font-size: 0.84rem;
+    font-weight: 600;
+}
+
+.interest-map-selection-index {
+    display: grid;
+    place-items: center;
+    width: 20px;
+    min-width: 20px;
+    height: 20px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.interest-map-builder-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
 .interest-map-overlay .interest-map {
     gap: 14px;
 }
@@ -414,6 +478,86 @@ h3 {
 .interest-map-overlay .interest-map-chart {
     width: 100%;
     max-height: calc(100vh - 252px);
+}
+
+.path-recommendation {
+    display: grid;
+    gap: 14px;
+    margin-top: 20px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+}
+
+.path-recommendation-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+    gap: 18px;
+}
+
+.path-recommendation-head h3 {
+    font-size: 1.5rem;
+}
+
+.path-recommendation-authors,
+.path-recommendation-description,
+.path-recommendation-item p {
+    color: var(--muted);
+    line-height: 1.5;
+}
+
+.path-recommendation-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+
+.path-recommendation-tags,
+.path-recommendation-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.path-recommendation-alternates {
+    display: grid;
+    gap: 10px;
+}
+
+.path-recommendation-list {
+    display: grid;
+    gap: 10px;
+}
+
+.path-recommendation-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+    gap: 16px;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.52);
+}
+
+.path-recommendation-item h4 {
+    font-size: 1.05rem;
+}
+
+.path-recommendation-item-meta {
+    display: grid;
+    justify-items: end;
+    gap: 6px;
+    text-align: right;
+}
+
+.path-recommendation-item-meta a {
+    color: var(--accent);
+    font-size: 0.84rem;
+    font-weight: 600;
+    text-decoration: none;
 }
 
 .summary-number {
@@ -1143,6 +1287,16 @@ input:focus {
     .overlay-head {
         grid-template-columns: 1fr;
         display: grid;
+    }
+
+    .path-recommendation-head,
+    .path-recommendation-item {
+        display: grid;
+    }
+
+    .path-recommendation-item-meta {
+        justify-items: start;
+        text-align: left;
     }
 
     .ranking-row {

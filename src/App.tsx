@@ -25,6 +25,10 @@ import {
   renameGenreInBooks,
   renameAuthorInBooks,
 } from "./lib/books-api";
+import {
+  requestPathRecommendation,
+  type PathRecommendationResponse,
+} from "./lib/recommend-api";
 
 type BookDraft = {
   title: string;
@@ -350,10 +354,14 @@ function InterestMap({
   books,
   interests,
   compact = false,
+  selectedPath = [],
+  onSelectTag,
 }: {
   books: Book[];
   interests: GenreInterestMap;
   compact?: boolean;
+  selectedPath?: string[];
+  onSelectTag?: (tag: string) => void;
 }) {
   const data = useMemo(() => {
     const tagCounts = new Map<string, number>();
@@ -705,6 +713,25 @@ function InterestMap({
     data.nodes.length === 1 ? "1 interest" : `${data.nodes.length} interests`;
   const connectionLabel =
     data.links.length === 1 ? "1 link" : `${data.links.length} links`;
+  const selectedPathSet = new Set(selectedPath);
+  const selectedSegments = selectedPath.flatMap((tag, index) =>
+    index === 0 ? [] : [[selectedPath[index - 1], tag] as const],
+  );
+  const isSelectable = !compact && typeof onSelectTag === "function";
+
+  function handleNodeKeyDown(
+    event: ReactKeyboardEvent<SVGGElement>,
+    tag: string,
+  ) {
+    if (!onSelectTag) {
+      return;
+    }
+
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onSelectTag(tag);
+    }
+  }
 
   return (
     <div className={`interest-map${compact ? " is-compact" : ""}`}>
@@ -753,9 +780,64 @@ function InterestMap({
               </g>
             );
           })}
+          {selectedSegments.map(([sourceTag, targetTag]) => {
+            const source = nodeMap.get(sourceTag);
+            const target = nodeMap.get(targetTag);
+
+            if (!source || !target) {
+              return null;
+            }
+
+            const dx = target.x - source.x;
+            const dy = target.y - source.y;
+            const distance = Math.max(1, Math.hypot(dx, dy));
+            const unitX = dx / distance;
+            const unitY = dy / distance;
+            const startX = source.x + unitX * (source.radius + 1);
+            const startY = source.y + unitY * (source.radius + 1);
+            const endX = target.x - unitX * (target.radius + 1);
+            const endY = target.y - unitY * (target.radius + 1);
+
+            return (
+              <line
+                key={`selected:${sourceTag}:${targetTag}`}
+                x1={startX}
+                y1={startY}
+                x2={endX}
+                y2={endY}
+                stroke="rgba(180, 83, 9, 0.74)"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+              />
+            );
+          })}
           {graph.nodes.map((node) => (
-            <g key={node.tag}>
+            <g
+              key={node.tag}
+              className={`interest-map-node${isSelectable ? " is-selectable" : ""}${selectedPathSet.has(node.tag) ? " is-selected" : ""}`}
+              onClick={onSelectTag ? () => onSelectTag(node.tag) : undefined}
+              onKeyDown={
+                onSelectTag
+                  ? (event) => handleNodeKeyDown(event, node.tag)
+                  : undefined
+              }
+              role={onSelectTag ? "button" : undefined}
+              tabIndex={onSelectTag ? 0 : undefined}
+              aria-pressed={
+                onSelectTag ? selectedPathSet.has(node.tag) : undefined
+              }
+            >
               <title>{`${node.tag}: ${node.count} book${node.count === 1 ? "" : "s"}, interest ${node.interest}/5`}</title>
+              {selectedPathSet.has(node.tag) ? (
+                <circle
+                  cx={node.x}
+                  cy={node.y}
+                  r={node.radius + 4}
+                  fill="rgba(180, 83, 9, 0.08)"
+                  stroke="rgba(180, 83, 9, 0.62)"
+                  strokeWidth="1.4"
+                />
+              ) : null}
               <circle
                 cx={node.x}
                 cy={node.y}
@@ -815,6 +897,15 @@ export default function App() {
     tag: string | null;
   } | null>(null);
   const [isInterestMapOpen, setIsInterestMapOpen] = useState(false);
+  const [selectedInterestPath, setSelectedInterestPath] = useState<string[]>(
+    [],
+  );
+  const [pathRecommendation, setPathRecommendation] =
+    useState<PathRecommendationResponse | null>(null);
+  const [isFindingPathBook, setIsFindingPathBook] = useState(false);
+  const [pathRecommendationError, setPathRecommendationError] = useState<
+    string | null
+  >(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [genreInterests, setGenreInterests] = useState<GenreInterestMap>({});
   const [authorExperiences, setAuthorExperiences] =
@@ -876,6 +967,51 @@ export default function App() {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [isInterestMapOpen]);
+
+  function toggleInterestPathTag(tag: string) {
+    setSelectedInterestPath((current) => {
+      const existingIndex = current.indexOf(tag);
+
+      if (existingIndex === -1) {
+        return [...current, tag];
+      }
+
+      if (existingIndex === current.length - 1) {
+        return current.slice(0, -1);
+      }
+
+      return current.slice(0, existingIndex + 1);
+    });
+    setPathRecommendation(null);
+    setPathRecommendationError(null);
+  }
+
+  async function findPathBook() {
+    if (selectedInterestPath.length < 2) {
+      return;
+    }
+
+    setIsFindingPathBook(true);
+    setPathRecommendationError(null);
+
+    try {
+      const response = await requestPathRecommendation({
+        selectedTags: selectedInterestPath,
+        profile: {
+          books,
+          genreInterests,
+          authorExperiences,
+        },
+      });
+
+      setPathRecommendation(response);
+    } catch (error) {
+      setPathRecommendation(null);
+      setPathRecommendationError(messageFromError(error));
+    } finally {
+      setIsFindingPathBook(false);
+    }
+  }
 
   const rankedBooks = useMemo<RankedBook[]>(() => {
     return books
@@ -1756,7 +1892,168 @@ export default function App() {
                 Close
               </button>
             </div>
-            <InterestMap books={books} interests={genreInterests} />
+            <div className="interest-map-builder">
+              <p className="interest-map-builder-copy">
+                Click interests in order to build a path, then ask for a book
+                that best fits that route and your saved profile.
+              </p>
+              <div className="interest-map-selection">
+                {selectedInterestPath.length > 0 ? (
+                  selectedInterestPath.map((tag, index) => (
+                    <span
+                      key={`${tag}:${index}`}
+                      className="interest-map-selection-chip"
+                    >
+                      <span className="interest-map-selection-index">
+                        {index + 1}
+                      </span>
+                      {tag}
+                    </span>
+                  ))
+                ) : (
+                  <span className="interest-map-selection-empty">
+                    Choose at least two interests.
+                  </span>
+                )}
+              </div>
+              <div className="interest-map-builder-actions">
+                <button
+                  type="button"
+                  className="btn btn-tertiary"
+                  onClick={() => {
+                    setSelectedInterestPath([]);
+                    setPathRecommendation(null);
+                    setPathRecommendationError(null);
+                  }}
+                  disabled={
+                    selectedInterestPath.length === 0 || isFindingPathBook
+                  }
+                >
+                  Clear path
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => void findPathBook()}
+                  disabled={
+                    selectedInterestPath.length < 2 || isFindingPathBook
+                  }
+                >
+                  {isFindingPathBook ? "Finding..." : "Find a book"}
+                </button>
+              </div>
+              {pathRecommendationError ? (
+                <p className="panel-error">{pathRecommendationError}</p>
+              ) : null}
+            </div>
+            <InterestMap
+              books={books}
+              interests={genreInterests}
+              selectedPath={selectedInterestPath}
+              onSelectTag={toggleInterestPathTag}
+            />
+            {pathRecommendation?.bestMatch ? (
+              <section className="path-recommendation">
+                <div className="path-recommendation-head">
+                  <div>
+                    <p className="summary-label">Recommended</p>
+                    <h3>{pathRecommendation.bestMatch.title}</h3>
+                  </div>
+                  <strong className="summary-number">
+                    {formatMainResult(pathRecommendation.bestMatch.score)}
+                  </strong>
+                </div>
+                {pathRecommendation.bestMatch.authors.length > 0 ? (
+                  <p className="path-recommendation-authors">
+                    {pathRecommendation.bestMatch.authors.join(", ")}
+                  </p>
+                ) : null}
+                <div className="path-recommendation-meta">
+                  <span>
+                    {pathRecommendation.bestMatch.averageRating != null
+                      ? `${formatScore(pathRecommendation.bestMatch.averageRating, 2)} average`
+                      : "No provider rating"}
+                  </span>
+                  <span>
+                    {pathRecommendation.bestMatch.ratingsCount != null
+                      ? `${formatCount(pathRecommendation.bestMatch.ratingsCount)} ratings`
+                      : "No ratings count"}
+                  </span>
+                  <span>
+                    {`${pathRecommendation.bestMatch.matchedSelectedTags.length}/${selectedInterestPath.length} path interests`}
+                  </span>
+                </div>
+                {pathRecommendation.bestMatch.matchedSelectedTags.length > 0 ? (
+                  <div className="path-recommendation-tags">
+                    {pathRecommendation.bestMatch.matchedSelectedTags.map(
+                      (tag) => (
+                        <span className="genre-tag" key={tag}>
+                          {tag}
+                        </span>
+                      ),
+                    )}
+                  </div>
+                ) : null}
+                {pathRecommendation.bestMatch.description ? (
+                  <p className="path-recommendation-description">
+                    {pathRecommendation.bestMatch.description}
+                  </p>
+                ) : null}
+                <div className="path-recommendation-links">
+                  {pathRecommendation.bestMatch.infoLink ? (
+                    <a
+                      className="btn btn-secondary"
+                      href={pathRecommendation.bestMatch.infoLink}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      View source
+                    </a>
+                  ) : null}
+                </div>
+                {pathRecommendation.candidates.length > 1 ? (
+                  <div className="path-recommendation-alternates">
+                    <p className="summary-label">Alternates</p>
+                    <div className="path-recommendation-list">
+                      {pathRecommendation.candidates
+                        .slice(1, 4)
+                        .map((candidate) => (
+                          <article
+                            className="path-recommendation-item"
+                            key={candidate.id}
+                          >
+                            <div>
+                              <h4>{candidate.title}</h4>
+                              {candidate.authors.length > 0 ? (
+                                <p>{candidate.authors.join(", ")}</p>
+                              ) : null}
+                            </div>
+                            <div className="path-recommendation-item-meta">
+                              <strong>
+                                {formatMainResult(candidate.score)}
+                              </strong>
+                              {candidate.infoLink ? (
+                                <a
+                                  href={candidate.infoLink}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  Open
+                                </a>
+                              ) : null}
+                            </div>
+                          </article>
+                        ))}
+                    </div>
+                  </div>
+                ) : null}
+              </section>
+            ) : pathRecommendation ? (
+              <div className="empty-state">
+                No strong match came back for that path yet. Try a different
+                combination of interests.
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}
