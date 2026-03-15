@@ -1144,6 +1144,49 @@ export default function App() {
     [books],
   );
 
+  /* ── scroll-up-to-expand graph ── */
+  const graphExpansionRef = useRef(0); // 0 = collapsed (55vh), 1 = full (100vh)
+  useEffect(() => {
+    if (!hasInterestMap) return;
+    const root = document.documentElement;
+    const MIN_VH = 55;
+    const MAX_VH = 100;
+    const SPEED = 0.008; // expansion per px of wheel delta
+
+    function applyExpansion(t: number) {
+      const vh = MIN_VH + (MAX_VH - MIN_VH) * t;
+      root.style.setProperty("--graph-h", `${vh}vh`);
+    }
+
+    function onWheel(e: WheelEvent) {
+      const t = graphExpansionRef.current;
+      if (window.scrollY <= 0 && e.deltaY < 0) {
+        // Scrolling up at the top → expand graph
+        e.preventDefault();
+        const next = Math.min(1, t + Math.abs(e.deltaY) * SPEED);
+        graphExpansionRef.current = next;
+        applyExpansion(next);
+      } else if (t > 0 && e.deltaY > 0) {
+        // Scrolling down while expanded → collapse first
+        e.preventDefault();
+        const next = Math.max(0, t - Math.abs(e.deltaY) * SPEED);
+        graphExpansionRef.current = next;
+        applyExpansion(next);
+      }
+    }
+
+    // Prevent browser overscroll from eating wheel events
+    root.style.overscrollBehaviorY = "none";
+    document.body.style.overscrollBehaviorY = "none";
+
+    window.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      window.removeEventListener("wheel", onWheel);
+      root.style.removeProperty("--graph-h");
+      root.style.overscrollBehaviorY = "";
+      document.body.style.overscrollBehaviorY = "";
+    };
+  }, [hasInterestMap]);
 
   const rankedBooks = useMemo<RankedBook[]>(() => {
     return books

@@ -94,7 +94,7 @@ h3 {
 
 
 .app-shell.has-graph-stage .app-content {
-    padding-top: 0;
+    padding-top: var(--graph-h, 55vh);
 }
 
 .graph-stage,
@@ -112,13 +112,22 @@ h3 {
 }
 
 .graph-stage {
-    width: 100%;
+    position: fixed;
+    top: 0;
+    left: 50%;
+    width: min(1120px, calc(100vw - 32px));
+    transform: translateX(-50%);
+    height: var(--graph-h, 55vh);
+    z-index: 0;
+    pointer-events: none;
+    transition: height 80ms ease-out;
 }
 
 .graph-stage-frame {
+    pointer-events: auto;
     display: grid;
     padding: 24px 0 0;
-    min-height: 100vh;
+    height: 100%;
 }
 
 .graph-stage-head {
