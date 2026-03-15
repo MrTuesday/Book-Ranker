@@ -331,6 +331,21 @@ function ScoreDistribution({ scores }: { scores: number[] }) {
   );
 }
 
+function shortenLabel(value: string, maxLength = 18) {
+  return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
+}
+
+function hashTag(value: string) {
+  let hash = 2166136261;
+
+  for (const character of value) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return hash >>> 0;
+}
+
 function InterestMap({
   books,
   interests,
@@ -364,9 +379,6 @@ function InterestMap({
       }
     }
 
-    const pairKey = (left: string, right: string) =>
-      [left, right].sort((a, b) => a.localeCompare(b)).join("\u0000");
-
     const nodes = Array.from(tagCounts.entries())
       .sort(
         ([leftTag, leftCount], [rightTag, rightCount]) =>
@@ -399,101 +411,228 @@ function InterestMap({
       )
       .slice(0, 16);
 
-    if (nodes.length <= 2 || links.length === 0) {
-      return { nodes, links };
-    }
-
-    const nodeMap = new Map(nodes.map((node) => [node.tag, node] as const));
-    const linkWeights = new Map(
-      links.map(
-        (link) => [pairKey(link.source, link.target), link.count] as const,
-      ),
-    );
-
-    const weightBetween = (left: string, right: string) =>
-      linkWeights.get(pairKey(left, right)) ?? 0;
-
-    const strongestLink = links[0];
-    const orderedTags = strongestLink
-      ? [strongestLink.source, strongestLink.target]
-      : [nodes[0].tag];
-    const remainingTags = new Set(
-      nodes.map((node) => node.tag).filter((tag) => !orderedTags.includes(tag)),
-    );
-
-    while (remainingTags.size > 0) {
-      const startTag = orderedTags[0];
-      const endTag = orderedTags[orderedTags.length - 1];
-      let bestTag: string | null = null;
-      let bestSide: "start" | "end" = "end";
-      let bestEdgeWeight = -1;
-      let bestTotalWeight = -1;
-      let bestCount = -1;
-      let bestInterest = -1;
-
-      for (const tag of remainingTags) {
-        const node = nodeMap.get(tag);
-
-        if (!node) {
-          continue;
-        }
-
-        const startWeight = weightBetween(tag, startTag);
-        const endWeight = weightBetween(tag, endTag);
-        const edgeWeight = Math.max(startWeight, endWeight);
-        const totalWeight = orderedTags.reduce(
-          (total, placedTag) => total + weightBetween(tag, placedTag),
-          0,
-        );
-        const nextSide = endWeight > startWeight ? "end" : "start";
-
-        if (
-          edgeWeight > bestEdgeWeight ||
-          (edgeWeight === bestEdgeWeight && totalWeight > bestTotalWeight) ||
-          (edgeWeight === bestEdgeWeight &&
-            totalWeight === bestTotalWeight &&
-            node.count > bestCount) ||
-          (edgeWeight === bestEdgeWeight &&
-            totalWeight === bestTotalWeight &&
-            node.count === bestCount &&
-            node.interest > bestInterest) ||
-          (edgeWeight === bestEdgeWeight &&
-            totalWeight === bestTotalWeight &&
-            node.count === bestCount &&
-            node.interest === bestInterest &&
-            (bestTag == null || tag.localeCompare(bestTag) < 0))
-        ) {
-          bestTag = tag;
-          bestSide = nextSide;
-          bestEdgeWeight = edgeWeight;
-          bestTotalWeight = totalWeight;
-          bestCount = node.count;
-          bestInterest = node.interest;
-        }
-      }
-
-      if (!bestTag) {
-        break;
-      }
-
-      if (bestSide === "start") {
-        orderedTags.unshift(bestTag);
-      } else {
-        orderedTags.push(bestTag);
-      }
-
-      remainingTags.delete(bestTag);
-    }
-
-    return {
-      nodes: orderedTags
-        .map((tag) => nodeMap.get(tag))
-        .filter((node): node is NonNullable<typeof node> => node != null),
-      links,
-    };
+    return { nodes, links };
   }, [books, interests]);
 
-  if (data.nodes.length === 0) {
+  const graph = useMemo(() => {
+    if (data.nodes.length === 0) {
+      return null;
+    }
+
+    const width = 660;
+    const height = 320;
+    const padding = 34;
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const maxNodeCount = Math.max(...data.nodes.map((node) => node.count), 1);
+    const maxLinkCount = Math.max(...data.links.map((link) => link.count), 1);
+    const degreeMap = new Map<string, number>();
+
+    for (const node of data.nodes) {
+      degreeMap.set(node.tag, 0);
+    }
+
+    for (const link of data.links) {
+      degreeMap.set(
+        link.source,
+        (degreeMap.get(link.source) ?? 0) + link.count,
+      );
+      degreeMap.set(
+        link.target,
+        (degreeMap.get(link.target) ?? 0) + link.count,
+      );
+    }
+
+    const positionedNodes = data.nodes.map((node) => {
+      const seed = hashTag(node.tag);
+      const angle = ((seed % 360) / 360) * Math.PI * 2;
+      const orbitX = 48 + ((seed >> 8) % 160);
+      const orbitY = 32 + ((seed >> 16) % 112);
+      const radius = 9 + (node.count / maxNodeCount) * 10;
+      const fillOpacity = 0.18 + (node.interest / 5) * 0.46;
+
+      return {
+        ...node,
+        degree: degreeMap.get(node.tag) ?? 0,
+        x: centerX + Math.cos(angle) * orbitX,
+        y: centerY + Math.sin(angle) * orbitY,
+        vx: 0,
+        vy: 0,
+        radius,
+        fillOpacity,
+      };
+    });
+
+    if (positionedNodes.length > 1) {
+      for (let iteration = 0; iteration < 240; iteration += 1) {
+        const forceX = new Array(positionedNodes.length).fill(0);
+        const forceY = new Array(positionedNodes.length).fill(0);
+
+        for (
+          let leftIndex = 0;
+          leftIndex < positionedNodes.length;
+          leftIndex += 1
+        ) {
+          for (
+            let rightIndex = leftIndex + 1;
+            rightIndex < positionedNodes.length;
+            rightIndex += 1
+          ) {
+            const left = positionedNodes[leftIndex];
+            const right = positionedNodes[rightIndex];
+            let dx = right.x - left.x;
+            let dy = right.y - left.y;
+            let distance = Math.hypot(dx, dy);
+
+            if (distance < 0.001) {
+              dx = 0.01;
+              dy = 0;
+              distance = 0.01;
+            }
+
+            const minDistance = left.radius + right.radius + 34;
+            const directionX = dx / distance;
+            const directionY = dy / distance;
+            const baseRepulsion = 8800 / (distance * distance);
+            const overlapRepulsion =
+              distance < minDistance ? (minDistance - distance) * 0.24 : 0;
+            const push = baseRepulsion + overlapRepulsion;
+
+            forceX[leftIndex] -= directionX * push;
+            forceY[leftIndex] -= directionY * push;
+            forceX[rightIndex] += directionX * push;
+            forceY[rightIndex] += directionY * push;
+          }
+        }
+
+        for (const link of data.links) {
+          const sourceIndex = positionedNodes.findIndex(
+            (node) => node.tag === link.source,
+          );
+          const targetIndex = positionedNodes.findIndex(
+            (node) => node.tag === link.target,
+          );
+
+          if (sourceIndex === -1 || targetIndex === -1) {
+            continue;
+          }
+
+          const source = positionedNodes[sourceIndex];
+          const target = positionedNodes[targetIndex];
+          const dx = target.x - source.x;
+          const dy = target.y - source.y;
+          const distance = Math.max(1, Math.hypot(dx, dy));
+          const directionX = dx / distance;
+          const directionY = dy / distance;
+          const desiredDistance = 124 - (link.count / maxLinkCount) * 26;
+          const spring = (distance - desiredDistance) * 0.012;
+          const pull = spring * (0.7 + link.count / maxLinkCount);
+
+          forceX[sourceIndex] += directionX * pull;
+          forceY[sourceIndex] += directionY * pull;
+          forceX[targetIndex] -= directionX * pull;
+          forceY[targetIndex] -= directionY * pull;
+        }
+
+        for (let index = 0; index < positionedNodes.length; index += 1) {
+          const node = positionedNodes[index];
+          const centerPull = node.degree > 0 ? 0.0038 : 0.0022;
+          const jitterSeed = hashTag(`${node.tag}:${iteration}`);
+          const jitterX = (((jitterSeed & 15) - 7) / 7) * 0.015;
+          const jitterY = ((((jitterSeed >> 4) & 15) - 7) / 7) * 0.015;
+
+          node.vx =
+            (node.vx +
+              forceX[index] +
+              (centerX - node.x) * centerPull +
+              jitterX) *
+            0.84;
+          node.vy =
+            (node.vy +
+              forceY[index] +
+              (centerY - node.y) * centerPull +
+              jitterY) *
+            0.84;
+          node.x += node.vx;
+          node.y += node.vy;
+
+          node.x = Math.max(
+            padding + node.radius,
+            Math.min(width - padding - node.radius, node.x),
+          );
+          node.y = Math.max(
+            padding + node.radius,
+            Math.min(height - padding - node.radius, node.y),
+          );
+        }
+      }
+    } else {
+      positionedNodes[0].x = centerX;
+      positionedNodes[0].y = centerY;
+    }
+
+    const minX = Math.min(
+      ...positionedNodes.map((node) => node.x - node.radius),
+    );
+    const maxX = Math.max(
+      ...positionedNodes.map((node) => node.x + node.radius),
+    );
+    const minY = Math.min(
+      ...positionedNodes.map((node) => node.y - node.radius),
+    );
+    const maxY = Math.max(
+      ...positionedNodes.map((node) => node.y + node.radius),
+    );
+    const offsetX = centerX - (minX + maxX) / 2;
+    const offsetY = centerY - (minY + maxY) / 2;
+
+    for (const node of positionedNodes) {
+      node.x = Math.max(
+        padding + node.radius,
+        Math.min(width - padding - node.radius, node.x + offsetX),
+      );
+      node.y = Math.max(
+        padding + node.radius,
+        Math.min(height - padding - node.radius, node.y + offsetY),
+      );
+    }
+
+    const decoratedNodes = positionedNodes.map((node) => {
+      const dx = node.x - centerX;
+      const dy = node.y - centerY;
+      let labelX = node.x;
+      let labelY = node.y + 4;
+      let labelAnchor: "middle" | "start" | "end" = "middle";
+
+      if (Math.abs(dx) > Math.abs(dy) + 18) {
+        if (dx < 0) {
+          labelX = node.x - node.radius - 12;
+          labelAnchor = "end";
+        } else {
+          labelX = node.x + node.radius + 12;
+          labelAnchor = "start";
+        }
+      } else {
+        labelY = node.y + (dy < 0 ? -(node.radius + 12) : node.radius + 18);
+      }
+
+      return {
+        ...node,
+        labelX,
+        labelY,
+        labelAnchor,
+      };
+    });
+
+    return {
+      width,
+      height,
+      maxLinkCount,
+      nodes: decoratedNodes,
+    };
+  }, [data]);
+
+  if (!graph) {
     return (
       <p className="interest-map-empty">
         Add genre and topic tags to see how your interests connect.
@@ -501,120 +640,55 @@ function InterestMap({
     );
   }
 
-  const width = 640;
-  const height = 240;
-  const plotPadding = 52;
-  const baselineY = 174;
-  const maxNodeCount = Math.max(...data.nodes.map((node) => node.count), 1);
-  const maxLinkCount = Math.max(...data.links.map((link) => link.count), 1);
-  const maxSpan =
-    data.nodes.length > 1
-      ? Math.max(
-          ...data.links.map((link) => {
-            const sourceIndex = data.nodes.findIndex(
-              (node) => node.tag === link.source,
-            );
-            const targetIndex = data.nodes.findIndex(
-              (node) => node.tag === link.target,
-            );
-            return Math.abs(sourceIndex - targetIndex);
-          }),
-          1,
-        )
-      : 1;
-
-  const positionedNodes = data.nodes.map((node, index) => {
-    const x =
-      data.nodes.length === 1
-        ? width / 2
-        : plotPadding +
-          (index / (data.nodes.length - 1)) * (width - plotPadding * 2);
-    const radius = 9 + (node.count / maxNodeCount) * 10;
-    const fillOpacity = 0.16 + (node.interest / 5) * 0.5;
-
-    return {
-      ...node,
-      x,
-      y: baselineY,
-      radius,
-      fillOpacity,
-    };
-  });
-
-  const positionedNodeMap = new Map(
-    positionedNodes.map((node) => [node.tag, node] as const),
-  );
+  const nodeMap = new Map(graph.nodes.map((node) => [node.tag, node] as const));
   const hasLinks = data.links.length > 0;
-  const connectionLabel =
-    data.links.length === 1
-      ? "1 connection"
-      : `${data.links.length} connections`;
   const interestLabel =
     data.nodes.length === 1 ? "1 interest" : `${data.nodes.length} interests`;
+  const connectionLabel =
+    data.links.length === 1 ? "1 link" : `${data.links.length} links`;
 
   return (
     <div className="interest-map">
       <div className="interest-map-meta">
         <span>{interestLabel}</span>
-        <span>{hasLinks ? connectionLabel : "No shared pairings yet"}</span>
+        <span>{hasLinks ? connectionLabel : "No links yet"}</span>
       </div>
       <div className="interest-map-plot">
         <svg
           className="interest-map-chart"
-          viewBox={`0 0 ${width} ${height}`}
-          aria-label="Interest map showing how genre and topic tags connect across your books"
+          viewBox={`0 0 ${graph.width} ${graph.height}`}
+          aria-label="Interest graph showing how genre and topic tags connect across your books"
         >
-          <line
-            x1={plotPadding}
-            y1={baselineY}
-            x2={width - plotPadding}
-            y2={baselineY}
-            stroke="var(--line)"
-            strokeWidth="1"
-          />
           {data.links.map((link) => {
-            const source = positionedNodeMap.get(link.source);
-            const target = positionedNodeMap.get(link.target);
+            const source = nodeMap.get(link.source);
+            const target = nodeMap.get(link.target);
 
             if (!source || !target) {
               return null;
             }
 
-            const left = source.x < target.x ? source : target;
-            const right = source.x < target.x ? target : source;
-            const sourceIndex = data.nodes.findIndex(
-              (node) => node.tag === left.tag,
-            );
-            const targetIndex = data.nodes.findIndex(
-              (node) => node.tag === right.tag,
-            );
-            const span = Math.max(1, targetIndex - sourceIndex);
-            const heightRatio = span / maxSpan;
-            const controlY =
-              baselineY -
-              (34 + heightRatio * 84 + (link.count / maxLinkCount) * 8);
-
             return (
-              <path
+              <line
                 key={`${link.source}-${link.target}`}
-                d={`M ${left.x} ${baselineY} C ${left.x} ${controlY}, ${right.x} ${controlY}, ${right.x} ${baselineY}`}
-                fill="none"
+                x1={source.x}
+                y1={source.y}
+                x2={target.x}
+                y2={target.y}
                 stroke="var(--accent)"
-                strokeOpacity={0.12 + (link.count / maxLinkCount) * 0.34}
-                strokeWidth={1 + (link.count / maxLinkCount) * 3}
+                strokeOpacity={0.12 + (link.count / graph.maxLinkCount) * 0.32}
+                strokeWidth={1 + (link.count / graph.maxLinkCount) * 2.6}
                 strokeLinecap="round"
               />
             );
           })}
-          {positionedNodes.map((node) => (
+          {graph.nodes.map((node) => (
             <g key={node.tag}>
               <title>{`${node.tag}: ${node.count} book${node.count === 1 ? "" : "s"}, interest ${node.interest}/5`}</title>
               <circle
                 cx={node.x}
                 cy={node.y}
-                r={node.radius + 4}
-                fill="rgba(180, 83, 9, 0.06)"
-                stroke="rgba(180, 83, 9, 0.12)"
+                r={node.radius + 6}
+                fill={`rgba(180, 83, 9, ${Math.max(0.08, node.fillOpacity * 0.22)})`}
               />
               <circle
                 cx={node.x}
@@ -624,39 +698,22 @@ function InterestMap({
                 stroke="var(--accent)"
                 strokeWidth="1.5"
               />
+              <text
+                className="interest-map-label"
+                x={node.labelX}
+                y={node.labelY}
+                textAnchor={node.labelAnchor}
+              >
+                {shortenLabel(node.tag)}
+              </text>
             </g>
           ))}
         </svg>
       </div>
-      <div
-        className="interest-map-legend"
-        role="list"
-        aria-label="Interests in the map"
-      >
-        {positionedNodes.map((node) => (
-          <div className="interest-map-chip" key={node.tag} role="listitem">
-            <span
-              className="interest-map-chip-swatch"
-              aria-hidden="true"
-              style={{
-                width: `${Math.round(node.radius)}px`,
-                height: `${Math.round(node.radius)}px`,
-                backgroundColor: `rgba(180, 83, 9, ${node.fillOpacity})`,
-              }}
-            />
-            <span className="interest-map-chip-copy">
-              <span className="interest-map-chip-label">{node.tag}</span>
-              <span className="interest-map-chip-meta">
-                {`${node.count} book${node.count === 1 ? "" : "s"} · ${formatScore(node.interest, 1)}/5`}
-              </span>
-            </span>
-          </div>
-        ))}
-      </div>
       <p className="interest-map-note">
         {hasLinks
-          ? "Connections come from books that share more than one genre or topic tag."
-          : "You have interests saved, but no current books link two of them together yet."}
+          ? "Each line marks interests that appear together on the same book."
+          : "You have interests saved, but none of your current books connect two of them yet."}
       </p>
     </div>
   );
