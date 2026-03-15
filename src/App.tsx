@@ -3,6 +3,7 @@ import {
   type FocusEvent as ReactFocusEvent,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
+  type WheelEvent as ReactWheelEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -250,89 +251,6 @@ function messageFromError(error: unknown) {
   }
 
   return "Something went wrong while saving your books in this browser.";
-}
-
-function ScoreDistribution({ scores }: { scores: number[] }) {
-  if (scores.length === 0) return null;
-
-  const percentages = scores.map((score) => clampPercentage((score / 5) * 100));
-  const dataMin = Math.min(...percentages);
-  const dataMax = Math.max(...percentages);
-  const lo = Math.max(0, Math.floor(dataMin));
-  const hi = Math.min(100, Math.ceil(dataMax));
-  const range = hi - lo || 1;
-
-  const w = 340;
-  const h = 60;
-  const r = 4.5;
-  const trackY = 22;
-  const pad = 24;
-  const trackW = w - pad * 2;
-
-  const toX = (v: number) => pad + ((v - lo) / range) * trackW;
-
-  const positions = percentages.map(toX).sort((a, b) => a - b);
-
-  return (
-    <svg
-      className="distribution-chart"
-      viewBox={`0 0 ${w} ${h}`}
-      aria-label="Likelihood distribution"
-    >
-      <line
-        x1={pad}
-        y1={trackY}
-        x2={w - pad}
-        y2={trackY}
-        stroke="var(--line)"
-        strokeWidth="1"
-      />
-      <line
-        x1={pad}
-        y1={trackY - 4}
-        x2={pad}
-        y2={trackY + 4}
-        stroke="var(--line-strong)"
-        strokeWidth="1"
-      />
-      <line
-        x1={w - pad}
-        y1={trackY - 4}
-        x2={w - pad}
-        y2={trackY + 4}
-        stroke="var(--line-strong)"
-        strokeWidth="1"
-      />
-      <text
-        x={pad}
-        y={h - 2}
-        fill="var(--muted)"
-        fontSize="10"
-        textAnchor="middle"
-      >
-        {`${lo}%`}
-      </text>
-      <text
-        x={w - pad}
-        y={h - 2}
-        fill="var(--muted)"
-        fontSize="10"
-        textAnchor="middle"
-      >
-        {`${hi}%`}
-      </text>
-      {positions.map((x, i) => (
-        <circle
-          key={i}
-          cx={x}
-          cy={trackY}
-          r={r}
-          fill="var(--accent)"
-          opacity={0.7}
-        />
-      ))}
-    </svg>
-  );
 }
 
 function shortenLabel(value: string, maxLength = 18) {
@@ -977,6 +895,33 @@ export default function App() {
     setPathRecommendationError(null);
   }
 
+  const hasInterestMap = useMemo(
+    () => books.some((book) => uniqueTags(book.genres).length > 0),
+    [books],
+  );
+
+  const openInterestMap = useCallback(() => {
+    if (!hasInterestMap) {
+      return;
+    }
+
+    setIsInterestMapOpen(true);
+  }, [hasInterestMap]);
+
+  const handleInterestStageWheel = useCallback(
+    (event: ReactWheelEvent<HTMLButtonElement>) => {
+      if (!hasInterestMap || isInterestMapOpen) {
+        return;
+      }
+
+      if (event.deltaY < -6) {
+        event.preventDefault();
+        setIsInterestMapOpen(true);
+      }
+    },
+    [hasInterestMap, isInterestMapOpen],
+  );
+
   async function findPathBook() {
     if (selectedInterestPath.length < 2) {
       return;
@@ -1032,11 +977,6 @@ export default function App() {
       .map((book, index) => ({ ...book, rank: index + 1 }));
   }, [books, genreInterests, authorExperiences]);
 
-  const rankedCount = rankedBooks.length;
-  const averageScore =
-    rankedCount > 0
-      ? rankedBooks.reduce((total, book) => total + book.score, 0) / rankedCount
-      : null;
   const isEditing = editingBookId !== null;
 
   const knownGenres = useMemo(() => {
@@ -1306,6 +1246,31 @@ export default function App() {
     return "";
   }
 
+  function startEditingDraftTag(field: SuggestionField, tag: string) {
+    setDraft((current) => {
+      const isAuthor = field === "author";
+      const inputKey = isAuthor ? "authorInput" : "genreInput";
+      const ratingKey = isAuthor ? "authorExperience" : "genreInterest";
+      const manualKey = isAuthor
+        ? "authorExperienceIsManual"
+        : "genreInterestIsManual";
+      const scoreMap = isAuthor ? current.authorScores : current.genreScores;
+      const globalScores = isAuthor ? authorExperiences : genreInterests;
+      const scoreValue =
+        scoreMap[tag]?.trim() ||
+        (globalScores[tag] != null ? String(globalScores[tag]) : "");
+
+      return {
+        ...current,
+        [inputKey]: tag,
+        [ratingKey]: scoreValue,
+        [manualKey]: false,
+      };
+    });
+    setActiveSuggestionField(field);
+    setActiveTagActionMenu(null);
+  }
+
   function addDraftTag(field: SuggestionField, explicitValue?: string) {
     setDraft((current) => {
       const isAuthor = field === "author";
@@ -1318,7 +1283,7 @@ export default function App() {
       const scoresKey = isAuthor ? "authorScores" : "genreScores";
       const rawTag = (explicitValue ?? current[inputKey]).trim();
 
-      if (!rawTag || current[tagsKey].includes(rawTag)) {
+      if (!rawTag) {
         return current;
       }
 
@@ -1326,6 +1291,29 @@ export default function App() {
       const ratingValue =
         current[ratingKey].trim() ||
         (globalScores[rawTag] != null ? String(globalScores[rawTag]) : "");
+
+      if (current[tagsKey].includes(rawTag)) {
+        if (!ratingValue || current[scoresKey][rawTag] === ratingValue) {
+          return {
+            ...current,
+            [inputKey]: "",
+            [ratingKey]: "",
+            [manualKey]: false,
+          };
+        }
+
+        return {
+          ...current,
+          [scoresKey]: {
+            ...current[scoresKey],
+            [rawTag]: ratingValue,
+          },
+          [inputKey]: "",
+          [ratingKey]: "",
+          [manualKey]: false,
+        };
+      }
+
       const nextTags = uniqueTags([...current[tagsKey], rawTag]);
 
       return {
@@ -1803,59 +1791,39 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      <section className="hero">
-        <div className="hero-copy">
-          <h1>
-            Sort your reading list by what actually{" "}
-            <span className="hero-title-accent">matters to you.</span>
-          </h1>
-          <p className="hero-text">
-            Statistical modelling is applied to the inputs you provide to
-            estimate how likely you are to enjoy each book.
-          </p>
-        </div>
-
-        <aside className="hero-overview" aria-label="List overview">
-          <p className="section-label">Your library</p>
-
-          <div className="hero-summary">
-            <div className="summary-stats">
-              <article className="summary-tile summary-tile-metric">
-                <span className="summary-label">Ranked</span>
-                <strong className="summary-number">{rankedCount}</strong>
-              </article>
-
-              <article className="summary-tile summary-tile-metric">
-                <span className="summary-label">Average</span>
-                <strong className="summary-number">
-                  {averageScore === null ? "—" : formatMainResult(averageScore)}
-                </strong>
-              </article>
-
-              <article className="summary-tile summary-tile-distribution">
-                <span className="summary-label">Distribution</span>
-                <ScoreDistribution scores={rankedBooks.map((b) => b.score)} />
-              </article>
-
-              <article className="summary-tile summary-tile-map">
-                <button
-                  type="button"
-                  className="summary-tile-map-button"
-                  onClick={() => setIsInterestMapOpen(true)}
-                  aria-label="Open interest map"
-                >
-                  <span className="summary-label">Interest map</span>
-                  <InterestMap
-                    books={books}
-                    interests={genreInterests}
-                    compact
-                  />
-                </button>
-              </article>
+      {hasInterestMap ? (
+        <section className="graph-stage" aria-label="Interest map preview">
+          <button
+            type="button"
+            className="graph-stage-button"
+            onClick={openInterestMap}
+            onWheel={handleInterestStageWheel}
+            aria-label="Open interest map full screen"
+          >
+            <div className="graph-stage-head">
+              <div className="graph-stage-copy">
+                <p className="section-label">Interest map</p>
+                <h1>Start from the shape of what you already care about.</h1>
+              </div>
+              <p className="graph-stage-hint">Click or scroll up to expand</p>
             </div>
+            <InterestMap books={books} interests={genreInterests} />
+          </button>
+        </section>
+      ) : (
+        <section className="hero hero-empty">
+          <div className="hero-copy">
+            <h1>
+              Sort your reading list by what actually{" "}
+              <span className="hero-title-accent">matters to you.</span>
+            </h1>
+            <p className="hero-text">
+              Statistical modelling is applied to the inputs you provide to
+              estimate how likely you are to enjoy each book.
+            </p>
           </div>
-        </aside>
-      </section>
+        </section>
+      )}
 
       {isInterestMapOpen ? (
         <div
@@ -2240,8 +2208,19 @@ export default function App() {
                           handleDraftTagDrop(event, "author", author)
                         }
                         onDragEnd={handleDraftTagDragEnd}
+                        onClick={(event) => {
+                          if (
+                            (event.target as HTMLElement).closest(
+                              ".tag-action-shell",
+                            )
+                          ) {
+                            return;
+                          }
+
+                          startEditingDraftTag("author", author);
+                        }}
                         aria-grabbed={isDragging}
-                        title={`Drag to reorder ${author}`}
+                        title={`Click to edit ${author}, or drag to reorder`}
                       >
                         {author}
                         {score ? (
@@ -2460,8 +2439,19 @@ export default function App() {
                           handleDraftTagDrop(event, "genre", genre)
                         }
                         onDragEnd={handleDraftTagDragEnd}
+                        onClick={(event) => {
+                          if (
+                            (event.target as HTMLElement).closest(
+                              ".tag-action-shell",
+                            )
+                          ) {
+                            return;
+                          }
+
+                          startEditingDraftTag("genre", genre);
+                        }}
                         aria-grabbed={isDragging}
-                        title={`Drag to reorder ${genre}`}
+                        title={`Click to edit ${genre}, or drag to reorder`}
                       >
                         {genre}
                         {score ? (
