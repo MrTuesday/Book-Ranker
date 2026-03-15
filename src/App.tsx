@@ -2013,7 +2013,7 @@ export default function App() {
             </div>
           ) : (
             <div className="right-column-empty">
-              <p>Select a genre node to build a reading list.</p>
+              <p>Select nodes to generate a list</p>
             </div>
           )}
           <section className="panel control-panel">
