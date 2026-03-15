@@ -26,10 +26,6 @@ import {
   renameGenreInBooks,
   renameAuthorInBooks,
 } from "./lib/books-api";
-import {
-  requestPathRecommendation,
-  type PathRecommendationResponse,
-} from "./lib/recommend-api";
 
 type BookDraft = {
   title: string;
@@ -1091,12 +1087,6 @@ export default function App() {
   const [selectedInterestPath, setSelectedInterestPath] = useState<string[]>(
     [],
   );
-  const [pathRecommendation, setPathRecommendation] =
-    useState<PathRecommendationResponse | null>(null);
-  const [isFindingPathBook, setIsFindingPathBook] = useState(false);
-  const [pathRecommendationError, setPathRecommendationError] = useState<
-    string | null
-  >(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [genreInterests, setGenreInterests] = useState<GenreInterestMap>({});
   const [authorExperiences, setAuthorExperiences] =
@@ -1147,41 +1137,12 @@ export default function App() {
 
       return current.filter((currentTag) => currentTag !== tag);
     });
-    setPathRecommendation(null);
-    setPathRecommendationError(null);
   }
 
   const hasInterestMap = useMemo(
     () => books.some((book) => uniqueTags(book.genres).length > 0),
     [books],
   );
-
-  async function findPathBook() {
-    if (selectedInterestPath.length < 2) {
-      return;
-    }
-
-    setIsFindingPathBook(true);
-    setPathRecommendationError(null);
-
-    try {
-      const response = await requestPathRecommendation({
-        selectedTags: selectedInterestPath,
-        profile: {
-          books,
-          genreInterests,
-          authorExperiences,
-        },
-      });
-
-      setPathRecommendation(response);
-    } catch (error) {
-      setPathRecommendation(null);
-      setPathRecommendationError(messageFromError(error));
-    } finally {
-      setIsFindingPathBook(false);
-    }
-  }
 
   const rankedBooks = useMemo<RankedBook[]>(() => {
     return books
