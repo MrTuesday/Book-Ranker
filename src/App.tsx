@@ -821,11 +821,6 @@ function InterestMap({
                   ? (event) => handleNodeKeyDown(event, node.tag)
                   : undefined
               }
-              role={onSelectTag ? "button" : undefined}
-              tabIndex={onSelectTag ? 0 : undefined}
-              aria-pressed={
-                onSelectTag ? selectedPathSet.has(node.tag) : undefined
-              }
             >
               <title>{`${node.tag}: ${node.count} book${node.count === 1 ? "" : "s"}, interest ${node.interest}/5`}</title>
               {selectedPathSet.has(node.tag) ? (
