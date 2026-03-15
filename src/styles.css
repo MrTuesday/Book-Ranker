@@ -338,8 +338,10 @@ h3 {
 }
 
 .graph-stage .interest-map {
+    display: grid;
     height: 100%;
     grid-template-rows: 1fr;
+    gap: 0;
 }
 
 .graph-stage .interest-map-meta,
@@ -348,13 +350,13 @@ h3 {
 }
 
 .graph-stage .interest-map-plot {
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: grid;
+    place-items: center;
     border: none;
     background: transparent;
     padding: 0;
     overflow: visible;
+    height: 100%;
 }
 
 .graph-stage .interest-map-chart {
