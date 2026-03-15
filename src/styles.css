@@ -604,132 +604,52 @@ h3 {
     font-size: 1.35rem;
 }
 
-.path-recommendation-authors,
-.path-recommendation-description,
-.path-recommendation-item p {
-    color: var(--muted);
-    line-height: 1.5;
-}
-
-.path-recommendation-meta {
+/* ---- Right column rec cards ---- */
+.rec-card {
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px 14px;
-    color: var(--muted);
-    font-size: 0.86rem;
-}
-
-.path-recommendation-tags,
-.path-recommendation-links {
-    display: flex;
-    flex-wrap: wrap;
+    align-items: baseline;
     gap: 8px;
-}
-
-.path-recommendation-alternates {
-    display: grid;
-    gap: 8px;
-}
-
-.path-recommendation-list {
-    display: grid;
-    gap: 8px;
-}
-
-.path-recommendation-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: start;
-    gap: 12px;
-    padding: 10px 12px;
+    padding: 8px 12px;
     border: 1px solid var(--line);
-    border-radius: 16px;
-    background: rgba(255, 255, 255, 0.52);
-}
-
-.path-recommendation-item h4 {
-    font-size: 1.05rem;
-}
-
-.path-recommendation-item-meta {
-    display: grid;
-    justify-items: end;
-    gap: 6px;
-    text-align: right;
-}
-
-.path-recommendation-item-meta a {
-    color: var(--accent);
-    font-size: 0.84rem;
-    font-weight: 600;
-    text-decoration: none;
-}
-
-.path-recommendation-description {
-    display: -webkit-box;
+    border-radius: var(--radius-lg);
+    background: rgba(255, 255, 255, 0.72);
+    min-width: 0;
     overflow: hidden;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 4;
 }
 
-.path-recommendation-empty {
-    color: var(--muted);
-    line-height: 1.5;
+.rec-card.is-added {
+    opacity: 0.5;
 }
 
-/* ---- Right column recommendation items ---- */
-.rec-batch-controls {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 0.86rem;
-    color: var(--muted);
-}
-
-.rec-batch-controls select {
-    padding: 4px 6px;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    background: var(--surface);
-    font-size: 0.86rem;
-}
-
-.right-column .path-recommendation-item.is-selected-for-batch {
-    border-color: var(--accent);
-    background: rgba(180, 83, 9, 0.04);
-}
-
-.rec-item-select {
-    appearance: none;
-    width: 18px;
-    height: 18px;
-    border: 2px solid var(--line-strong);
-    border-radius: 4px;
-    cursor: pointer;
-    flex-shrink: 0;
-    margin-top: 2px;
-}
-
-.rec-item-select:checked {
-    background: var(--accent);
-    border-color: var(--accent);
-}
-
-.path-recommendation-item-row {
-    display: flex;
-    gap: 10px;
-    align-items: start;
-}
-
-.path-recommendation-item-content {
+.rec-card-info {
     flex: 1;
     min-width: 0;
 }
 
-.path-recommendation-item-actions {
-    display: flex;
-    gap: 8px;
-    align-items: center;
+.rec-card-info h4 {
+    font-size: 0.88rem;
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.rec-card-author {
+    color: var(--muted);
+    font-size: 0.78rem;
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.rec-card-score {
+    font-family: "Iowan Old Style", "Palatino Linotype", serif;
+    font-size: 1.1rem;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -0.04em;
+    color: var(--accent);
     flex-shrink: 0;
 }
 

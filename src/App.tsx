@@ -211,9 +211,6 @@ function formatMainResult(value: number) {
   return `${Math.round(Math.max(0, Math.min(100, (value / 5) * 100)))}%`;
 }
 
-function formatCount(value: number) {
-  return new Intl.NumberFormat("en-US").format(Number(value.toPrecision(2)));
-}
 
 
 function messageFromError(error: unknown) {
@@ -1109,8 +1106,7 @@ export default function App() {
   const [isLoadingRecs, setIsLoadingRecs] = useState(false);
   const [recError, setRecError] = useState<string | null>(null);
   const [addedRecIds, setAddedRecIds] = useState<Set<string>>(new Set());
-  const [batchSize, setBatchSize] = useState(5);
-  const [selectedRecIds, setSelectedRecIds] = useState<Set<string>>(new Set());
+  const [batchSize] = useState(5);
 
   useEffect(() => {
     let isActive = true;
@@ -1818,30 +1814,45 @@ export default function App() {
     }
   }
 
-  async function findBooks() {
-    if (selectedInterestPath.length < 2) return;
-    setIsLoadingRecs(true);
-    setRecError(null);
-    setRecommendations(null);
-
-    try {
-      const result = await requestPathRecommendation({
-        selectedTags: selectedInterestPath,
-        profile: {
-          books,
-          genreInterests: calibratedInterests,
-          authorExperiences,
-        },
-      });
-      setRecommendations(result);
-    } catch (error) {
-      setRecError(
-        error instanceof Error ? error.message : "Failed to get recommendations.",
-      );
-    } finally {
-      setIsLoadingRecs(false);
+  // Auto-build reading list when 2+ nodes are selected
+  useEffect(() => {
+    if (selectedInterestPath.length < 1) {
+      setRecommendations(null);
+      setRecError(null);
+      return;
     }
-  }
+
+    let cancelled = false;
+    const debounce = setTimeout(async () => {
+      setIsLoadingRecs(true);
+      setRecError(null);
+
+      try {
+        const result = await requestPathRecommendation({
+          selectedTags: selectedInterestPath,
+          profile: {
+            books,
+            genreInterests: calibratedInterests,
+            authorExperiences,
+          },
+        });
+        if (!cancelled) setRecommendations(result);
+      } catch (error) {
+        if (!cancelled) {
+          setRecError(
+            error instanceof Error ? error.message : "Failed to get recommendations.",
+          );
+        }
+      } finally {
+        if (!cancelled) setIsLoadingRecs(false);
+      }
+    }, 400); // debounce to avoid hammering API on rapid clicks
+
+    return () => {
+      cancelled = true;
+      clearTimeout(debounce);
+    };
+  }, [selectedInterestPath]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function addRecommendedBook(rec: RecommendedBook) {
     try {
@@ -1859,41 +1870,15 @@ export default function App() {
     }
   }
 
-  function toggleRecSelection(recId: string) {
-    setSelectedRecIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(recId)) {
-        next.delete(recId);
-      } else {
-        next.add(recId);
-      }
-      return next;
-    });
-  }
-
   async function addSelectedBatch() {
     if (!recommendations) return;
-    const toAdd = recommendations.candidates.filter(
-      (rec) => selectedRecIds.has(rec.id) && !addedRecIds.has(rec.id),
-    );
+    const toAdd = recommendations.candidates
+      .filter((rec) => !addedRecIds.has(rec.id))
+      .slice(0, batchSize);
     for (const rec of toAdd) {
       await addRecommendedBook(rec);
     }
-    setSelectedRecIds(new Set());
   }
-
-  // Auto-select top N candidates when recommendations arrive
-  useEffect(() => {
-    if (recommendations && recommendations.candidates.length > 0) {
-      const topIds = recommendations.candidates
-        .filter((r) => !addedRecIds.has(r.id))
-        .slice(0, batchSize)
-        .map((r) => r.id);
-      setSelectedRecIds(new Set(topIds));
-    } else {
-      setSelectedRecIds(new Set());
-    }
-  }, [recommendations, batchSize]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function updateMyRating(bookId: number, rating: number) {
     const book = books.find((b) => b.id === bookId);
@@ -2582,136 +2567,56 @@ export default function App() {
           />
         </section>
 
-        {/* ── Right column: recommendations ── */}
+        {/* ── Right column: reading list builder ── */}
         <aside className="right-column">
-          {selectedInterestPath.length >= 2 ? (
-            <div className="right-column-actions">
-              <button
-                className="interest-map-action-btn find-btn"
-                onClick={() => void findBooks()}
-                disabled={isLoadingRecs}
-              >
-                {isLoadingRecs ? "Searching..." : "Find Books"}
-              </button>
-            </div>
-          ) : null}
           {recError ? (
-            <div className="right-column-actions">
-              <p className="panel-error">{recError}</p>
-            </div>
+            <p className="panel-error">{recError}</p>
           ) : null}
           {isLoadingRecs ? (
             <div className="right-column-status">
-              <p>Searching for books...</p>
+              <p>Building reading list...</p>
             </div>
           ) : recommendations && recommendations.candidates.length > 0 ? (
             <>
               <div className="right-column-head">
-                <h3>Recommended</h3>
-                <button
-                  type="button"
-                  className="link-btn"
-                  onClick={() => setRecommendations(null)}
-                >
-                  ✕
-                </button>
-              </div>
-              <div className="right-column-tags">
-                {recommendations.queries.map((tag) => (
-                  <span key={tag} className="genre-tag">{tag}</span>
-                ))}
+                <h3>Reading List</h3>
               </div>
               <div className="right-column-list">
                 {recommendations.candidates.map((rec) => (
                   <div
                     key={rec.id}
-                    className={`path-recommendation-item${selectedRecIds.has(rec.id) ? " is-selected-for-batch" : ""}`}
+                    className={`rec-card${addedRecIds.has(rec.id) ? " is-added" : ""}`}
                   >
-                    <div className="path-recommendation-item-row">
-                      {!addedRecIds.has(rec.id) ? (
-                        <input
-                          type="checkbox"
-                          className="rec-item-select"
-                          checked={selectedRecIds.has(rec.id)}
-                          onChange={() => toggleRecSelection(rec.id)}
-                        />
-                      ) : null}
-                      <div className="path-recommendation-item-content">
-                        <h4>{rec.title}</h4>
-                        <p className="path-recommendation-authors">
-                          {rec.authors.join(", ") || "Unknown author"}
-                        </p>
-                        {rec.description ? (
-                          <p className="path-recommendation-description">
-                            {rec.description}
-                          </p>
-                        ) : null}
-                        <div className="path-recommendation-meta">
-                          {rec.averageRating != null ? (
-                            <span>★ {rec.averageRating.toFixed(1)}</span>
-                          ) : null}
-                          {rec.ratingsCount != null ? (
-                            <span>{formatCount(rec.ratingsCount)} ratings</span>
-                          ) : null}
-                          <span>Score: {formatMainResult(rec.score)}</span>
-                        </div>
-                      </div>
-                      <div className="path-recommendation-item-actions">
-                        {addedRecIds.has(rec.id) ? (
-                          <span className="genre-tag">Added ✓</span>
-                        ) : null}
-                        {rec.infoLink ? (
-                          <a
-                            href={rec.infoLink}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            View
-                          </a>
-                        ) : null}
-                      </div>
+                    <div className="rec-card-info">
+                      <h4>{rec.title}</h4>
+                      <p className="rec-card-author">
+                        {rec.authors.join(", ") || "Unknown author"}
+                      </p>
                     </div>
+                    <strong className="rec-card-score">
+                      {addedRecIds.has(rec.id) ? "✓" : formatMainResult(rec.score)}
+                    </strong>
                   </div>
                 ))}
               </div>
               <div className="right-column-footer">
-                <div className="rec-batch-controls">
-                  <label htmlFor="batch-size">Show top</label>
-                  <select
-                    id="batch-size"
-                    value={batchSize}
-                    onChange={(e) => setBatchSize(Number(e.target.value))}
-                  >
-                    {[3, 5, 8, 10, 15, 20].map((n) => (
-                      <option key={n} value={n}>{n}</option>
-                    ))}
-                  </select>
-                </div>
-                {selectedRecIds.size > 0 ? (
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={() => void addSelectedBatch()}
-                  >
-                    Add {selectedRecIds.size} book{selectedRecIds.size !== 1 ? "s" : ""} to list
-                  </button>
-                ) : null}
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => void addSelectedBatch()}
+                  disabled={recommendations.candidates.every((r) => addedRecIds.has(r.id))}
+                >
+                  Add top {batchSize} to my list
+                </button>
               </div>
             </>
           ) : recommendations && recommendations.candidates.length === 0 ? (
             <div className="right-column-status">
               <p>No new books found for these genres.</p>
-              <button
-                type="button"
-                className="link-btn"
-                onClick={() => setRecommendations(null)}
-              >
-                Dismiss
-              </button>
             </div>
           ) : (
             <div className="right-column-empty">
-              <p>Select 2+ genre nodes, then click <strong>Find Books</strong> to get recommendations.</p>
+              <p>Select a genre node to build a reading list.</p>
             </div>
           )}
         </aside>
