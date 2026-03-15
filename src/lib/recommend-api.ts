@@ -93,7 +93,6 @@ function scoreCandidate(
   const genrePrefs = tagPreferences(candidate.genres, genreInterests);
 
   // Path coverage: how many selected tags does this book match?
-  const selectedSet = new Set(selectedTags.map(normalizeForMatch));
   const candidateGenresLower = candidate.genres.map(normalizeForMatch);
   const matchedSelected = selectedTags.filter((tag) =>
     candidateGenresLower.some(

@@ -61,7 +61,7 @@ export async function searchGoogleBooks(
   }
 
   return data.items
-    .map((item) => {
+    .map((item): GoogleBooksResult | null => {
       const v = item.volumeInfo;
       if (!v?.title) return null;
 
@@ -74,7 +74,7 @@ export async function searchGoogleBooks(
         ratingCount: v.ratingsCount,
         googleBooksUrl: v.infoLink,
         thumbnail: v.imageLinks?.thumbnail ?? v.imageLinks?.smallThumbnail,
-      } satisfies GoogleBooksResult;
+      };
     })
     .filter((r): r is GoogleBooksResult => r != null);
 }

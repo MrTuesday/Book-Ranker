@@ -70,11 +70,6 @@ type DraftTagDrag = {
   field: SuggestionField;
   tag: string;
 };
-type BookTagDrag = {
-  bookId: number;
-  field: SuggestionField;
-  tag: string;
-};
 type TagActionScope = "draft" | "book";
 type DraftTextField =
   | "title"
@@ -215,10 +210,6 @@ function moveTagToEnd(tags: string[], draggedTag: string) {
 }
 
 
-function formatScore(value: number, places = 2) {
-  return value.toFixed(places);
-}
-
 function formatMainResult(value: number) {
   return `${Math.round(Math.max(0, Math.min(100, (value / 5) * 100)))}%`;
 }
@@ -227,9 +218,6 @@ function formatCount(value: number) {
   return new Intl.NumberFormat("en-US").format(Number(value.toPrecision(2)));
 }
 
-function clampPercentage(value: number) {
-  return Math.max(0, Math.min(100, value));
-}
 
 function messageFromError(error: unknown) {
   if (error instanceof Error && error.message) {
@@ -1123,12 +1111,6 @@ export default function App() {
     field: SuggestionField;
     tag: string | null;
   } | null>(null);
-  const [bookTagDrag, setBookTagDrag] = useState<BookTagDrag | null>(null);
-  const [bookTagDropTarget, setBookTagDropTarget] = useState<{
-    bookId: number;
-    field: SuggestionField;
-    tag: string | null;
-  } | null>(null);
   const [selectedInterestPath, setSelectedInterestPath] = useState<string[]>(
     [],
   );
@@ -1323,8 +1305,6 @@ export default function App() {
     setActiveTagActionMenu(null);
     setDraftTagDrag(null);
     setDraftTagDropTarget(null);
-    setBookTagDrag(null);
-    setBookTagDropTarget(null);
   }, []);
 
   useEffect(() => {
@@ -1762,156 +1742,10 @@ export default function App() {
     setDraftTagDropTarget(null);
   }
 
-  async function reorderBookTags(
-    bookId: number,
-    field: SuggestionField,
-    draggedTag: string,
-    targetTag: string | null,
-  ) {
-    const book = books.find((candidate) => candidate.id === bookId);
-
-    if (!book) {
-      return;
-    }
-
-    const currentTags = field === "author" ? book.authors : book.genres;
-    const nextTags =
-      targetTag == null
-        ? moveTagToEnd(currentTags, draggedTag)
-        : reorderTags(currentTags, draggedTag, targetTag);
-
-    if (nextTags === currentTags) {
-      return;
-    }
-
-    setErrorMessage(null);
-
-    try {
-      const payload = {
-        title: book.title,
-        authors: field === "author" ? nextTags : book.authors,
-        starRating: book.starRating,
-        ratingCount: book.ratingCount,
-        genres: field === "genre" ? nextTags : book.genres,
-      };
-      const nextBooks = await updateBookRecord(bookId, payload);
-      setBooks(nextBooks);
-
-      if (editingBookId === bookId) {
-        const tagsKey = field === "author" ? "authors" : "genres";
-        setDraft((current) => ({
-          ...current,
-          [tagsKey]: nextTags,
-        }));
-      }
-    } catch (error) {
-      setErrorMessage(messageFromError(error));
-    }
-  }
-
-  function handleBookTagDragStart(
-    event: ReactDragEvent<HTMLSpanElement>,
-    bookId: number,
-    field: SuggestionField,
-    tag: string,
-  ) {
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", `${bookId}:${field}:${tag}`);
-    setActiveTagActionMenu(null);
-    setBookTagDrag({ bookId, field, tag });
-    setBookTagDropTarget(null);
-  }
-
-  function handleBookTagGroupDragOver(
-    event: ReactDragEvent<HTMLDivElement>,
-    bookId: number,
-    field: SuggestionField,
-  ) {
-    if (
-      !bookTagDrag ||
-      bookTagDrag.bookId !== bookId ||
-      bookTagDrag.field !== field
-    ) {
-      return;
-    }
-
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
-    setBookTagDropTarget((current) =>
-      current?.bookId === bookId &&
-      current.field === field &&
-      current.tag === null
-        ? current
-        : { bookId, field, tag: null },
-    );
-  }
-
-  function handleBookTagDragOver(
-    event: ReactDragEvent<HTMLSpanElement>,
-    bookId: number,
-    field: SuggestionField,
-    tag: string,
-  ) {
-    if (
-      !bookTagDrag ||
-      bookTagDrag.bookId !== bookId ||
-      bookTagDrag.field !== field
-    ) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-    event.dataTransfer.dropEffect = "move";
-
-    if (bookTagDrag.tag === tag) {
-      setBookTagDropTarget(null);
-      return;
-    }
-
-    setBookTagDropTarget((current) =>
-      current?.bookId === bookId &&
-      current.field === field &&
-      current.tag === tag
-        ? current
-        : { bookId, field, tag },
-    );
-  }
-
-  async function handleBookTagDrop(
-    event: ReactDragEvent<HTMLElement>,
-    bookId: number,
-    field: SuggestionField,
-    targetTag: string | null = null,
-  ) {
-    if (
-      !bookTagDrag ||
-      bookTagDrag.bookId !== bookId ||
-      bookTagDrag.field !== field
-    ) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-
-    const draggedTag = bookTagDrag.tag;
-    setBookTagDrag(null);
-    setBookTagDropTarget(null);
-    await reorderBookTags(bookId, field, draggedTag, targetTag);
-  }
-
-  function handleBookTagDragEnd() {
-    setBookTagDrag(null);
-    setBookTagDropTarget(null);
-  }
-
   function startEditing(book: Book) {
     setEditingBookId(book.id);
     setScrollToForm(true);
     setActiveTagActionMenu(null);
-    setBookTagDrag(null);
-    setBookTagDropTarget(null);
     setDraft({
       title: book.title,
       starRating: book.starRating != null ? String(book.starRating) : "",
@@ -1977,34 +1811,6 @@ export default function App() {
       setErrorMessage(messageFromError(error));
     } finally {
       setIsSaving(false);
-    }
-  }
-
-  async function clearTag(bookId: number, field: SuggestionField, tag: string) {
-    try {
-      const book = books.find((b) => b.id === bookId);
-      if (!book) return;
-      const payload = {
-        title: book.title,
-        authors:
-          field === "author"
-            ? book.authors.filter((author) => author !== tag)
-            : book.authors,
-        starRating: book.starRating,
-        ratingCount: book.ratingCount,
-        genres:
-          field === "genre"
-            ? book.genres.filter((genre) => genre !== tag)
-            : book.genres,
-      };
-      const nextBooks = await updateBookRecord(bookId, payload);
-      setBooks(nextBooks);
-
-      if (editingBookId === bookId) {
-        removeDraftTag(field, tag);
-      }
-    } catch (error) {
-      setErrorMessage(messageFromError(error));
     }
   }
 
@@ -2765,7 +2571,6 @@ export default function App() {
               </div>
             ) : (
               rankedBooks.map((book, index) => {
-                const scoreFill = clampPercentage((book.score / 5) * 100);
                 const isDeleting = pendingDeleteId === book.id;
                 const rankClass =
                   book.rank === 1
