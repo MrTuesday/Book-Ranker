@@ -662,22 +662,23 @@ function InterestMap({
 
       time += 1;
 
-      // Ambient floating + centering
+      // Gentle sway — very slow, subtle, like tree branches in a breeze
       for (let i = 0; i < nodes.length; i += 1) {
         const hash = hashTag(nodes[i].tag);
         const px =
-          Math.sin(time * 0.008 + (hash & 0xff) * 0.05) * 0.02;
+          Math.sin(time * 0.002 + (hash & 0xff) * 0.04) * 0.003;
         const py =
-          Math.cos(time * 0.01 + ((hash >> 8) & 0xff) * 0.05) * 0.015;
+          Math.cos(time * 0.0025 + ((hash >> 8) & 0xff) * 0.04) * 0.002;
         nodes[i].vx += px;
         nodes[i].vy += py;
 
-        const cp = nodes[i].degree > 0 ? 0.012 : 0.008;
+        // Gentle centering — keep nodes from drifting away
+        const cp = nodes[i].degree > 0 ? 0.003 : 0.002;
         nodes[i].vx += (centerX - nodes[i].x) * cp;
         nodes[i].vy += (centerY - nodes[i].y) * cp;
       }
 
-      // Repulsion
+      // Repulsion — just enough to prevent overlap
       for (let i = 0; i < nodes.length; i += 1) {
         for (let j = i + 1; j < nodes.length; j += 1) {
           let dx = nodes[j].x - nodes[i].x;
@@ -693,9 +694,9 @@ function InterestMap({
           const minDist = nodes[i].radius + nodes[j].radius + 40;
           const ux = dx / dist;
           const uy = dy / dist;
-          const repulsion = 800 / (dist * dist);
+          const repulsion = 200 / (dist * dist);
           const overlap =
-            dist < minDist ? (minDist - dist) * 0.08 : 0;
+            dist < minDist ? (minDist - dist) * 0.04 : 0;
           const push = repulsion + overlap;
 
           nodes[i].vx -= ux * push;
@@ -705,7 +706,7 @@ function InterestMap({
         }
       }
 
-      // Spring attraction
+      // Spring attraction — soft, keeps connected nodes loosely linked
       for (const link of links) {
         const si = nodeIndex.get(link.source) ?? -1;
         const ti = nodeIndex.get(link.target) ?? -1;
@@ -723,7 +724,7 @@ function InterestMap({
           160 -
           (link.count / maxLinkCount) * 30 -
           (nodes[si].radius + nodes[ti].radius);
-        const spring = (dist - desired) * 0.003;
+        const spring = (dist - desired) * 0.001;
         const pull = spring * (0.8 + link.count / maxLinkCount);
 
         nodes[si].vx += ux * pull;
@@ -732,7 +733,7 @@ function InterestMap({
         nodes[ti].vy -= uy * pull;
       }
 
-      // Update positions
+      // Update positions — heavy damping for smooth, stable motion
       for (let i = 0; i < nodes.length; i += 1) {
         if (dragRef.current?.nodeIndex === i) {
           nodes[i].vx = 0;
@@ -740,8 +741,8 @@ function InterestMap({
           continue;
         }
 
-        nodes[i].vx *= 0.94;
-        nodes[i].vy *= 0.94;
+        nodes[i].vx *= 0.88;
+        nodes[i].vy *= 0.88;
         nodes[i].x += nodes[i].vx;
         nodes[i].y += nodes[i].vy;
         nodes[i].x = Math.max(
@@ -923,10 +924,10 @@ function InterestMap({
         <svg
           ref={svgRef}
           className={`interest-map-chart${dragRef.current ? " is-dragging" : ""}`}
-          preserveAspectRatio="xMidYMid slice"
+          preserveAspectRatio="xMidYMid meet"
           viewBox={(() => {
-            // When expanded, shrink the viewBox to zoom into the center
-            const zoomFactor = 1 - expansion * 0.5; // 1.0 → 0.5
+            // When expanded (scrolled to top), zoom in gently
+            const zoomFactor = 1 - expansion * 0.3; // 1.0 → 0.7
             const w = initialLayout.width * zoomFactor;
             const h = initialLayout.height * zoomFactor;
             const x = (initialLayout.width - w) / 2;
