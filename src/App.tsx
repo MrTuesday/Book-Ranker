@@ -1884,7 +1884,7 @@ export default function App() {
       <div className="app-layout">
         {/* ── Left column: reading list ── */}
         <aside className="left-column">
-        <section className="panel board">
+        <section className="board">
           <div className="ranking-list">
             {isLoading ? (
               <div className="empty-state">Loading your rankings...</div>
