@@ -3,7 +3,6 @@ import {
   type FocusEvent as ReactFocusEvent,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
-  type WheelEvent as ReactWheelEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -1089,7 +1088,6 @@ export default function App() {
     field: SuggestionField;
     tag: string | null;
   } | null>(null);
-  const [isInterestMapOpen, setIsInterestMapOpen] = useState(false);
   const [selectedInterestPath, setSelectedInterestPath] = useState<string[]>(
     [],
   );
@@ -1139,28 +1137,6 @@ export default function App() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!isInterestMapOpen) {
-      return;
-    }
-
-    const previousOverflow = document.body.style.overflow;
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setIsInterestMapOpen(false);
-      }
-    }
-
-    document.body.style.overflow = "hidden";
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isInterestMapOpen]);
-
   function toggleInterestPathTag(tag: string) {
     setSelectedInterestPath((current) => {
       const existingIndex = current.indexOf(tag);
@@ -1179,48 +1155,6 @@ export default function App() {
     () => books.some((book) => uniqueTags(book.genres).length > 0),
     [books],
   );
-
-  const openInterestMap = useCallback(() => {
-    if (!hasInterestMap) {
-      return;
-    }
-
-    setIsInterestMapOpen(true);
-  }, [hasInterestMap]);
-
-  const handleInterestStageWheel = useCallback(
-    (event: ReactWheelEvent<HTMLDivElement>) => {
-      if (!hasInterestMap || isInterestMapOpen) {
-        return;
-      }
-
-      if (event.deltaY < -6) {
-        event.preventDefault();
-        setIsInterestMapOpen(true);
-      }
-    },
-    [hasInterestMap, isInterestMapOpen],
-  );
-
-  // Expand graph when scrolling up at the top of the page
-  useEffect(() => {
-    if (!hasInterestMap || isInterestMapOpen) {
-      return;
-    }
-
-    function handleWheel(event: WheelEvent) {
-      if (window.scrollY <= 1 && event.deltaY < -6) {
-        event.preventDefault();
-        setIsInterestMapOpen(true);
-      }
-    }
-
-    window.addEventListener("wheel", handleWheel, { passive: false });
-
-    return () => {
-      window.removeEventListener("wheel", handleWheel);
-    };
-  }, [hasInterestMap, isInterestMapOpen]);
 
   async function findPathBook() {
     if (selectedInterestPath.length < 2) {
@@ -2094,42 +2028,18 @@ export default function App() {
       className={[
         "app-shell",
         hasInterestMap ? "has-graph-stage" : "",
-        isInterestMapOpen ? "is-graph-open" : "",
       ]
         .filter(Boolean)
         .join(" ")}
     >
       {hasInterestMap ? (
-        <section
-          className={`graph-stage${isInterestMapOpen ? " is-expanded" : ""}`}
-          aria-label="Interest map"
-        >
-          <div
-            className="graph-stage-frame"
-            onClick={!isInterestMapOpen ? openInterestMap : undefined}
-            onWheel={!isInterestMapOpen ? handleInterestStageWheel : undefined}
-            role={!isInterestMapOpen ? "button" : undefined}
-            aria-label={
-              !isInterestMapOpen ? "Open interest map full screen" : undefined
-            }
-          >
-            {isInterestMapOpen ? (
-              <button
-                type="button"
-                className="btn btn-tertiary graph-stage-close"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setIsInterestMapOpen(false);
-                }}
-              >
-                Close
-              </button>
-            ) : null}
+        <section className="graph-stage" aria-label="Interest map">
+          <div className="graph-stage-frame">
             <InterestMap
               books={books}
               interests={genreInterests}
-              selectedPath={isInterestMapOpen ? selectedInterestPath : []}
-              onSelectTag={isInterestMapOpen ? toggleInterestPathTag : undefined}
+              selectedPath={selectedInterestPath}
+              onSelectTag={toggleInterestPathTag}
             />
           </div>
         </section>

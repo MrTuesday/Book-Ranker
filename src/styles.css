@@ -93,13 +93,7 @@ h3 {
 }
 
 .app-shell.has-graph-stage .app-content {
-    padding-top: clamp(228px, 25vw, 320px);
-}
-
-.app-shell.is-graph-open .app-content {
-    filter: blur(10px);
-    opacity: 0.18;
-    pointer-events: none;
+    padding-top: 0;
 }
 
 .graph-stage,
@@ -117,97 +111,11 @@ h3 {
 }
 
 .graph-stage {
-    position: fixed;
-    top: 24px;
-    left: 50%;
-    width: min(1120px, calc(100vw - 32px));
-    transform: translateX(-50%);
-    z-index: 0;
-    pointer-events: none;
-    transition:
-        top 260ms ease,
-        left 260ms ease,
-        width 260ms ease,
-        transform 260ms ease;
-}
-
-.graph-stage.is-expanded {
-    top: 0;
-    left: 0;
-    width: 100vw;
-    transform: none;
-    z-index: 30;
+    margin-bottom: 28px;
 }
 
 .graph-stage-frame {
-    pointer-events: auto;
     display: grid;
-    gap: 18px;
-    width: 100%;
-    padding: 22px 24px 16px;
-    min-height: clamp(320px, 40vh, 440px);
-    border: 1px solid var(--line);
-    border-radius: calc(var(--radius-xl) + 4px);
-    background:
-        radial-gradient(
-            circle at top center,
-            rgba(255, 255, 255, 0.82),
-            rgba(255, 255, 255, 0) 48%
-        ),
-        rgba(255, 252, 247, 0.52);
-    box-shadow: var(--shadow);
-    text-align: left;
-    cursor: pointer;
-    transition:
-        transform 180ms ease,
-        box-shadow 180ms ease,
-        background-color 180ms ease,
-        min-height 260ms ease,
-        padding 260ms ease,
-        border-radius 260ms ease;
-}
-
-.graph-stage-frame:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 24px 60px rgba(52, 42, 30, 0.1);
-}
-
-.graph-stage-frame:focus-visible {
-    outline: 2px solid rgba(180, 83, 9, 0.28);
-    outline-offset: -2px;
-}
-
-.graph-stage.is-expanded .graph-stage-frame {
-    position: relative;
-    min-height: 100dvh;
-    padding: clamp(20px, 2vw, 28px);
-    border: none;
-    border-radius: 0;
-    background: rgba(248, 246, 241, 0.96);
-    box-shadow: none;
-    cursor: default;
-    transform: none;
-}
-
-.graph-stage-close {
-    position: absolute;
-    top: clamp(16px, 2vw, 24px);
-    right: clamp(16px, 2vw, 24px);
-    z-index: 2;
-}
-
-.graph-stage:not(.is-expanded) .graph-stage-frame {
-    gap: 0;
-    padding: 0;
-    border: none;
-    border-radius: 0;
-    background: transparent;
-    box-shadow: none;
-}
-
-.graph-stage:not(.is-expanded) .graph-stage-frame:hover {
-    transform: none;
-    box-shadow: none;
 }
 
 .graph-stage-head {
@@ -420,55 +328,8 @@ h3 {
     border-radius: 18px;
 }
 
-.graph-stage:not(.is-expanded) .interest-map {
-    gap: 0;
-    height: 100%;
-    grid-template-rows: 1fr;
-}
-
-.graph-stage:not(.is-expanded) .interest-map-meta,
-.graph-stage:not(.is-expanded) .interest-map-note {
-    display: none;
-}
-
-.graph-stage:not(.is-expanded) .interest-map-plot {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: clamp(280px, 38vw, 460px);
-    padding: 0;
-    border: none;
-    background: transparent;
-}
-
-.graph-stage:not(.is-expanded) .interest-map-chart {
-    width: 100%;
-    height: 100%;
-    max-height: 100%;
-}
-
-.graph-stage:not(.is-expanded) .interest-map-label {
-    fill: rgba(23, 20, 17, 0.52);
-}
-
-.graph-stage.is-expanded .interest-map {
-    height: 100%;
-    grid-template-rows: auto minmax(0, 1fr) auto;
-}
-
-.graph-stage.is-expanded .interest-map-plot {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    padding: 8px;
-    border-radius: 22px;
-}
-
-.graph-stage.is-expanded .interest-map-chart {
-    width: 100%;
-    height: 100%;
-    max-height: 100%;
+.graph-stage .interest-map-plot {
+    min-height: clamp(320px, 50vh, 640px);
 }
 
 .distribution-chart {
@@ -606,131 +467,6 @@ h3 {
     overflow: hidden;
 }
 
-.interest-map-overlay {
-    display: grid;
-    grid-template-rows: auto minmax(0, 1fr);
-    gap: 18px;
-    height: 100%;
-}
-
-.overlay-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: start;
-    gap: 16px;
-}
-
-.overlay-head h2 {
-    font-size: 1.8rem;
-}
-
-.interest-map-overlay-body {
-    display: grid;
-    grid-template-columns: minmax(0, 1.6fr) minmax(280px, 0.9fr);
-    gap: 18px;
-    min-height: 0;
-    align-items: stretch;
-}
-
-.interest-map-overlay-main,
-.interest-map-overlay-sidebar {
-    min-width: 0;
-}
-
-.interest-map-overlay-sidebar {
-    display: grid;
-    gap: 14px;
-    align-content: start;
-    overflow: auto;
-    padding-right: 4px;
-}
-
-.interest-map-builder {
-    display: grid;
-    gap: 12px;
-    padding: 16px;
-    border: 1px solid var(--line);
-    border-radius: 20px;
-    background: rgba(255, 255, 255, 0.58);
-}
-
-.interest-map-builder-copy {
-    color: var(--muted);
-    font-size: 0.9rem;
-    line-height: 1.45;
-}
-
-.interest-map-selection {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    min-height: 38px;
-}
-
-.interest-map-selection-empty {
-    color: var(--muted);
-    font-size: 0.9rem;
-}
-
-.interest-map-selection-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 10px;
-    border: 1px solid rgba(180, 83, 9, 0.16);
-    border-radius: 999px;
-    background: rgba(180, 83, 9, 0.08);
-    color: var(--accent);
-    font-size: 0.84rem;
-    font-weight: 600;
-}
-
-.interest-map-selection-index {
-    display: grid;
-    place-items: center;
-    width: 20px;
-    min-width: 20px;
-    height: 20px;
-    border-radius: 999px;
-    background: var(--accent);
-    color: #fff;
-    font-size: 0.72rem;
-    font-weight: 700;
-}
-
-.interest-map-builder-actions {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-}
-
-.interest-map-overlay .interest-map {
-    display: grid;
-    grid-template-rows: auto minmax(0, 1fr);
-    gap: 12px;
-    height: 100%;
-}
-
-.interest-map-overlay .interest-map-plot {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    height: calc(100dvh - 164px);
-    max-height: 100%;
-    padding: 8px;
-    border-radius: 22px;
-}
-
-.interest-map-overlay .interest-map-chart {
-    width: 100%;
-    height: 100%;
-    max-height: 100%;
-}
-
-.interest-map-overlay .interest-map-note {
-    display: none;
-}
 
 .path-recommendation {
     display: grid;
@@ -1524,44 +1260,12 @@ input:focus {
     }
 }
 
-@media (max-width: 860px) {
-    .interest-map-overlay-body {
-        grid-template-columns: 1fr;
-    }
-
-    .interest-map-overlay-main {
-        order: 2;
-    }
-
-    .interest-map-overlay-sidebar {
-        order: 1;
-    }
-
-    .interest-map-overlay .interest-map-plot {
-        height: clamp(260px, 38dvh, 420px);
-    }
-
-    .interest-map-overlay .interest-map-label {
-        font-size: 9.5px;
-    }
-}
-
 @media (max-width: 640px) {
     .app-shell {
         width: min(100% - 24px, 720px);
         padding-top: 24px;
     }
 
-    .graph-stage {
-        top: 16px;
-        width: calc(100vw - 24px);
-    }
-
-    .app-shell.has-graph-stage .app-content {
-        padding-top: 190px;
-    }
-
-    .graph-stage,
     .hero,
     .entry-form,
     .ranking-row {
@@ -1601,15 +1305,7 @@ input:focus {
         display: grid;
     }
 
-    .interest-map-overlay .interest-map-plot {
-        height: clamp(220px, 32dvh, 320px);
-    }
-
-    .interest-map-overlay .interest-map-label {
-        font-size: 9px;
-    }
-
-    .path-recommendation-head,
+.path-recommendation-head,
     .path-recommendation-item {
         display: grid;
     }
