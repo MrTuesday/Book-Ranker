@@ -179,6 +179,10 @@ h3 {
     flex-wrap: wrap;
 }
 
+.board-toolbar h2 {
+    font-size: 1.8rem;
+}
+
 .panel-status-row {
     display: flex;
     justify-content: space-between;

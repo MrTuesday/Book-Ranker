@@ -440,8 +440,6 @@ export default function App() {
     rankedCount > 0
       ? rankedBooks.reduce((total, book) => total + book.score, 0) / rankedCount
       : null;
-  const mainResultLabel =
-    scoreDisplayMode === "percent" ? "Likelihood" : "Score / 5";
   const isEditing = editingBookId !== null;
 
   const knownGenres = useMemo(() => {
@@ -1231,11 +1229,7 @@ export default function App() {
               </article>
 
               <article className="summary-tile">
-                <span className="summary-label">
-                  {scoreDisplayMode === "percent"
-                    ? "Avg. likelihood"
-                    : "Avg. score / 5"}
-                </span>
+                <span className="summary-label">Average</span>
                 <strong className="summary-number">
                   {averageScore === null
                     ? "—"
@@ -1250,11 +1244,7 @@ export default function App() {
             </div>
 
             <article className="summary-tile summary-tile-leader">
-              <span className="summary-label">
-                {scoreDisplayMode === "percent"
-                  ? "Top pick likelihood"
-                  : "Top pick score / 5"}
-              </span>
+              <span className="summary-label">Top pick</span>
               {leader ? (
                 <div className="leader-detail">
                   <div>
@@ -1799,7 +1789,7 @@ export default function App() {
 
       <section className="panel board">
         <div className="board-toolbar">
-          <span className="section-label">My List</span>
+          <h2>My list</h2>
           <div
             className="display-toggle"
             role="group"
@@ -2198,12 +2188,9 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div className="score-block score-block-inline">
-                        <span className="score-label">{mainResultLabel}</span>
-                        <strong className="score-value">
-                          {formatMainResult(book.score, scoreDisplayMode)}
-                        </strong>
-                      </div>
+                      <strong className="score-value">
+                        {formatMainResult(book.score, scoreDisplayMode)}
+                      </strong>
                     </div>
 
                     <div className="score-meter" aria-hidden="true">
