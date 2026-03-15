@@ -672,8 +672,8 @@ function InterestMap({
         nodes[i].vx += px;
         nodes[i].vy += py;
 
-        // Centering — keep nodes from drifting off
-        const cp = nodes[i].degree > 0 ? 0.005 : 0.003;
+        // Very light centering — just prevents runaway drift
+        const cp = 0.0004;
         nodes[i].vx += (centerX - nodes[i].x) * cp;
         nodes[i].vy += (centerY - nodes[i].y) * cp;
       }
