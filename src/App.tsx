@@ -1145,45 +1145,74 @@ export default function App() {
   );
 
   /* ── scroll-up-to-expand graph ── */
-  const graphExpansionRef = useRef(0); // 0 = collapsed (55vh), 1 = full (100vh)
+  const graphExpansionRef = useRef(0); // 0→55vh, 1→100vh
   useEffect(() => {
     if (!hasInterestMap) return;
-    const root = document.documentElement;
+    const shell = document.querySelector<HTMLElement>(".app-shell");
+    const stage = document.querySelector<HTMLElement>(".graph-stage");
+    if (!shell) return;
+
     const MIN_VH = 55;
     const MAX_VH = 100;
-    const SPEED = 0.008; // expansion per px of wheel delta
+    const SPEED = 0.006;
 
-    function applyExpansion(t: number) {
+    function apply(t: number) {
       const vh = MIN_VH + (MAX_VH - MIN_VH) * t;
-      root.style.setProperty("--graph-h", `${vh}vh`);
+      const val = `${vh}vh`;
+      shell!.style.setProperty("--graph-h", val);
+      stage?.style.setProperty("--graph-h", val);
     }
 
     function onWheel(e: WheelEvent) {
+      const atTop = window.scrollY < 1;
       const t = graphExpansionRef.current;
-      if (window.scrollY <= 0 && e.deltaY < 0) {
-        // Scrolling up at the top → expand graph
+
+      if (atTop && e.deltaY < 0) {
         e.preventDefault();
-        const next = Math.min(1, t + Math.abs(e.deltaY) * SPEED);
-        graphExpansionRef.current = next;
-        applyExpansion(next);
-      } else if (t > 0 && e.deltaY > 0) {
-        // Scrolling down while expanded → collapse first
+        graphExpansionRef.current = Math.min(1, t + Math.abs(e.deltaY) * SPEED);
+        apply(graphExpansionRef.current);
+      } else if (t > 0.001 && e.deltaY > 0) {
         e.preventDefault();
-        const next = Math.max(0, t - Math.abs(e.deltaY) * SPEED);
-        graphExpansionRef.current = next;
-        applyExpansion(next);
+        graphExpansionRef.current = Math.max(0, t - Math.abs(e.deltaY) * SPEED);
+        apply(graphExpansionRef.current);
       }
     }
 
-    // Prevent browser overscroll from eating wheel events
-    root.style.overscrollBehaviorY = "none";
+    // Touch support (mobile / trackpad gestures)
+    let touchStartY = 0;
+    function onTouchStart(e: TouchEvent) {
+      touchStartY = e.touches[0].clientY;
+    }
+    function onTouchMove(e: TouchEvent) {
+      const dy = touchStartY - e.touches[0].clientY; // positive = scroll down
+      touchStartY = e.touches[0].clientY;
+      const atTop = window.scrollY < 1;
+      const t = graphExpansionRef.current;
+
+      if (atTop && dy < 0) {
+        e.preventDefault();
+        graphExpansionRef.current = Math.min(1, t + Math.abs(dy) * SPEED);
+        apply(graphExpansionRef.current);
+      } else if (t > 0.001 && dy > 0) {
+        e.preventDefault();
+        graphExpansionRef.current = Math.max(0, t - Math.abs(dy) * SPEED);
+        apply(graphExpansionRef.current);
+      }
+    }
+
+    document.documentElement.style.overscrollBehaviorY = "none";
     document.body.style.overscrollBehaviorY = "none";
 
     window.addEventListener("wheel", onWheel, { passive: false });
+    window.addEventListener("touchstart", onTouchStart, { passive: true });
+    window.addEventListener("touchmove", onTouchMove, { passive: false });
     return () => {
       window.removeEventListener("wheel", onWheel);
-      root.style.removeProperty("--graph-h");
-      root.style.overscrollBehaviorY = "";
+      window.removeEventListener("touchstart", onTouchStart);
+      window.removeEventListener("touchmove", onTouchMove);
+      shell!.style.removeProperty("--graph-h");
+      stage?.style.removeProperty("--graph-h");
+      document.documentElement.style.overscrollBehaviorY = "";
       document.body.style.overscrollBehaviorY = "";
     };
   }, [hasInterestMap]);
