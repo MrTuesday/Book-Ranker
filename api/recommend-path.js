@@ -91,7 +91,7 @@ async function fetchGoogleVolumes(query) {
   });
 
   if (!response.ok) {
-    throw new Error(`Google Books request failed for query "${query}".`);
+    throw new Error(`Google Books request failed (${response.status}).`);
   }
 
   const payload = await response.json();
@@ -308,9 +308,19 @@ export default async function handler(req, res) {
 
   try {
     const queries = buildGoogleQueries(selectedTags);
-    const results = await Promise.all(
+    const settledResults = await Promise.allSettled(
       queries.map((query) => fetchGoogleVolumes(query)),
     );
+    const results = settledResults
+      .filter((result) => result.status === "fulfilled")
+      .map((result) => result.value);
+
+    if (results.length === 0) {
+      return sendJson(res, 502, {
+        message: "Book search is unavailable right now. Try again shortly.",
+      });
+    }
+
     const dedupedCandidates = new Map();
 
     for (const items of results) {

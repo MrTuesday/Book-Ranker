@@ -478,9 +478,9 @@ function InterestMap({
       ringIndex += 1;
     }
 
-    const width = 720;
-    const height = Math.max(340, 300 + ringSizes.length * 64);
-    const padding = 42;
+    const width = 760;
+    const height = Math.max(300, 252 + ringSizes.length * 44);
+    const padding = 34;
     const centerX = width / 2;
     const centerY = height / 2;
     const maxNodeCount = Math.max(...data.nodes.map((node) => node.count), 1);
@@ -503,14 +503,14 @@ function InterestMap({
         }
 
         const ringTotal = Math.max(ringSizes[ringNumber] ?? 1, 1);
-        const ringRadius = 88 + ringNumber * 54 + ((seed >> 10) % 14);
+        const ringRadius = 74 + ringNumber * 42 + ((seed >> 10) % 10);
         const angleOffset = ((seed >> 5) % 21) / 21;
         const angle =
           -Math.PI / 2 +
           ((slotIndex + angleOffset * 0.22) / ringTotal) * Math.PI * 2;
 
         x = centerX + Math.cos(angle) * ringRadius;
-        y = centerY + Math.sin(angle) * ringRadius * 0.72;
+        y = centerY + Math.sin(angle) * ringRadius * 0.66;
       }
 
       return {
@@ -557,12 +557,12 @@ function InterestMap({
               distance = 0.01;
             }
 
-            const minDistance = left.radius + right.radius + 34;
+            const minDistance = left.radius + right.radius + 28;
             const directionX = dx / distance;
             const directionY = dy / distance;
-            const baseRepulsion = 5200 / (distance * distance);
+            const baseRepulsion = 4600 / (distance * distance);
             const overlapRepulsion =
-              distance < minDistance ? (minDistance - distance) * 0.34 : 0;
+              distance < minDistance ? (minDistance - distance) * 0.28 : 0;
             const push = baseRepulsion + overlapRepulsion;
 
             forceX[leftIndex] -= directionX * push;
@@ -588,8 +588,8 @@ function InterestMap({
           const directionX = dx / distance;
           const directionY = dy / distance;
           const desiredDistance =
-            118 -
-            (link.count / maxLinkCount) * 22 -
+            98 -
+            (link.count / maxLinkCount) * 18 -
             (source.radius + target.radius);
           const spring = (distance - desiredDistance) * 0.014;
           const pull = spring * (0.8 + link.count / maxLinkCount);
@@ -673,14 +673,14 @@ function InterestMap({
 
       if (Math.abs(dx) > Math.abs(dy) + 18) {
         if (dx < 0) {
-          labelX = node.x - node.radius - 12;
+          labelX = node.x - node.radius - 10;
           labelAnchor = "end";
         } else {
-          labelX = node.x + node.radius + 12;
+          labelX = node.x + node.radius + 10;
           labelAnchor = "start";
         }
       } else {
-        labelY = node.y + (dy < 0 ? -(node.radius + 12) : node.radius + 18);
+        labelY = node.y + (dy < 0 ? -(node.radius + 10) : node.radius + 14);
       }
 
       return {
@@ -1892,168 +1892,175 @@ export default function App() {
                 Close
               </button>
             </div>
-            <div className="interest-map-builder">
-              <p className="interest-map-builder-copy">
-                Click interests in order to build a path, then ask for a book
-                that best fits that route and your saved profile.
-              </p>
-              <div className="interest-map-selection">
-                {selectedInterestPath.length > 0 ? (
-                  selectedInterestPath.map((tag, index) => (
-                    <span
-                      key={`${tag}:${index}`}
-                      className="interest-map-selection-chip"
-                    >
-                      <span className="interest-map-selection-index">
-                        {index + 1}
-                      </span>
-                      {tag}
-                    </span>
-                  ))
-                ) : (
-                  <span className="interest-map-selection-empty">
-                    Choose at least two interests.
-                  </span>
-                )}
+            <div className="interest-map-overlay-body">
+              <div className="interest-map-overlay-main">
+                <InterestMap
+                  books={books}
+                  interests={genreInterests}
+                  selectedPath={selectedInterestPath}
+                  onSelectTag={toggleInterestPathTag}
+                />
               </div>
-              <div className="interest-map-builder-actions">
-                <button
-                  type="button"
-                  className="btn btn-tertiary"
-                  onClick={() => {
-                    setSelectedInterestPath([]);
-                    setPathRecommendation(null);
-                    setPathRecommendationError(null);
-                  }}
-                  disabled={
-                    selectedInterestPath.length === 0 || isFindingPathBook
-                  }
-                >
-                  Clear path
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={() => void findPathBook()}
-                  disabled={
-                    selectedInterestPath.length < 2 || isFindingPathBook
-                  }
-                >
-                  {isFindingPathBook ? "Finding..." : "Find a book"}
-                </button>
-              </div>
-              {pathRecommendationError ? (
-                <p className="panel-error">{pathRecommendationError}</p>
-              ) : null}
-            </div>
-            <InterestMap
-              books={books}
-              interests={genreInterests}
-              selectedPath={selectedInterestPath}
-              onSelectTag={toggleInterestPathTag}
-            />
-            {pathRecommendation?.bestMatch ? (
-              <section className="path-recommendation">
-                <div className="path-recommendation-head">
-                  <div>
-                    <p className="summary-label">Recommended</p>
-                    <h3>{pathRecommendation.bestMatch.title}</h3>
-                  </div>
-                  <strong className="summary-number">
-                    {formatMainResult(pathRecommendation.bestMatch.score)}
-                  </strong>
-                </div>
-                {pathRecommendation.bestMatch.authors.length > 0 ? (
-                  <p className="path-recommendation-authors">
-                    {pathRecommendation.bestMatch.authors.join(", ")}
+              <aside className="interest-map-overlay-sidebar">
+                <section className="interest-map-builder">
+                  <p className="interest-map-builder-copy">
+                    Click interests in order to build a path, then ask for the
+                    book that best fits that route and your saved profile.
                   </p>
-                ) : null}
-                <div className="path-recommendation-meta">
-                  <span>
-                    {pathRecommendation.bestMatch.averageRating != null
-                      ? `${formatScore(pathRecommendation.bestMatch.averageRating, 2)} average`
-                      : "No provider rating"}
-                  </span>
-                  <span>
-                    {pathRecommendation.bestMatch.ratingsCount != null
-                      ? `${formatCount(pathRecommendation.bestMatch.ratingsCount)} ratings`
-                      : "No ratings count"}
-                  </span>
-                  <span>
-                    {`${pathRecommendation.bestMatch.matchedSelectedTags.length}/${selectedInterestPath.length} path interests`}
-                  </span>
-                </div>
-                {pathRecommendation.bestMatch.matchedSelectedTags.length > 0 ? (
-                  <div className="path-recommendation-tags">
-                    {pathRecommendation.bestMatch.matchedSelectedTags.map(
-                      (tag) => (
-                        <span className="genre-tag" key={tag}>
+                  <div className="interest-map-selection">
+                    {selectedInterestPath.length > 0 ? (
+                      selectedInterestPath.map((tag, index) => (
+                        <span
+                          key={`${tag}:${index}`}
+                          className="interest-map-selection-chip"
+                        >
+                          <span className="interest-map-selection-index">
+                            {index + 1}
+                          </span>
                           {tag}
                         </span>
-                      ),
+                      ))
+                    ) : (
+                      <span className="interest-map-selection-empty">
+                        Choose at least two interests.
+                      </span>
                     )}
                   </div>
-                ) : null}
-                {pathRecommendation.bestMatch.description ? (
-                  <p className="path-recommendation-description">
-                    {pathRecommendation.bestMatch.description}
-                  </p>
-                ) : null}
-                <div className="path-recommendation-links">
-                  {pathRecommendation.bestMatch.infoLink ? (
-                    <a
-                      className="btn btn-secondary"
-                      href={pathRecommendation.bestMatch.infoLink}
-                      target="_blank"
-                      rel="noreferrer"
+                  <div className="interest-map-builder-actions">
+                    <button
+                      type="button"
+                      className="btn btn-tertiary"
+                      onClick={() => {
+                        setSelectedInterestPath([]);
+                        setPathRecommendation(null);
+                        setPathRecommendationError(null);
+                      }}
+                      disabled={
+                        selectedInterestPath.length === 0 || isFindingPathBook
+                      }
                     >
-                      View source
-                    </a>
+                      Clear path
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={() => void findPathBook()}
+                      disabled={
+                        selectedInterestPath.length < 2 || isFindingPathBook
+                      }
+                    >
+                      {isFindingPathBook ? "Finding..." : "Find a book"}
+                    </button>
+                  </div>
+                  {pathRecommendationError ? (
+                    <p className="panel-error">{pathRecommendationError}</p>
                   ) : null}
-                </div>
-                {pathRecommendation.candidates.length > 1 ? (
-                  <div className="path-recommendation-alternates">
-                    <p className="summary-label">Alternates</p>
-                    <div className="path-recommendation-list">
-                      {pathRecommendation.candidates
-                        .slice(1, 4)
-                        .map((candidate) => (
-                          <article
-                            className="path-recommendation-item"
-                            key={candidate.id}
-                          >
-                            <div>
-                              <h4>{candidate.title}</h4>
-                              {candidate.authors.length > 0 ? (
-                                <p>{candidate.authors.join(", ")}</p>
-                              ) : null}
-                            </div>
-                            <div className="path-recommendation-item-meta">
-                              <strong>
-                                {formatMainResult(candidate.score)}
-                              </strong>
-                              {candidate.infoLink ? (
-                                <a
-                                  href={candidate.infoLink}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                >
-                                  Open
-                                </a>
-                              ) : null}
-                            </div>
-                          </article>
-                        ))}
+                </section>
+                {pathRecommendation?.bestMatch ? (
+                  <section className="path-recommendation">
+                    <div className="path-recommendation-head">
+                      <div>
+                        <p className="summary-label">Recommended</p>
+                        <h3>{pathRecommendation.bestMatch.title}</h3>
+                      </div>
+                      <strong className="summary-number">
+                        {formatMainResult(pathRecommendation.bestMatch.score)}
+                      </strong>
                     </div>
+                    {pathRecommendation.bestMatch.authors.length > 0 ? (
+                      <p className="path-recommendation-authors">
+                        {pathRecommendation.bestMatch.authors.join(", ")}
+                      </p>
+                    ) : null}
+                    <div className="path-recommendation-meta">
+                      <span>
+                        {pathRecommendation.bestMatch.averageRating != null
+                          ? `${formatScore(pathRecommendation.bestMatch.averageRating, 2)} average`
+                          : "No provider rating"}
+                      </span>
+                      <span>
+                        {pathRecommendation.bestMatch.ratingsCount != null
+                          ? `${formatCount(pathRecommendation.bestMatch.ratingsCount)} ratings`
+                          : "No ratings count"}
+                      </span>
+                      <span>
+                        {`${pathRecommendation.bestMatch.matchedSelectedTags.length}/${selectedInterestPath.length} path interests`}
+                      </span>
+                    </div>
+                    {pathRecommendation.bestMatch.matchedSelectedTags.length >
+                    0 ? (
+                      <div className="path-recommendation-tags">
+                        {pathRecommendation.bestMatch.matchedSelectedTags.map(
+                          (tag) => (
+                            <span className="genre-tag" key={tag}>
+                              {tag}
+                            </span>
+                          ),
+                        )}
+                      </div>
+                    ) : null}
+                    {pathRecommendation.bestMatch.description ? (
+                      <p className="path-recommendation-description">
+                        {pathRecommendation.bestMatch.description}
+                      </p>
+                    ) : null}
+                    <div className="path-recommendation-links">
+                      {pathRecommendation.bestMatch.infoLink ? (
+                        <a
+                          className="btn btn-secondary"
+                          href={pathRecommendation.bestMatch.infoLink}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          View source
+                        </a>
+                      ) : null}
+                    </div>
+                    {pathRecommendation.candidates.length > 1 ? (
+                      <div className="path-recommendation-alternates">
+                        <p className="summary-label">Alternates</p>
+                        <div className="path-recommendation-list">
+                          {pathRecommendation.candidates
+                            .slice(1, 4)
+                            .map((candidate) => (
+                              <article
+                                className="path-recommendation-item"
+                                key={candidate.id}
+                              >
+                                <div>
+                                  <h4>{candidate.title}</h4>
+                                  {candidate.authors.length > 0 ? (
+                                    <p>{candidate.authors.join(", ")}</p>
+                                  ) : null}
+                                </div>
+                                <div className="path-recommendation-item-meta">
+                                  <strong>
+                                    {formatMainResult(candidate.score)}
+                                  </strong>
+                                  {candidate.infoLink ? (
+                                    <a
+                                      href={candidate.infoLink}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                    >
+                                      Open
+                                    </a>
+                                  ) : null}
+                                </div>
+                              </article>
+                            ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </section>
+                ) : pathRecommendation ? (
+                  <div className="path-recommendation path-recommendation-empty">
+                    No strong match came back for that path yet. Try a different
+                    combination of interests.
                   </div>
                 ) : null}
-              </section>
-            ) : pathRecommendation ? (
-              <div className="empty-state">
-                No strong match came back for that path yet. Try a different
-                combination of interests.
-              </div>
-            ) : null}
+              </aside>
+            </div>
           </div>
         </div>
       ) : null}
