@@ -7,6 +7,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
@@ -340,7 +341,7 @@ function InterestMap({
     return { nodes, links };
   }, [books, interests]);
 
-  const graph = useMemo(() => {
+  const initialLayout = useMemo(() => {
     if (data.nodes.length === 0) {
       return null;
     }
@@ -582,42 +583,253 @@ function InterestMap({
       );
     }
 
-    const decoratedNodes = positionedNodes.map((node) => {
-      const dx = node.x - centerX;
-      const dy = node.y - centerY;
-      let labelX = node.x;
-      let labelY = node.y + 4;
-      let labelAnchor: "middle" | "start" | "end" = "middle";
+    for (const node of positionedNodes) {
+      node.vx = 0;
+      node.vy = 0;
+    }
 
-      if (Math.abs(dx) > Math.abs(dy) + 18) {
-        if (dx < 0) {
-          labelX = node.x - node.radius - 10;
-          labelAnchor = "end";
-        } else {
-          labelX = node.x + node.radius + 10;
-          labelAnchor = "start";
-        }
-      } else {
-        labelY = node.y + (dy < 0 ? -(node.radius + 10) : node.radius + 14);
-      }
-
-      return {
-        ...node,
-        labelX,
-        labelY,
-        labelAnchor,
-      };
-    });
+    const nodeIndexMap = new Map(
+      positionedNodes.map((node, index) => [node.tag, index] as const),
+    );
 
     return {
       width,
       height,
+      padding,
       maxLinkCount,
-      nodes: decoratedNodes,
+      nodes: positionedNodes,
+      nodeIndex: nodeIndexMap,
     };
   }, [data]);
 
-  if (!graph) {
+  // Simulation state
+  const simRef = useRef<
+    Array<{
+      tag: string;
+      count: number;
+      interest: number;
+      degree: number;
+      x: number;
+      y: number;
+      vx: number;
+      vy: number;
+      radius: number;
+      fillOpacity: number;
+    }>
+  >([]);
+  const dragRef = useRef<{
+    nodeIndex: number;
+    pointerId: number;
+    startClientX: number;
+    startClientY: number;
+    moved: boolean;
+  } | null>(null);
+  const wasDraggedRef = useRef(false);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [, setTick] = useState(0);
+
+  // Initialize simulation from layout
+  useEffect(() => {
+    if (!initialLayout) {
+      simRef.current = [];
+      return;
+    }
+    simRef.current = initialLayout.nodes.map((n) => ({ ...n }));
+    setTick((t) => t + 1);
+  }, [initialLayout]);
+
+  // Animation loop (non-compact only)
+  useEffect(() => {
+    if (compact || !initialLayout || simRef.current.length === 0) {
+      return;
+    }
+
+    const { width, height, padding, maxLinkCount, nodeIndex } = initialLayout;
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const links = data.links;
+    let running = true;
+    let time = 0;
+
+    function step() {
+      if (!running) {
+        return;
+      }
+
+      const nodes = simRef.current;
+
+      if (nodes.length === 0) {
+        requestAnimationFrame(step);
+        return;
+      }
+
+      time += 1;
+
+      // Ambient floating + centering
+      for (let i = 0; i < nodes.length; i += 1) {
+        const hash = hashTag(nodes[i].tag);
+        const px =
+          Math.sin(time * 0.012 + (hash & 0xff) * 0.05) * 0.035;
+        const py =
+          Math.cos(time * 0.015 + ((hash >> 8) & 0xff) * 0.05) * 0.025;
+        nodes[i].vx += px;
+        nodes[i].vy += py;
+
+        const cp = nodes[i].degree > 0 ? 0.002 : 0.001;
+        nodes[i].vx += (centerX - nodes[i].x) * cp;
+        nodes[i].vy += (centerY - nodes[i].y) * cp;
+      }
+
+      // Repulsion
+      for (let i = 0; i < nodes.length; i += 1) {
+        for (let j = i + 1; j < nodes.length; j += 1) {
+          let dx = nodes[j].x - nodes[i].x;
+          let dy = nodes[j].y - nodes[i].y;
+          let dist = Math.hypot(dx, dy);
+
+          if (dist < 0.001) {
+            dx = 0.01;
+            dy = 0;
+            dist = 0.01;
+          }
+
+          const minDist = nodes[i].radius + nodes[j].radius + 28;
+          const ux = dx / dist;
+          const uy = dy / dist;
+          const repulsion = 300 / (dist * dist);
+          const overlap =
+            dist < minDist ? (minDist - dist) * 0.08 : 0;
+          const push = repulsion + overlap;
+
+          nodes[i].vx -= ux * push;
+          nodes[i].vy -= uy * push;
+          nodes[j].vx += ux * push;
+          nodes[j].vy += uy * push;
+        }
+      }
+
+      // Spring attraction
+      for (const link of links) {
+        const si = nodeIndex.get(link.source) ?? -1;
+        const ti = nodeIndex.get(link.target) ?? -1;
+
+        if (si === -1 || ti === -1) {
+          continue;
+        }
+
+        const dx = nodes[ti].x - nodes[si].x;
+        const dy = nodes[ti].y - nodes[si].y;
+        const dist = Math.max(1, Math.hypot(dx, dy));
+        const ux = dx / dist;
+        const uy = dy / dist;
+        const desired =
+          98 -
+          (link.count / maxLinkCount) * 18 -
+          (nodes[si].radius + nodes[ti].radius);
+        const spring = (dist - desired) * 0.003;
+        const pull = spring * (0.8 + link.count / maxLinkCount);
+
+        nodes[si].vx += ux * pull;
+        nodes[si].vy += uy * pull;
+        nodes[ti].vx -= ux * pull;
+        nodes[ti].vy -= uy * pull;
+      }
+
+      // Update positions
+      for (let i = 0; i < nodes.length; i += 1) {
+        if (dragRef.current?.nodeIndex === i) {
+          nodes[i].vx = 0;
+          nodes[i].vy = 0;
+          continue;
+        }
+
+        nodes[i].vx *= 0.94;
+        nodes[i].vy *= 0.94;
+        nodes[i].x += nodes[i].vx;
+        nodes[i].y += nodes[i].vy;
+        nodes[i].x = Math.max(
+          padding + nodes[i].radius,
+          Math.min(width - padding - nodes[i].radius, nodes[i].x),
+        );
+        nodes[i].y = Math.max(
+          padding + nodes[i].radius,
+          Math.min(height - padding - nodes[i].radius, nodes[i].y),
+        );
+      }
+
+      setTick((t) => t + 1);
+      requestAnimationFrame(step);
+    }
+
+    const frameId = requestAnimationFrame(step);
+    return () => {
+      running = false;
+      cancelAnimationFrame(frameId);
+    };
+  }, [compact, initialLayout, data]);
+
+  // Drag handlers
+  function handleNodePointerDown(
+    event: React.PointerEvent<SVGGElement>,
+    nodeIdx: number,
+  ) {
+    if (compact || !svgRef.current) {
+      return;
+    }
+
+    event.preventDefault();
+    svgRef.current.setPointerCapture(event.pointerId);
+    dragRef.current = {
+      nodeIndex: nodeIdx,
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      moved: false,
+    };
+  }
+
+  function handlePointerMove(event: React.PointerEvent<SVGSVGElement>) {
+    const drag = dragRef.current;
+
+    if (!drag || !svgRef.current) {
+      return;
+    }
+
+    const dx = event.clientX - drag.startClientX;
+    const dy = event.clientY - drag.startClientY;
+
+    if (!drag.moved && Math.hypot(dx, dy) < 4) {
+      return;
+    }
+
+    drag.moved = true;
+    const ctm = svgRef.current.getScreenCTM();
+
+    if (!ctm) {
+      return;
+    }
+
+    const pt = new DOMPoint(event.clientX, event.clientY).matrixTransform(
+      ctm.inverse(),
+    );
+    const node = simRef.current[drag.nodeIndex];
+
+    if (node) {
+      node.x = pt.x;
+      node.y = pt.y;
+      node.vx = 0;
+      node.vy = 0;
+    }
+  }
+
+  function handlePointerUp() {
+    if (dragRef.current) {
+      wasDraggedRef.current = dragRef.current.moved;
+      dragRef.current = null;
+    }
+  }
+
+  if (!initialLayout) {
     return (
       <p className={`interest-map-empty${compact ? " is-compact" : ""}`}>
         Add genre and topic tags to see how your interests connect.
@@ -625,7 +837,40 @@ function InterestMap({
     );
   }
 
-  const nodeMap = new Map(graph.nodes.map((node) => [node.tag, node] as const));
+  // Use animated positions when available, fall back to initial layout
+  const currentNodes =
+    !compact && simRef.current.length > 0
+      ? simRef.current
+      : initialLayout.nodes;
+  const nodeMap = new Map(
+    currentNodes.map((node) => [node.tag, node] as const),
+  );
+
+  // Compute labels from current positions
+  const centerX = initialLayout.width / 2;
+  const centerY = initialLayout.height / 2;
+  const renderNodes = currentNodes.map((node, index) => {
+    const dx = node.x - centerX;
+    const dy = node.y - centerY;
+    let labelX = node.x;
+    let labelY = node.y + 4;
+    let labelAnchor: "middle" | "start" | "end" = "middle";
+
+    if (Math.abs(dx) > Math.abs(dy) + 18) {
+      if (dx < 0) {
+        labelX = node.x - node.radius - 10;
+        labelAnchor = "end";
+      } else {
+        labelX = node.x + node.radius + 10;
+        labelAnchor = "start";
+      }
+    } else {
+      labelY = node.y + (dy < 0 ? -(node.radius + 10) : node.radius + 14);
+    }
+
+    return { ...node, index, labelX, labelY, labelAnchor };
+  });
+
   const hasLinks = data.links.length > 0;
   const interestLabel =
     data.nodes.length === 1 ? "1 interest" : `${data.nodes.length} interests`;
@@ -651,6 +896,15 @@ function InterestMap({
     }
   }
 
+  function handleNodeClick(tag: string) {
+    if (wasDraggedRef.current) {
+      wasDraggedRef.current = false;
+      return;
+    }
+
+    onSelectTag?.(tag);
+  }
+
   return (
     <div className={`interest-map${compact ? " is-compact" : ""}`}>
       {!compact ? (
@@ -661,9 +915,12 @@ function InterestMap({
       ) : null}
       <div className="interest-map-plot">
         <svg
-          className="interest-map-chart"
-          viewBox={`0 0 ${graph.width} ${graph.height}`}
+          ref={svgRef}
+          className={`interest-map-chart${dragRef.current ? " is-dragging" : ""}`}
+          viewBox={`0 0 ${initialLayout.width} ${initialLayout.height}`}
           aria-label="Interest graph showing how genre and topic tags connect across your books"
+          onPointerMove={!compact ? handlePointerMove : undefined}
+          onPointerUp={!compact ? handlePointerUp : undefined}
         >
           {data.links.map((link) => {
             const source = nodeMap.get(link.source);
@@ -691,8 +948,12 @@ function InterestMap({
                   x2={endX}
                   y2={endY}
                   stroke="rgba(180, 83, 9, 0.22)"
-                  strokeOpacity={0.2 + (link.count / graph.maxLinkCount) * 0.2}
-                  strokeWidth={0.8 + (link.count / graph.maxLinkCount) * 1.1}
+                  strokeOpacity={
+                    0.2 + (link.count / initialLayout.maxLinkCount) * 0.2
+                  }
+                  strokeWidth={
+                    0.8 + (link.count / initialLayout.maxLinkCount) * 1.1
+                  }
                   strokeLinecap="round"
                 />
               </g>
@@ -729,11 +990,18 @@ function InterestMap({
               />
             );
           })}
-          {graph.nodes.map((node) => (
+          {renderNodes.map((node) => (
             <g
               key={node.tag}
               className={`interest-map-node${isSelectable ? " is-selectable" : ""}${selectedPathSet.has(node.tag) ? " is-selected" : ""}`}
-              onClick={onSelectTag ? () => onSelectTag(node.tag) : undefined}
+              onClick={
+                onSelectTag ? () => handleNodeClick(node.tag) : undefined
+              }
+              onPointerDown={
+                !compact
+                  ? (event) => handleNodePointerDown(event, node.index)
+                  : undefined
+              }
               onKeyDown={
                 onSelectTag
                   ? (event) => handleNodeKeyDown(event, node.tag)
@@ -776,7 +1044,7 @@ function InterestMap({
       {!compact ? (
         <p className="interest-map-note">
           {hasLinks
-            ? "Lines connect interests that appear together on the same book."
+            ? "Lines connect interests that appear together on the same book. Drag nodes to rearrange."
             : "Your current books do not connect any two interests yet."}
         </p>
       ) : null}

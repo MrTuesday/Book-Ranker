@@ -505,6 +505,18 @@ h3 {
     cursor: pointer;
 }
 
+.interest-map-node:not(.is-selectable) {
+    cursor: grab;
+}
+
+.interest-map-chart.is-dragging {
+    cursor: grabbing;
+}
+
+.interest-map-chart.is-dragging .interest-map-node {
+    cursor: grabbing;
+}
+
 .interest-map-node.is-selectable:focus-visible {
     outline: none;
 }
