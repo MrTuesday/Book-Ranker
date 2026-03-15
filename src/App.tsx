@@ -1144,6 +1144,30 @@ export default function App() {
     [books],
   );
 
+  const graphStageRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!hasInterestMap) {
+      return;
+    }
+
+    function handleScroll() {
+      const maxScroll = 300;
+      const expansion = Math.max(0, 1 - window.scrollY / maxScroll);
+      graphStageRef.current?.style.setProperty(
+        "--graph-expansion",
+        String(expansion),
+      );
+    }
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    handleScroll();
+
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+    };
+  }, [hasInterestMap]);
+
   const rankedBooks = useMemo<RankedBook[]>(() => {
     return books
       .map((book) => {
@@ -1994,7 +2018,7 @@ export default function App() {
         .join(" ")}
     >
       {hasInterestMap ? (
-        <section className="graph-stage" aria-label="Interest map">
+        <section ref={graphStageRef} className="graph-stage" aria-label="Interest map">
           <div className="graph-stage-frame">
             <InterestMap
               books={books}

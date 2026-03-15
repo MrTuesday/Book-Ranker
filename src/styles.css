@@ -93,7 +93,7 @@ h3 {
 }
 
 .app-shell.has-graph-stage .app-content {
-    padding-top: 0;
+    padding-top: clamp(340px, 55vh, 620px);
 }
 
 .graph-stage,
@@ -111,11 +111,21 @@ h3 {
 }
 
 .graph-stage {
-    margin-bottom: 28px;
+    position: fixed;
+    top: 0;
+    left: 50%;
+    width: min(1120px, calc(100vw - 32px));
+    transform: translateX(-50%);
+    z-index: 0;
+    pointer-events: none;
 }
 
 .graph-stage-frame {
+    pointer-events: auto;
     display: grid;
+    padding: 24px 0 0;
+    min-height: calc(280px + var(--graph-expansion, 1) * 340px);
+    transition: min-height 60ms ease-out;
 }
 
 .graph-stage-head {
@@ -328,8 +338,23 @@ h3 {
     border-radius: 18px;
 }
 
+.graph-stage .interest-map {
+    height: 100%;
+    grid-template-rows: auto 1fr auto;
+}
+
 .graph-stage .interest-map-plot {
-    min-height: clamp(320px, 50vh, 640px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    padding: 0;
+}
+
+.graph-stage .interest-map-chart {
+    width: 100%;
+    height: 100%;
 }
 
 .distribution-chart {
