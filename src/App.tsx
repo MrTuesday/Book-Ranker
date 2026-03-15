@@ -29,6 +29,20 @@ import {
   writeUserLinks,
   type UserLink,
 } from "./lib/books-api";
+import {
+  GLOBAL_MEAN,
+  SMOOTHING_FACTOR,
+  bayesianScore,
+  averageTagPreference,
+  tagPreferences,
+  scoreBook,
+  calibrateGenreInterests,
+} from "./lib/scoring";
+import {
+  requestPathRecommendation,
+  type RecommendedBook,
+  type PathRecommendationResponse,
+} from "./lib/recommend-api";
 
 type BookDraft = {
   title: string;
@@ -71,8 +85,6 @@ type DraftTextField =
   | "genreInput"
   | "genreInterest";
 
-const GLOBAL_MEAN = 3.8;
-const SMOOTHING_FACTOR = 500;
 const MAX_SUGGESTIONS = 6;
 
 function createDraft(): BookDraft {
@@ -140,23 +152,6 @@ function resolvedSuggestion(
   return exactMatch ?? (suggestions.length === 1 ? suggestions[0] : null);
 }
 
-function averageTagPreference(tags: string[], scores: Record<string, number>) {
-  if (tags.length === 0) {
-    return 3;
-  }
-
-  return (
-    tags.reduce((total, tag) => total + (scores[tag] ?? 3), 0) / tags.length
-  );
-}
-
-function tagPreferences(tags: string[], scores: Record<string, number>) {
-  if (tags.length === 0) {
-    return [3];
-  }
-
-  return tags.map((tag) => scores[tag] ?? 3);
-}
 
 function buildDraftScores(tags: string[], scores: Record<string, number>) {
   return Object.fromEntries(
@@ -219,14 +214,6 @@ function moveTagToEnd(tags: string[], draggedTag: string) {
   return next;
 }
 
-function bayesianScore(R: number, v: number, C: number, m: number) {
-  return (v / (v + m)) * R + (m / (v + m)) * C;
-}
-
-function compositeScore(bayesian: number, ...inputs: number[]) {
-  const values = [bayesian, ...inputs];
-  return values.reduce((a, b) => a + b, 0) / values.length;
-}
 
 function formatScore(value: number, places = 2) {
   return value.toFixed(places);
@@ -273,7 +260,6 @@ function InterestMap({
   compact = false,
   selectedPath = [],
   onSelectTag,
-  expansion = 0,
   userLinks = [],
 }: {
   books: Book[];
@@ -281,7 +267,6 @@ function InterestMap({
   compact?: boolean;
   selectedPath?: string[];
   onSelectTag?: (tag: string) => void;
-  expansion?: number; // 0 = default, 1 = fully expanded
   userLinks?: UserLink[];
 }) {
   const data = useMemo(() => {
@@ -307,6 +292,19 @@ function InterestMap({
           const key = `${left}\u0000${right}`;
           pairCounts.set(key, (pairCounts.get(key) ?? 0) + 1);
         }
+      }
+    }
+
+    // Default genre nodes shown when user has no books yet
+    const defaultGenres = [
+      "Science Fiction", "Fantasy", "Literary Fiction", "Mystery",
+      "Historical Fiction", "Romance", "Thriller", "Horror",
+      "Non-Fiction", "Philosophy", "Biography", "Self-Help",
+    ];
+
+    if (tagCounts.size === 0) {
+      for (const genre of defaultGenres) {
+        tagCounts.set(genre, 0);
       }
     }
 
@@ -410,7 +408,6 @@ function InterestMap({
     const positionedNodes = rankedNodes.map((node, index) => {
       const seed = hashTag(node.tag);
       const radius = 6 + (node.count / maxNodeCount) * 6;
-      const fillOpacity = 0.12 + (node.interest / 5) * 0.26;
       let x = centerX;
       let y = centerY;
 
@@ -442,7 +439,6 @@ function InterestMap({
         vx: 0,
         vy: 0,
         radius,
-        fillOpacity,
       };
     });
 
@@ -608,7 +604,6 @@ function InterestMap({
       vx: number;
       vy: number;
       radius: number;
-      fillOpacity: number;
     }>
   >([]);
   const dragRef = useRef<{
@@ -920,15 +915,7 @@ function InterestMap({
           ref={svgRef}
           className={`interest-map-chart${dragRef.current ? " is-dragging" : ""}`}
           preserveAspectRatio="xMidYMid slice"
-          viewBox={(() => {
-            // Subtle zoom as graph is revealed — graph is already full-size
-            const zoomFactor = 1 - expansion * 0.15; // 1.0 → 0.85
-            const w = initialLayout.width * zoomFactor;
-            const h = initialLayout.height * zoomFactor;
-            const x = (initialLayout.width - w) / 2;
-            const y = (initialLayout.height - h) / 2;
-            return `${x} ${y} ${w} ${h}`;
-          })()}
+          viewBox={`0 0 ${initialLayout.width} ${initialLayout.height}`}
           aria-label="Interest graph showing how genre and topic tags connect across your books"
           onClick={!compact ? handleSvgClick : undefined}
         >
@@ -1073,10 +1060,25 @@ function InterestMap({
                 cx={node.x}
                 cy={node.y}
                 r={node.radius}
-                fill={`rgba(180, 83, 9, ${node.fillOpacity})`}
-                stroke="rgba(180, 83, 9, 0.24)"
+                fill="rgba(180, 83, 9, 0.55)"
+                stroke="rgba(180, 83, 9, 0.3)"
                 strokeWidth="1"
               />
+              {node.count > 0 ? (
+                <text
+                  className="interest-map-score"
+                  x={node.x}
+                  y={node.y}
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  fontSize={Math.max(9, node.radius * 0.7)}
+                  fill="white"
+                  fontWeight="600"
+                  pointerEvents="none"
+                >
+                  {node.interest}
+                </text>
+              ) : null}
               {!compact ? (
                 <text
                   className="interest-map-label"
@@ -1135,6 +1137,13 @@ export default function App() {
   const [authorExperiences, setAuthorExperiences] =
     useState<AuthorExperienceMap>({});
   const [userLinks, setUserLinks] = useState<UserLink[]>([]);
+  const [recommendations, setRecommendations] =
+    useState<PathRecommendationResponse | null>(null);
+  const [isLoadingRecs, setIsLoadingRecs] = useState(false);
+  const [recError, setRecError] = useState<string | null>(null);
+  const [addedRecIds, setAddedRecIds] = useState<Set<string>>(new Set());
+  const [batchSize, setBatchSize] = useState(5);
+  const [selectedRecIds, setSelectedRecIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let isActive = true;
@@ -1237,50 +1246,25 @@ export default function App() {
     );
   }, [selectedInterestPath, userLinks]);
 
-  const hasInterestMap = useMemo(
-    () => books.some((book) => uniqueTags(book.genres).length > 0),
-    [books],
+
+  // Calibrate genre interests by blending stated interests with myRating data.
+  // This lets personal ratings influence all books indirectly via genre weights.
+  const calibratedInterests = useMemo(
+    () => calibrateGenreInterests(genreInterests, books),
+    [genreInterests, books],
   );
-
-  /* ── scroll-driven graph expansion ── */
-  const [graphExpansion, setGraphExpansion] = useState(0);
-  useEffect(() => {
-    if (!hasInterestMap) return;
-
-    // Auto-scroll so only a strip of graph peeks out (iceberg effect)
-    const timer = setTimeout(() => {
-      window.scrollTo({ top: window.innerHeight * 0.85, behavior: "instant" as ScrollBehavior });
-    }, 200);
-
-    function onScroll() {
-      const threshold = window.innerHeight * 0.85;
-      const scrollY = window.scrollY ?? window.pageYOffset;
-      const t = 1 - Math.min(1, scrollY / threshold); // 1 at top, 0 when scrolled down
-      setGraphExpansion(t);
-    }
-
-    window.addEventListener("scroll", onScroll, { passive: true });
-    onScroll();
-
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener("scroll", onScroll);
-    };
-  }, [hasInterestMap]);
 
   const rankedBooks = useMemo<RankedBook[]>(() => {
     return books
       .map((book) => {
-        const preferences = [
-          averageTagPreference(book.authors, authorExperiences),
-          ...tagPreferences(book.genres, genreInterests),
-        ];
+        const authorPref = averageTagPreference(book.authors, authorExperiences);
+        const genrePrefs = tagPreferences(book.genres, calibratedInterests);
         const R = book.starRating ?? GLOBAL_MEAN;
         const v = book.ratingCount ?? 0;
         const bScore = bayesianScore(R, v, GLOBAL_MEAN, SMOOTHING_FACTOR);
         return {
           ...book,
-          score: compositeScore(bScore, ...preferences),
+          score: scoreBook(bScore, authorPref, genrePrefs),
           rank: 0,
         };
       })
@@ -1294,7 +1278,7 @@ export default function App() {
         return (b.ratingCount ?? 0) - (a.ratingCount ?? 0);
       })
       .map((book, index) => ({ ...book, rank: index + 1 }));
-  }, [books, genreInterests, authorExperiences]);
+  }, [books, calibratedInterests, authorExperiences]);
 
   const isEditing = editingBookId !== null;
 
@@ -2099,6 +2083,98 @@ export default function App() {
     }
   }
 
+  async function findBooks() {
+    if (selectedInterestPath.length < 2) return;
+    setIsLoadingRecs(true);
+    setRecError(null);
+    setRecommendations(null);
+
+    try {
+      const result = await requestPathRecommendation({
+        selectedTags: selectedInterestPath,
+        profile: {
+          books,
+          genreInterests: calibratedInterests,
+          authorExperiences,
+        },
+      });
+      setRecommendations(result);
+    } catch (error) {
+      setRecError(
+        error instanceof Error ? error.message : "Failed to get recommendations.",
+      );
+    } finally {
+      setIsLoadingRecs(false);
+    }
+  }
+
+  async function addRecommendedBook(rec: RecommendedBook) {
+    try {
+      const updated = await createBookRecord({
+        title: rec.title,
+        authors: rec.authors,
+        genres: rec.genres,
+        starRating: rec.averageRating,
+        ratingCount: rec.ratingsCount,
+      });
+      setBooks(updated);
+      setAddedRecIds((prev) => new Set([...prev, rec.id]));
+    } catch {
+      // silently ignore
+    }
+  }
+
+  function toggleRecSelection(recId: string) {
+    setSelectedRecIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(recId)) {
+        next.delete(recId);
+      } else {
+        next.add(recId);
+      }
+      return next;
+    });
+  }
+
+  async function addSelectedBatch() {
+    if (!recommendations) return;
+    const toAdd = recommendations.candidates.filter(
+      (rec) => selectedRecIds.has(rec.id) && !addedRecIds.has(rec.id),
+    );
+    for (const rec of toAdd) {
+      await addRecommendedBook(rec);
+    }
+    setSelectedRecIds(new Set());
+  }
+
+  // Auto-select top N candidates when recommendations arrive
+  useEffect(() => {
+    if (recommendations && recommendations.candidates.length > 0) {
+      const topIds = recommendations.candidates
+        .filter((r) => !addedRecIds.has(r.id))
+        .slice(0, batchSize)
+        .map((r) => r.id);
+      setSelectedRecIds(new Set(topIds));
+    } else {
+      setSelectedRecIds(new Set());
+    }
+  }, [recommendations, batchSize]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function updateMyRating(bookId: number, rating: number) {
+    const book = books.find((b) => b.id === bookId);
+    if (!book) return;
+    const newRating = book.myRating === rating ? undefined : rating;
+    try {
+      const updated = await updateBookRecord(bookId, {
+        ...book,
+        myRating: newRating,
+      });
+      setBooks(updated);
+    } catch {
+      // silently ignore
+    }
+  }
+
   const showAuthorSuggestions =
     activeSuggestionField === "author" &&
     draft.authorInput.trim().length > 0 &&
@@ -2109,62 +2185,11 @@ export default function App() {
     genreSuggestions.length > 0;
 
   return (
-    <main
-      className={[
-        "app-shell",
-        hasInterestMap ? "has-graph-stage" : "",
-      ]
-        .filter(Boolean)
-        .join(" ")}
-    >
-      {hasInterestMap ? (
-        <section className="graph-stage" aria-label="Interest map">
-          <div className="graph-stage-frame">
-            <InterestMap
-              books={books}
-              interests={genreInterests}
-              selectedPath={selectedInterestPath}
-              onSelectTag={toggleInterestPathTag}
-              expansion={graphExpansion}
-              userLinks={userLinks}
-            />
-            {selectedInterestPath.length >= 2 ? (
-              <div className="interest-map-actions">
-                <button
-                  className="interest-map-action-btn link-btn"
-                  onClick={linkSelectedNodes}
-                >
-                  Link {selectedInterestPath.length} selected
-                </button>
-                {selectedHaveUserLink ? (
-                  <button
-                    className="interest-map-action-btn unlink-btn"
-                    onClick={unlinkSelectedNodes}
-                  >
-                    Unlink
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        </section>
-      ) : (
-        <section className="hero hero-empty">
-          <div className="hero-copy">
-            <h1>
-              Sort your reading list by what actually{" "}
-              <span className="hero-title-accent">matters to you.</span>
-            </h1>
-            <p className="hero-text">
-              Statistical modelling is applied to the inputs you provide to
-              estimate how likely you are to enjoy each book.
-            </p>
-          </div>
-        </section>
-      )}
-
-      <div className="app-content">
-        <section className="panel control-panel">
+    <main className="app-shell">
+      <div className="app-layout">
+        {/* ── Left column: form + reading list ── */}
+        <aside className="left-column">
+          <section className="panel control-panel">
           <div className="section-heading">
             <div>
               <h2>{isEditing ? "Edit book" : "Add a book"}</h2>
@@ -2731,9 +2756,6 @@ export default function App() {
         </section>
 
         <section className="panel board">
-          <div className="board-toolbar">
-            <h2>My list</h2>
-          </div>
           <div className="ranking-list">
             {isLoading ? (
               <div className="empty-state">Loading your rankings...</div>
@@ -2760,377 +2782,52 @@ export default function App() {
                     className={`ranking-row${editingBookId === book.id ? " is-editing" : ""}${book.rank === 1 ? " is-leader" : ""}`}
                     style={{ animationDelay: `${index * 60}ms` }}
                   >
-                    <div className={`rank-badge ${rankClass}`}>
-                      #{book.rank}
-                    </div>
-
                     <div className="ranking-body">
                       <div className="ranking-topline">
+                        <div className={`rank-badge ${rankClass}`}>#{book.rank}</div>
                         <div className="ranking-info">
                           <h3>{book.title}</h3>
-                          <div className="book-tags">
-                            {book.authors.length > 0 ? (
-                              <div
-                                className={[
-                                  "book-tag-group",
-                                  bookTagDrag?.bookId === book.id &&
-                                  bookTagDrag.field === "author"
-                                    ? "is-drag-active"
-                                    : "",
-                                  bookTagDropTarget?.bookId === book.id &&
-                                  bookTagDropTarget.field === "author" &&
-                                  bookTagDropTarget.tag === null
-                                    ? "is-drop-target-end"
-                                    : "",
-                                ]
-                                  .filter(Boolean)
-                                  .join(" ")}
-                                onDragOver={(event) =>
-                                  handleBookTagGroupDragOver(
-                                    event,
-                                    book.id,
-                                    "author",
-                                  )
-                                }
-                                onDrop={(event) =>
-                                  void handleBookTagDrop(
-                                    event,
-                                    book.id,
-                                    "author",
-                                  )
-                                }
-                              >
-                                {book.authors.map((author) => {
-                                  const deleteKey = `author:${author}`;
-                                  const actionMenuId = tagActionMenuId(
-                                    "book",
-                                    "author",
-                                    author,
-                                    book.id,
-                                  );
-                                  const isDeletingTag =
-                                    pendingTagDelete === deleteKey;
-                                  const isActionMenuOpen =
-                                    activeTagActionMenu === actionMenuId;
-                                  const isDragging =
-                                    bookTagDrag?.bookId === book.id &&
-                                    bookTagDrag.field === "author" &&
-                                    bookTagDrag.tag === author;
-                                  const isDropTarget =
-                                    bookTagDropTarget?.bookId === book.id &&
-                                    bookTagDropTarget.field === "author" &&
-                                    bookTagDropTarget.tag === author;
-
-                                  return (
-                                    <span
-                                      key={`author-${book.id}-${author}`}
-                                      className={[
-                                        "genre-tag",
-                                        "book-tag-chip",
-                                        isDragging ? "is-dragging" : "",
-                                        isDropTarget ? "is-drag-target" : "",
-                                      ]
-                                        .filter(Boolean)
-                                        .join(" ")}
-                                      draggable
-                                      onDragStart={(event) =>
-                                        handleBookTagDragStart(
-                                          event,
-                                          book.id,
-                                          "author",
-                                          author,
-                                        )
-                                      }
-                                      onDragOver={(event) =>
-                                        handleBookTagDragOver(
-                                          event,
-                                          book.id,
-                                          "author",
-                                          author,
-                                        )
-                                      }
-                                      onDrop={(event) =>
-                                        void handleBookTagDrop(
-                                          event,
-                                          book.id,
-                                          "author",
-                                          author,
-                                        )
-                                      }
-                                      onDragEnd={handleBookTagDragEnd}
-                                      aria-grabbed={isDragging}
-                                      title={`Drag to reorder ${author}`}
-                                    >
-                                      {author}
-                                      {authorExperiences[author] != null ? (
-                                        <span className="genre-tag-interest">
-                                          {authorExperiences[author]}
-                                        </span>
-                                      ) : null}
-                                      <span className="tag-action-shell">
-                                        <button
-                                          type="button"
-                                          className={`tag-remove tag-action-toggle${isActionMenuOpen ? " is-open" : ""}`}
-                                          onClick={() =>
-                                            setActiveTagActionMenu((current) =>
-                                              current === actionMenuId
-                                                ? null
-                                                : actionMenuId,
-                                            )
-                                          }
-                                          aria-label={`Open delete options for author ${author}`}
-                                          title={`Open delete options for author ${author}`}
-                                          disabled={isDeletingTag}
-                                        >
-                                          x
-                                        </button>
-                                        {isActionMenuOpen ? (
-                                          <span className="tag-action-menu">
-                                            <button
-                                              type="button"
-                                              className="tag-action-option"
-                                              onClick={() => {
-                                                setActiveTagActionMenu(null);
-                                                void clearTag(
-                                                  book.id,
-                                                  "author",
-                                                  author,
-                                                );
-                                              }}
-                                              aria-label={`Remove author ${author} from this book`}
-                                              title={`Remove author ${author} from this book`}
-                                              disabled={isDeletingTag}
-                                            >
-                                              This book
-                                            </button>
-                                            <button
-                                              type="button"
-                                              className="tag-action-option tag-action-option-danger"
-                                              onClick={() => {
-                                                setActiveTagActionMenu(null);
-                                                void removeGlobalTag(
-                                                  "author",
-                                                  author,
-                                                );
-                                              }}
-                                              aria-label={`Delete author tag ${author} everywhere`}
-                                              title={`Delete author tag ${author} everywhere`}
-                                              disabled={isDeletingTag}
-                                            >
-                                              {isDeletingTag
-                                                ? "Deleting..."
-                                                : "Everywhere"}
-                                            </button>
-                                          </span>
-                                        ) : null}
-                                      </span>
-                                    </span>
-                                  );
-                                })}
-                              </div>
-                            ) : (
-                              <span className="genre-tag">Author unknown</span>
-                            )}
-                            <div
-                              className={[
-                                "book-tag-group",
-                                bookTagDrag?.bookId === book.id &&
-                                bookTagDrag.field === "genre"
-                                  ? "is-drag-active"
-                                  : "",
-                                bookTagDropTarget?.bookId === book.id &&
-                                bookTagDropTarget.field === "genre" &&
-                                bookTagDropTarget.tag === null
-                                  ? "is-drop-target-end"
-                                  : "",
-                              ]
-                                .filter(Boolean)
-                                .join(" ")}
-                              onDragOver={(event) =>
-                                handleBookTagGroupDragOver(
-                                  event,
-                                  book.id,
-                                  "genre",
-                                )
-                              }
-                              onDrop={(event) =>
-                                void handleBookTagDrop(event, book.id, "genre")
-                              }
-                            >
-                              {book.genres.map((genre) => {
-                                const deleteKey = `genre:${genre}`;
-                                const actionMenuId = tagActionMenuId(
-                                  "book",
-                                  "genre",
-                                  genre,
-                                  book.id,
-                                );
-                                const isDeletingTag =
-                                  pendingTagDelete === deleteKey;
-                                const isActionMenuOpen =
-                                  activeTagActionMenu === actionMenuId;
-                                const isDragging =
-                                  bookTagDrag?.bookId === book.id &&
-                                  bookTagDrag.field === "genre" &&
-                                  bookTagDrag.tag === genre;
-                                const isDropTarget =
-                                  bookTagDropTarget?.bookId === book.id &&
-                                  bookTagDropTarget.field === "genre" &&
-                                  bookTagDropTarget.tag === genre;
-
-                                return (
-                                  <span
-                                    key={`genre-${book.id}-${genre}`}
-                                    className={[
-                                      "genre-tag",
-                                      "book-tag-chip",
-                                      isDragging ? "is-dragging" : "",
-                                      isDropTarget ? "is-drag-target" : "",
-                                    ]
-                                      .filter(Boolean)
-                                      .join(" ")}
-                                    draggable
-                                    onDragStart={(event) =>
-                                      handleBookTagDragStart(
-                                        event,
-                                        book.id,
-                                        "genre",
-                                        genre,
-                                      )
-                                    }
-                                    onDragOver={(event) =>
-                                      handleBookTagDragOver(
-                                        event,
-                                        book.id,
-                                        "genre",
-                                        genre,
-                                      )
-                                    }
-                                    onDrop={(event) =>
-                                      void handleBookTagDrop(
-                                        event,
-                                        book.id,
-                                        "genre",
-                                        genre,
-                                      )
-                                    }
-                                    onDragEnd={handleBookTagDragEnd}
-                                    aria-grabbed={isDragging}
-                                    title={`Drag to reorder ${genre}`}
-                                  >
-                                    {genre}
-                                    {genreInterests[genre] != null ? (
-                                      <span className="genre-tag-interest">
-                                        {genreInterests[genre]}
-                                      </span>
-                                    ) : null}
-                                    <span className="tag-action-shell">
-                                      <button
-                                        type="button"
-                                        className={`tag-remove tag-action-toggle${isActionMenuOpen ? " is-open" : ""}`}
-                                        onClick={() =>
-                                          setActiveTagActionMenu((current) =>
-                                            current === actionMenuId
-                                              ? null
-                                              : actionMenuId,
-                                          )
-                                        }
-                                        aria-label={`Open delete options for genre ${genre}`}
-                                        title={`Open delete options for genre ${genre}`}
-                                        disabled={isDeletingTag}
-                                      >
-                                        x
-                                      </button>
-                                      {isActionMenuOpen ? (
-                                        <span className="tag-action-menu">
-                                          <button
-                                            type="button"
-                                            className="tag-action-option"
-                                            onClick={() => {
-                                              setActiveTagActionMenu(null);
-                                              void clearTag(
-                                                book.id,
-                                                "genre",
-                                                genre,
-                                              );
-                                            }}
-                                            aria-label={`Remove genre ${genre} from this book`}
-                                            title={`Remove genre ${genre} from this book`}
-                                            disabled={isDeletingTag}
-                                          >
-                                            This book
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="tag-action-option tag-action-option-danger"
-                                            onClick={() => {
-                                              setActiveTagActionMenu(null);
-                                              void removeGlobalTag(
-                                                "genre",
-                                                genre,
-                                              );
-                                            }}
-                                            aria-label={`Delete genre tag ${genre} everywhere`}
-                                            title={`Delete genre tag ${genre} everywhere`}
-                                            disabled={isDeletingTag}
-                                          >
-                                            {isDeletingTag
-                                              ? "Deleting..."
-                                              : "Everywhere"}
-                                          </button>
-                                        </span>
-                                      ) : null}
-                                    </span>
-                                  </span>
-                                );
-                              })}
-                            </div>
-                          </div>
-                          <div className="meta-row">
-                            {book.starRating != null ? (
-                              <span>{formatScore(book.starRating)} avg</span>
-                            ) : null}
-                            {book.ratingCount != null ? (
-                              <span>
-                                {formatCount(book.ratingCount)} ratings
-                              </span>
-                            ) : null}
-                            <div className="inline-actions">
+                          <p className="ranking-author">
+                            {book.authors.join(", ") || "Unknown author"}
+                          </p>
+                          <span className="my-rating-stars">
+                            {[1, 2, 3, 4, 5].map((star) => (
                               <button
+                                key={star}
                                 type="button"
-                                className="link-btn"
-                                onClick={() => startEditing(book)}
-                                disabled={isSaving || isDeleting}
+                                className={`my-rating-star${book.myRating != null && star <= book.myRating ? " is-filled" : ""}`}
+                                onClick={() => void updateMyRating(book.id, star)}
+                                aria-label={`Rate ${star} out of 5`}
                               >
-                                {editingBookId === book.id ? "Editing" : "Edit"}
+                                {book.myRating != null && star <= book.myRating ? "\u2605" : "\u2606"}
                               </button>
-                              <span className="action-dot">·</span>
-                              <button
-                                type="button"
-                                className="link-btn link-btn-danger"
-                                onClick={() => void removeBook(book.id)}
-                                disabled={isSaving || isDeleting}
-                              >
-                                {isDeleting ? "Removing..." : "Remove"}
-                              </button>
-                            </div>
-                          </div>
+                            ))}
+                          </span>
                         </div>
-
                         <strong className="score-value">
                           {formatMainResult(book.score)}
                         </strong>
                       </div>
-
-                      <div className="score-meter" aria-hidden="true">
-                        <span
-                          className="score-meter-fill"
-                          style={
-                            {
-                              "--fill-width": `${scoreFill}%`,
-                            } as React.CSSProperties
-                          }
-                        />
+                      <div className="ranking-meta">
+                        <span className="ranking-actions">
+                          <button
+                            type="button"
+                            className="link-btn"
+                            onClick={() => startEditing(book)}
+                            disabled={isSaving || isDeleting}
+                          >
+                            {editingBookId === book.id ? "Editing" : "Edit"}
+                          </button>
+                          <span className="action-dot">·</span>
+                          <button
+                            type="button"
+                            className="link-btn link-btn-danger"
+                            onClick={() => void removeBook(book.id)}
+                            disabled={isSaving || isDeleting}
+                          >
+                            {isDeleting ? "Removing..." : "Remove"}
+                          </button>
+                        </span>
                       </div>
                     </div>
                   </article>
@@ -3139,6 +2836,166 @@ export default function App() {
             )}
           </div>
         </section>
+        </aside>
+
+        {/* ── Center column: interest map graph ── */}
+        <section className="center-column">
+          <InterestMap
+            books={books}
+            interests={genreInterests}
+            selectedPath={selectedInterestPath}
+            onSelectTag={toggleInterestPathTag}
+            userLinks={userLinks}
+          />
+          {selectedInterestPath.length >= 2 ? (
+            <div className="interest-map-actions">
+              <button
+                className="interest-map-action-btn link-btn"
+                onClick={linkSelectedNodes}
+              >
+                Link {selectedInterestPath.length} selected
+              </button>
+              <button
+                className="interest-map-action-btn find-btn"
+                onClick={() => void findBooks()}
+                disabled={isLoadingRecs}
+              >
+                {isLoadingRecs ? "Searching..." : "Find Books"}
+              </button>
+              {selectedHaveUserLink ? (
+                <button
+                  className="interest-map-action-btn unlink-btn"
+                  onClick={unlinkSelectedNodes}
+                >
+                  Unlink
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {recError ? (
+            <div className="interest-map-actions">
+              <p className="panel-error">{recError}</p>
+            </div>
+          ) : null}
+        </section>
+
+        {/* ── Right column: recommendations ── */}
+        <aside className="right-column">
+          {isLoadingRecs ? (
+            <div className="right-column-status">
+              <p>Searching for books...</p>
+            </div>
+          ) : recommendations && recommendations.candidates.length > 0 ? (
+            <>
+              <div className="right-column-head">
+                <h3>Recommended</h3>
+                <button
+                  type="button"
+                  className="link-btn"
+                  onClick={() => setRecommendations(null)}
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="right-column-tags">
+                {recommendations.queries.map((tag) => (
+                  <span key={tag} className="genre-tag">{tag}</span>
+                ))}
+              </div>
+              <div className="right-column-list">
+                {recommendations.candidates.map((rec) => (
+                  <div
+                    key={rec.id}
+                    className={`path-recommendation-item${selectedRecIds.has(rec.id) ? " is-selected-for-batch" : ""}`}
+                  >
+                    <div className="path-recommendation-item-row">
+                      {!addedRecIds.has(rec.id) ? (
+                        <input
+                          type="checkbox"
+                          className="rec-item-select"
+                          checked={selectedRecIds.has(rec.id)}
+                          onChange={() => toggleRecSelection(rec.id)}
+                        />
+                      ) : null}
+                      <div className="path-recommendation-item-content">
+                        <h4>{rec.title}</h4>
+                        <p className="path-recommendation-authors">
+                          {rec.authors.join(", ") || "Unknown author"}
+                        </p>
+                        {rec.description ? (
+                          <p className="path-recommendation-description">
+                            {rec.description}
+                          </p>
+                        ) : null}
+                        <div className="path-recommendation-meta">
+                          {rec.averageRating != null ? (
+                            <span>★ {rec.averageRating.toFixed(1)}</span>
+                          ) : null}
+                          {rec.ratingsCount != null ? (
+                            <span>{formatCount(rec.ratingsCount)} ratings</span>
+                          ) : null}
+                          <span>Score: {formatMainResult(rec.score)}</span>
+                        </div>
+                      </div>
+                      <div className="path-recommendation-item-actions">
+                        {addedRecIds.has(rec.id) ? (
+                          <span className="genre-tag">Added ✓</span>
+                        ) : null}
+                        {rec.infoLink ? (
+                          <a
+                            href={rec.infoLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            View
+                          </a>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="right-column-footer">
+                <div className="rec-batch-controls">
+                  <label htmlFor="batch-size">Show top</label>
+                  <select
+                    id="batch-size"
+                    value={batchSize}
+                    onChange={(e) => setBatchSize(Number(e.target.value))}
+                  >
+                    {[3, 5, 8, 10, 15, 20].map((n) => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </select>
+                </div>
+                {selectedRecIds.size > 0 ? (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => void addSelectedBatch()}
+                  >
+                    Add {selectedRecIds.size} book{selectedRecIds.size !== 1 ? "s" : ""} to list
+                  </button>
+                ) : null}
+              </div>
+            </>
+          ) : recommendations && recommendations.candidates.length === 0 ? (
+            <div className="right-column-status">
+              <p>No new books found for these genres.</p>
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => setRecommendations(null)}
+              >
+                Dismiss
+              </button>
+            </div>
+          ) : (
+            <div className="right-column-empty">
+              <p>Select 2+ genre nodes, then click <strong>Find Books</strong> to get recommendations.</p>
+            </div>
+          )}
+        </aside>
       </div>
     </main>
   );

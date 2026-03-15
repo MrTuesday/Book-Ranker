@@ -5,6 +5,7 @@ export type Book = {
   genres: string[];
   starRating?: number;
   ratingCount?: number;
+  myRating?: number;
 };
 
 type LegacyBook = Partial<Book> & {
@@ -79,6 +80,11 @@ function normalizeBook(value: unknown): Book | null {
       ? Number(rawRatingCount)
       : undefined;
   const id = Number(book?.id);
+  const rawMyRating = (book as Record<string, unknown>)?.myRating;
+  const myRating =
+    rawMyRating != null && Number.isFinite(Number(rawMyRating))
+      ? Number(rawMyRating)
+      : undefined;
   const authors = normalizeTagList(book?.authors ?? book?.author);
   const genres = normalizeTagList(book?.genres ?? book?.genre);
 
@@ -86,7 +92,8 @@ function normalizeBook(value: unknown): Book | null {
     !title ||
     !Number.isFinite(id) ||
     (starRating != null && (starRating < 0 || starRating > 5)) ||
-    (ratingCount != null && ratingCount < 0)
+    (ratingCount != null && ratingCount < 0) ||
+    (myRating != null && (myRating < 1 || myRating > 5))
   ) {
     return null;
   }
@@ -98,6 +105,7 @@ function normalizeBook(value: unknown): Book | null {
     genres,
     ...(starRating != null ? { starRating } : {}),
     ...(ratingCount != null ? { ratingCount } : {}),
+    ...(myRating != null ? { myRating } : {}),
   };
 }
 
@@ -133,6 +141,16 @@ function parsePayload(
     throw new Error("Ratings must be a non-negative number.");
   }
 
+  const rawMyRating = value?.myRating;
+  const myRating =
+    rawMyRating != null && Number.isFinite(Number(rawMyRating))
+      ? Number(rawMyRating)
+      : undefined;
+
+  if (myRating != null && (myRating < 1 || myRating > 5)) {
+    throw new Error("Personal rating must be between 1 and 5.");
+  }
+
   const authors = normalizeTagList(value?.authors ?? value?.author);
   const genres = normalizeTagList(value?.genres ?? value?.genre);
 
@@ -142,6 +160,7 @@ function parsePayload(
     genres,
     ...(starRating != null ? { starRating } : {}),
     ...(ratingCount != null ? { ratingCount } : {}),
+    ...(myRating != null ? { myRating } : {}),
   };
 }
 

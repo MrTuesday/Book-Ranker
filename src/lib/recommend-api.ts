@@ -1,4 +1,13 @@
 import type { AuthorExperienceMap, Book, GenreInterestMap } from "./books-api";
+import { searchGoogleBooks, type GoogleBooksResult } from "./google-books";
+import {
+  GLOBAL_MEAN,
+  SMOOTHING_FACTOR,
+  bayesianScore,
+  averageTagPreference,
+  tagPreferences,
+  compositeScore,
+} from "./scoring";
 
 export type PathRecommendationRequest = {
   selectedTags: string[];
@@ -39,48 +48,147 @@ export type PathRecommendationResponse = {
   provider: "google-books";
 };
 
-function responseMessageFromError(error: unknown) {
-  if (error instanceof Error && error.message) {
-    return error.message;
-  }
+function normalizeForMatch(s: string) {
+  return s.toLocaleLowerCase().trim();
+}
 
-  return "Recommendation request failed.";
+function bookAlreadyExists(
+  candidate: GoogleBooksResult,
+  existingBooks: Book[],
+) {
+  const candidateTitle = normalizeForMatch(candidate.title);
+  const candidateAuthors = new Set(
+    candidate.authors.map(normalizeForMatch),
+  );
+
+  return existingBooks.some((book) => {
+    if (normalizeForMatch(book.title) !== candidateTitle) return false;
+    // Title matches — check if at least one author overlaps
+    if (candidateAuthors.size === 0 && book.authors.length === 0) return true;
+    return book.authors.some((a) => candidateAuthors.has(normalizeForMatch(a)));
+  });
+}
+
+function scoreCandidate(
+  candidate: GoogleBooksResult,
+  selectedTags: string[],
+  genreInterests: GenreInterestMap,
+  authorExperiences: AuthorExperienceMap,
+  myRatingsByAuthor: Record<string, number>,
+): RecommendedBook {
+  const R = candidate.starRating ?? GLOBAL_MEAN;
+  const v = candidate.ratingCount ?? 0;
+  const bScore = bayesianScore(R, v, GLOBAL_MEAN, SMOOTHING_FACTOR);
+
+  // Author preference — use myRating-based scores if available
+  const authorScores = { ...authorExperiences };
+  for (const author of candidate.authors) {
+    if (myRatingsByAuthor[normalizeForMatch(author)] != null) {
+      authorScores[author] = myRatingsByAuthor[normalizeForMatch(author)];
+    }
+  }
+  const authorPref = averageTagPreference(candidate.authors, authorScores);
+
+  // Genre preferences from user interests
+  const genrePrefs = tagPreferences(candidate.genres, genreInterests);
+
+  // Path coverage: how many selected tags does this book match?
+  const selectedSet = new Set(selectedTags.map(normalizeForMatch));
+  const candidateGenresLower = candidate.genres.map(normalizeForMatch);
+  const matchedSelected = selectedTags.filter((tag) =>
+    candidateGenresLower.some(
+      (g) => g.includes(normalizeForMatch(tag)) || normalizeForMatch(tag).includes(g),
+    ),
+  );
+  const pathCoverage = selectedTags.length > 0
+    ? matchedSelected.length / selectedTags.length
+    : 0;
+
+  // Path interest: average interest score of matched selected tags
+  const matchedInterests = matchedSelected.map(
+    (tag) => genreInterests[tag] ?? 3,
+  );
+  const pathInterest = matchedInterests.length > 0
+    ? matchedInterests.reduce((a, b) => a + b, 0) / matchedInterests.length
+    : 3;
+
+  // Matched profile genres (genres the user has any interest data for)
+  const matchedProfileGenres = candidate.genres.filter(
+    (g) => genreInterests[g] != null,
+  );
+
+  // Matched authors
+  const matchedAuthors = candidate.authors.filter(
+    (a) => authorExperiences[a] != null || myRatingsByAuthor[normalizeForMatch(a)] != null,
+  );
+
+  // Composite: base score + path coverage bonus (scaled to 0-5)
+  const pathBonus = pathCoverage * pathInterest;
+  const score = compositeScore(bScore, authorPref, ...genrePrefs, pathBonus);
+
+  return {
+    id: `${candidate.title}::${candidate.authors.join(",")}`,
+    title: candidate.title,
+    authors: candidate.authors,
+    genres: candidate.genres,
+    averageRating: candidate.starRating,
+    ratingsCount: candidate.ratingCount,
+    description: candidate.description,
+    infoLink: candidate.googleBooksUrl,
+    thumbnail: candidate.thumbnail,
+    score,
+    matchedSelectedTags: matchedSelected,
+    matchedProfileGenres,
+    matchedAuthors,
+    breakdown: {
+      bayesian: bScore,
+      author: authorPref,
+      pathCoverage,
+      pathInterest,
+      genreMatches: genrePrefs,
+    },
+  };
 }
 
 export async function requestPathRecommendation(
   payload: PathRecommendationRequest,
-) {
-  try {
-    const response = await fetch("/api/recommend-path", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
+): Promise<PathRecommendationResponse> {
+  const { selectedTags, profile } = payload;
 
-    const data = (await response.json().catch(() => null)) as
-      | { message?: string }
-      | PathRecommendationResponse
-      | null;
-
-    if (!response.ok) {
-      const message =
-        data && "message" in data && typeof data.message === "string"
-          ? data.message
-          : response.status === 404
-            ? "Recommendation API unavailable. Run this app through Vercel for the backend route."
-            : "Recommendation request failed.";
-
-      throw new Error(message);
+  // Build myRating lookup by author (lowercased)
+  const myRatingsByAuthor: Record<string, number> = {};
+  for (const book of profile.books) {
+    if (book.myRating != null) {
+      for (const author of book.authors) {
+        const key = normalizeForMatch(author);
+        const existing = myRatingsByAuthor[key];
+        // Average if multiple books by same author
+        myRatingsByAuthor[key] = existing != null
+          ? (existing + book.myRating) / 2
+          : book.myRating;
+      }
     }
-
-    if (!data || !("provider" in data)) {
-      throw new Error("Recommendation response was incomplete.");
-    }
-
-    return data;
-  } catch (error) {
-    throw new Error(responseMessageFromError(error));
   }
+
+  const results = await searchGoogleBooks(selectedTags);
+
+  const candidates = results
+    .filter((r) => !bookAlreadyExists(r, profile.books))
+    .map((r) =>
+      scoreCandidate(
+        r,
+        selectedTags,
+        profile.genreInterests,
+        profile.authorExperiences,
+        myRatingsByAuthor,
+      ),
+    )
+    .sort((a, b) => b.score - a.score);
+
+  return {
+    bestMatch: candidates[0] ?? null,
+    candidates,
+    queries: selectedTags,
+    provider: "google-books",
+  };
 }
