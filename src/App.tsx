@@ -394,9 +394,9 @@ function InterestMap({
       ringIndex += 1;
     }
 
-    const width = 760;
-    const height = Math.max(300, 252 + ringSizes.length * 44);
-    const padding = 34;
+    const width = 1400;
+    const height = Math.max(600, 480 + ringSizes.length * 60);
+    const padding = 50;
     const centerX = width / 2;
     const centerY = height / 2;
     const maxNodeCount = Math.max(...data.nodes.map((node) => node.count), 1);
@@ -404,7 +404,7 @@ function InterestMap({
 
     const positionedNodes = rankedNodes.map((node, index) => {
       const seed = hashTag(node.tag);
-      const radius = 4 + (node.count / maxNodeCount) * 4;
+      const radius = 6 + (node.count / maxNodeCount) * 6;
       const fillOpacity = 0.12 + (node.interest / 5) * 0.26;
       let x = centerX;
       let y = centerY;
@@ -419,7 +419,7 @@ function InterestMap({
         }
 
         const ringTotal = Math.max(ringSizes[ringNumber] ?? 1, 1);
-        const ringRadius = 74 + ringNumber * 42 + ((seed >> 10) % 10);
+        const ringRadius = 140 + ringNumber * 80 + ((seed >> 10) % 16);
         const angleOffset = ((seed >> 5) % 21) / 21;
         const angle =
           -Math.PI / 2 +
@@ -473,10 +473,10 @@ function InterestMap({
               distance = 0.01;
             }
 
-            const minDistance = left.radius + right.radius + 28;
+            const minDistance = left.radius + right.radius + 40;
             const directionX = dx / distance;
             const directionY = dy / distance;
-            const baseRepulsion = 4600 / (distance * distance);
+            const baseRepulsion = 12000 / (distance * distance);
             const overlapRepulsion =
               distance < minDistance ? (minDistance - distance) * 0.28 : 0;
             const push = baseRepulsion + overlapRepulsion;
@@ -504,8 +504,8 @@ function InterestMap({
           const directionX = dx / distance;
           const directionY = dy / distance;
           const desiredDistance =
-            98 -
-            (link.count / maxLinkCount) * 18 -
+            160 -
+            (link.count / maxLinkCount) * 30 -
             (source.radius + target.radius);
           const spring = (distance - desiredDistance) * 0.014;
           const pull = spring * (0.8 + link.count / maxLinkCount);
@@ -690,10 +690,10 @@ function InterestMap({
             dist = 0.01;
           }
 
-          const minDist = nodes[i].radius + nodes[j].radius + 28;
+          const minDist = nodes[i].radius + nodes[j].radius + 40;
           const ux = dx / dist;
           const uy = dy / dist;
-          const repulsion = 300 / (dist * dist);
+          const repulsion = 800 / (dist * dist);
           const overlap =
             dist < minDist ? (minDist - dist) * 0.08 : 0;
           const push = repulsion + overlap;
@@ -720,8 +720,8 @@ function InterestMap({
         const ux = dx / dist;
         const uy = dy / dist;
         const desired =
-          98 -
-          (link.count / maxLinkCount) * 18 -
+          160 -
+          (link.count / maxLinkCount) * 30 -
           (nodes[si].radius + nodes[ti].radius);
         const spring = (dist - desired) * 0.003;
         const pull = spring * (0.8 + link.count / maxLinkCount);
