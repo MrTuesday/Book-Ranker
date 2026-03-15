@@ -157,7 +157,6 @@ h3 {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 10px;
-    align-items: start;
 }
 
 .panel {
@@ -231,6 +230,7 @@ h3 {
 
 .summary-tile {
     display: grid;
+    align-content: start;
     gap: 6px;
     padding: 16px 18px;
     border: 1px solid var(--line);
@@ -242,22 +242,24 @@ h3 {
     grid-column: 1 / -1;
 }
 
-.summary-tile-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 10px;
-}
-
 .summary-tile-map {
-    gap: 10px;
+    padding: 0;
 }
 
-.summary-tile-link {
-    font-size: 0.72rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+.summary-tile-map-button {
+    display: grid;
+    gap: 8px;
+    width: 100%;
+    padding: 16px 18px;
+    background: none;
+    text-align: left;
+    cursor: pointer;
+}
+
+.summary-tile-map-button:focus-visible {
+    outline: 2px solid rgba(180, 83, 9, 0.34);
+    outline-offset: -2px;
+    border-radius: 18px;
 }
 
 .distribution-chart {
@@ -300,30 +302,23 @@ h3 {
     height: auto;
 }
 
-.interest-map-preview-button {
-    width: 100%;
-    padding: 0;
-    background: none;
-    text-align: left;
-    cursor: pointer;
-}
-
-.interest-map-preview-button:focus-visible {
-    outline: 2px solid rgba(180, 83, 9, 0.4);
-    outline-offset: 4px;
-    border-radius: 18px;
-}
-
 .interest-map.is-compact .interest-map-plot {
-    min-height: 112px;
+    min-height: 64px;
+    height: 64px;
     padding: 0;
     border: none;
     border-radius: 14px;
     background: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .interest-map.is-compact .interest-map-chart {
-    aspect-ratio: 16 / 9;
+    width: 100%;
+    height: auto;
+    transform: scale(0.88);
+    transform-origin: center;
 }
 
 .interest-map-label {
@@ -353,7 +348,7 @@ h3 {
 }
 
 .interest-map-empty.is-compact {
-    min-height: 112px;
+    min-height: 64px;
     padding: 12px;
     font-size: 0.8rem;
 }

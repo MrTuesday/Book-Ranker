@@ -1711,22 +1711,13 @@ export default function App() {
               </article>
 
               <article className="summary-tile summary-tile-map">
-                <div className="summary-tile-head">
-                  <span className="summary-label">Interest map</span>
-                  <button
-                    type="button"
-                    className="link-btn summary-tile-link"
-                    onClick={() => setIsInterestMapOpen(true)}
-                  >
-                    Open
-                  </button>
-                </div>
                 <button
                   type="button"
-                  className="interest-map-preview-button"
+                  className="summary-tile-map-button"
                   onClick={() => setIsInterestMapOpen(true)}
                   aria-label="Open interest map"
                 >
+                  <span className="summary-label">Interest map</span>
                   <InterestMap
                     books={books}
                     interests={genreInterests}
