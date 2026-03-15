@@ -420,10 +420,10 @@ function InterestMap({
     }
 
     const width = 700;
-    const height = 380;
+    const height = 340;
     const padding = 42;
     const centerX = width / 2;
-    const centerY = height / 2 + 6;
+    const centerY = height / 2;
     const maxNodeCount = Math.max(...data.nodes.map((node) => node.count), 1);
     const maxLinkCount = Math.max(...data.links.map((link) => link.count), 1);
     const degreeMap = new Map<string, number>();
@@ -467,8 +467,8 @@ function InterestMap({
 
     const positionedNodes = rankedNodes.map((node, index) => {
       const seed = hashTag(node.tag);
-      const radius = 5 + (node.count / maxNodeCount) * 5;
-      const fillOpacity = 0.2 + (node.interest / 5) * 0.42;
+      const radius = 4 + (node.count / maxNodeCount) * 4;
+      const fillOpacity = 0.12 + (node.interest / 5) * 0.26;
       let x = centerX;
       let y = centerY;
 
@@ -639,16 +639,6 @@ function InterestMap({
       );
     }
 
-    const backgroundDots = Array.from({ length: 34 }, (_, index) => {
-      const seed = hashTag(`interest-map-dot:${index}`);
-      return {
-        x: 18 + ((seed & 1023) / 1023) * (width - 36),
-        y: 18 + (((seed >> 10) & 1023) / 1023) * (height - 36),
-        radius: 0.6 + (((seed >> 20) & 15) / 15) * 1.2,
-        opacity: 0.05 + (((seed >> 24) & 15) / 15) * 0.12,
-      };
-    });
-
     const decoratedNodes = positionedNodes.map((node) => {
       const dx = node.x - centerX;
       const dy = node.y - centerY;
@@ -680,7 +670,6 @@ function InterestMap({
       width,
       height,
       maxLinkCount,
-      backgroundDots,
       nodes: decoratedNodes,
     };
   }, [data]);
@@ -712,15 +701,6 @@ function InterestMap({
           viewBox={`0 0 ${graph.width} ${graph.height}`}
           aria-label="Interest graph showing how genre and topic tags connect across your books"
         >
-          {graph.backgroundDots.map((dot, index) => (
-            <circle
-              key={index}
-              cx={dot.x}
-              cy={dot.y}
-              r={dot.radius}
-              fill={`rgba(255, 249, 240, ${dot.opacity})`}
-            />
-          ))}
           {data.links.map((link) => {
             const source = nodeMap.get(link.source);
             const target = nodeMap.get(link.target);
@@ -746,19 +726,9 @@ function InterestMap({
                   y1={startY}
                   x2={endX}
                   y2={endY}
-                  stroke={`rgba(233, 165, 87, ${0.05 + (link.count / graph.maxLinkCount) * 0.12})`}
-                  strokeWidth={3 + (link.count / graph.maxLinkCount) * 2}
-                  strokeLinecap="round"
-                />
-                <line
-                  key={`${link.source}-${link.target}`}
-                  x1={startX}
-                  y1={startY}
-                  x2={endX}
-                  y2={endY}
-                  stroke="rgba(245, 199, 130, 0.34)"
-                  strokeOpacity={0.3 + (link.count / graph.maxLinkCount) * 0.28}
-                  strokeWidth={0.8 + (link.count / graph.maxLinkCount) * 1.4}
+                  stroke="rgba(180, 83, 9, 0.22)"
+                  strokeOpacity={0.2 + (link.count / graph.maxLinkCount) * 0.2}
+                  strokeWidth={0.8 + (link.count / graph.maxLinkCount) * 1.1}
                   strokeLinecap="round"
                 />
               </g>
@@ -770,22 +740,10 @@ function InterestMap({
               <circle
                 cx={node.x}
                 cy={node.y}
-                r={node.radius + 5}
-                fill={`rgba(244, 183, 104, ${Math.max(0.08, node.fillOpacity * 0.18)})`}
-              />
-              <circle
-                cx={node.x}
-                cy={node.y}
                 r={node.radius}
-                fill={`rgba(244, 183, 104, ${node.fillOpacity})`}
-                stroke="rgba(255, 226, 183, 0.75)"
+                fill={`rgba(180, 83, 9, ${node.fillOpacity})`}
+                stroke="rgba(180, 83, 9, 0.24)"
                 strokeWidth="1"
-              />
-              <circle
-                cx={node.x}
-                cy={node.y}
-                r={Math.max(1.8, node.radius * 0.28)}
-                fill="rgba(255, 247, 234, 0.92)"
               />
               <text
                 className="interest-map-label"
@@ -801,8 +759,8 @@ function InterestMap({
       </div>
       <p className="interest-map-note">
         {hasLinks
-          ? "Each line marks interests that appear together on the same book."
-          : "You have interests saved, but none of your current books connect two of them yet."}
+          ? "Lines connect interests that appear together on the same book."
+          : "Your current books do not connect any two interests yet."}
       </p>
     </div>
   );
