@@ -976,7 +976,7 @@ export default function App() {
         return [...current, tag];
       }
 
-      return current.slice(0, existingIndex);
+      return current.filter((currentTag) => currentTag !== tag);
     });
     setPathRecommendation(null);
     setPathRecommendationError(null);
