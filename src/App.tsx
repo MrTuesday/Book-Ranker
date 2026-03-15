@@ -215,10 +215,6 @@ function moveTagToEnd(tags: string[], draggedTag: string) {
   return next;
 }
 
-function formatTagSummary(tags: string[], fallback: string) {
-  return tags.length > 0 ? tags.join(", ") : fallback;
-}
-
 function bayesianScore(R: number, v: number, C: number, m: number) {
   return (v / (v + m)) * R + (m / (v + m)) * C;
 }
@@ -429,7 +425,6 @@ export default function App() {
   }, [books, genreInterests, authorExperiences]);
 
   const rankedCount = rankedBooks.length;
-  const leader = rankedBooks[0];
   const averageScore =
     rankedCount > 0
       ? rankedBooks.reduce((total, book) => total + book.score, 0) / rankedCount
@@ -1234,26 +1229,6 @@ export default function App() {
                 <ScoreDistribution scores={rankedBooks.map((b) => b.score)} />
               </article>
             </div>
-
-            <article className="summary-tile summary-tile-leader">
-              {leader ? (
-                <div className="leader-detail">
-                  <div>
-                    <strong className="summary-number">{leader.title}</strong>
-                    <p className="leader-author">
-                      {formatTagSummary(leader.authors, "Author unknown")}
-                    </p>
-                  </div>
-                  <span className="leader-score">
-                    {formatMainResult(leader.score)}
-                  </span>
-                </div>
-              ) : (
-                <strong className="summary-number">
-                  {isLoading ? "Loading..." : "Waiting for entries"}
-                </strong>
-              )}
-            </article>
           </div>
         </aside>
       </section>

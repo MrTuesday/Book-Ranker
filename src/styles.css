@@ -249,52 +249,6 @@ h3 {
     letter-spacing: -0.03em;
 }
 
-.summary-tile-leader {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    background: var(--accent-soft);
-    border-color: rgba(180, 83, 9, 0.12);
-    overflow: hidden;
-    min-width: 0;
-}
-
-.leader-detail {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 16px;
-    min-width: 0;
-}
-
-.leader-detail > div {
-    min-width: 0;
-}
-
-.leader-detail .summary-number {
-    display: block;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    padding-bottom: 4px;
-}
-
-.leader-author {
-    margin-top: 6px;
-    color: var(--muted);
-    font-size: 0.88rem;
-    line-height: 1.4;
-}
-
-.leader-score {
-    font-family: "Iowan Old Style", "Palatino Linotype", serif;
-    font-size: 2.2rem;
-    font-weight: 600;
-    color: var(--accent);
-    letter-spacing: -0.03em;
-    flex-shrink: 0;
-}
-
 .entry-form {
     display: grid;
     gap: 12px;
