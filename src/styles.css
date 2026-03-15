@@ -238,12 +238,49 @@ h3 {
 }
 
 .summary-tile-wide {
-    grid-column: auto;
+    grid-column: 1 / -1;
 }
 
 .distribution-chart {
     width: 100%;
     height: 56px;
+}
+
+.interest-map {
+    display: grid;
+    gap: 12px;
+}
+
+.interest-map-chart {
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+}
+
+.interest-map-label {
+    fill: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+}
+
+.interest-map-note,
+.interest-map-empty {
+    color: var(--muted);
+    font-size: 0.88rem;
+    line-height: 1.5;
+}
+
+.interest-map-empty {
+    display: grid;
+    place-items: center;
+    min-height: 180px;
+    padding: 16px;
+    border: 1px dashed var(--line-strong);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.3);
+    text-align: center;
 }
 
 .summary-number {
@@ -913,6 +950,10 @@ input:focus {
         display: grid;
     }
 
+    .summary-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
     .entry-form {
         grid-template-columns: 1fr 1fr;
     }
@@ -941,6 +982,10 @@ input:focus {
 
     .summary-stats {
         grid-template-columns: 1fr;
+    }
+
+    .summary-tile-wide {
+        grid-column: auto;
     }
 
     .ranking-row {

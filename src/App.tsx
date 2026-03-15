@@ -331,6 +331,213 @@ function ScoreDistribution({ scores }: { scores: number[] }) {
   );
 }
 
+function shortenLabel(value: string, maxLength = 18) {
+  return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
+}
+
+function InterestMap({
+  books,
+  interests,
+}: {
+  books: Book[];
+  interests: GenreInterestMap;
+}) {
+  const data = useMemo(() => {
+    const tagCounts = new Map<string, number>();
+    const pairCounts = new Map<string, number>();
+
+    for (const book of books) {
+      const tags = uniqueTags(book.genres);
+
+      for (const tag of tags) {
+        tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
+      }
+
+      for (let index = 0; index < tags.length; index += 1) {
+        for (
+          let pairIndex = index + 1;
+          pairIndex < tags.length;
+          pairIndex += 1
+        ) {
+          const [left, right] = [tags[index], tags[pairIndex]].sort((a, b) =>
+            a.localeCompare(b),
+          );
+          const key = `${left}\u0000${right}`;
+          pairCounts.set(key, (pairCounts.get(key) ?? 0) + 1);
+        }
+      }
+    }
+
+    const nodes = Array.from(tagCounts.entries())
+      .sort(
+        ([leftTag, leftCount], [rightTag, rightCount]) =>
+          rightCount - leftCount ||
+          (interests[rightTag] ?? 3) - (interests[leftTag] ?? 3) ||
+          leftTag.localeCompare(rightTag),
+      )
+      .slice(0, 8)
+      .map(([tag, count]) => ({
+        tag,
+        count,
+        interest: interests[tag] ?? 3,
+      }));
+
+    const selectedTags = new Set(nodes.map((node) => node.tag));
+    const links = Array.from(pairCounts.entries())
+      .map(([key, count]) => {
+        const [source, target] = key.split("\u0000");
+        return { source, target, count };
+      })
+      .filter(
+        ({ source, target }) =>
+          selectedTags.has(source) && selectedTags.has(target),
+      )
+      .sort(
+        (left, right) =>
+          right.count - left.count ||
+          left.source.localeCompare(right.source) ||
+          left.target.localeCompare(right.target),
+      )
+      .slice(0, 16);
+
+    return { nodes, links };
+  }, [books, interests]);
+
+  if (data.nodes.length === 0) {
+    return (
+      <p className="interest-map-empty">
+        Add genre and topic tags to see how your interests connect.
+      </p>
+    );
+  }
+
+  const width = 620;
+  const height = 280;
+  const centerX = width / 2;
+  const centerY = height / 2;
+  const orbitX = data.nodes.length === 1 ? 0 : 205;
+  const orbitY = data.nodes.length === 1 ? 0 : 88;
+  const maxNodeCount = Math.max(...data.nodes.map((node) => node.count), 1);
+  const maxLinkCount = Math.max(...data.links.map((link) => link.count), 1);
+
+  const positionedNodes = data.nodes.map((node, index) => {
+    if (data.nodes.length === 1) {
+      return {
+        ...node,
+        x: centerX,
+        y: centerY,
+        labelX: centerX,
+        labelY: centerY + 30,
+        labelAnchor: "middle" as const,
+      };
+    }
+
+    const angle = -Math.PI / 2 + (index / data.nodes.length) * Math.PI * 2;
+    const x = centerX + Math.cos(angle) * orbitX;
+    const y = centerY + Math.sin(angle) * orbitY;
+    const horizontal = Math.cos(angle);
+    const vertical = Math.sin(angle);
+    const labelAnchor: "middle" | "start" | "end" =
+      Math.abs(horizontal) < 0.35 ? "middle" : horizontal > 0 ? "start" : "end";
+    const labelX =
+      Math.abs(horizontal) < 0.35 ? x : x + (horizontal > 0 ? 18 : -18);
+    const labelY =
+      Math.abs(horizontal) < 0.35 ? y + (vertical > 0 ? 24 : -16) : y + 4;
+
+    return {
+      ...node,
+      x,
+      y,
+      labelX,
+      labelY,
+      labelAnchor,
+    };
+  });
+
+  const positionedNodeMap = new Map(
+    positionedNodes.map((node) => [node.tag, node] as const),
+  );
+  const hasLinks = data.links.length > 0;
+
+  return (
+    <div className="interest-map">
+      <svg
+        className="interest-map-chart"
+        viewBox={`0 0 ${width} ${height}`}
+        aria-label="Interest map showing how genre and topic tags connect across your books"
+      >
+        <ellipse
+          cx={centerX}
+          cy={centerY}
+          rx={Math.max(60, orbitX - 42)}
+          ry={Math.max(38, orbitY - 28)}
+          fill="rgba(180, 83, 9, 0.04)"
+          stroke="var(--line)"
+          strokeWidth="1"
+        />
+        {data.links.map((link) => {
+          const source = positionedNodeMap.get(link.source);
+          const target = positionedNodeMap.get(link.target);
+
+          if (!source || !target) {
+            return null;
+          }
+
+          return (
+            <path
+              key={`${link.source}-${link.target}`}
+              d={`M ${source.x} ${source.y} Q ${centerX} ${centerY} ${target.x} ${target.y}`}
+              fill="none"
+              stroke="var(--accent)"
+              strokeOpacity={0.16 + (link.count / maxLinkCount) * 0.38}
+              strokeWidth={1 + (link.count / maxLinkCount) * 3}
+              strokeLinecap="round"
+            />
+          );
+        })}
+        {positionedNodes.map((node) => {
+          const radius = 10 + (node.count / maxNodeCount) * 12;
+          const fillOpacity = 0.18 + (node.interest / 5) * 0.42;
+
+          return (
+            <g key={node.tag}>
+              <title>{`${node.tag}: ${node.count} book${node.count === 1 ? "" : "s"}, interest ${node.interest}/5`}</title>
+              <circle
+                cx={node.x}
+                cy={node.y}
+                r={radius + 4}
+                fill="rgba(180, 83, 9, 0.06)"
+                stroke="rgba(180, 83, 9, 0.1)"
+              />
+              <circle
+                cx={node.x}
+                cy={node.y}
+                r={radius}
+                fill={`rgba(180, 83, 9, ${fillOpacity})`}
+                stroke="var(--accent)"
+                strokeWidth="1.5"
+              />
+              <text
+                className="interest-map-label"
+                x={node.labelX}
+                y={node.labelY}
+                textAnchor={node.labelAnchor as "middle" | "start" | "end"}
+              >
+                {shortenLabel(node.tag)}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      <p className="interest-map-note">
+        {hasLinks
+          ? "Connections show genre and topic tags that appear together on the same books. Bigger nodes appear more often; darker nodes reflect stronger saved interest."
+          : "You have genre and topic interests saved, but no books currently pair two of them together. Add books with multiple tags to reveal connections."}
+      </p>
+    </div>
+  );
+}
+
 export default function App() {
   const [books, setBooks] = useState<Book[]>([]);
   const [draft, setDraft] = useState<BookDraft>(createDraft());
@@ -1224,9 +1431,14 @@ export default function App() {
                 </strong>
               </article>
 
-              <article className="summary-tile summary-tile-wide">
+              <article className="summary-tile">
                 <span className="summary-label">Distribution</span>
                 <ScoreDistribution scores={rankedBooks.map((b) => b.score)} />
+              </article>
+
+              <article className="summary-tile summary-tile-wide">
+                <span className="summary-label">Interest map</span>
+                <InterestMap books={books} interests={genreInterests} />
               </article>
             </div>
           </div>
