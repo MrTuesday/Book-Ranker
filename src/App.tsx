@@ -1151,42 +1151,19 @@ export default function App() {
       return;
     }
 
-    let expansion = 0;
-
-    function applyExpansion() {
+    function handleScroll() {
+      const threshold = 300;
+      const expansion = Math.max(0, 1 - window.scrollY / threshold);
       graphStageRef.current?.style.setProperty(
         "--graph-expansion",
         String(expansion),
       );
     }
 
-    function handleWheel(event: WheelEvent) {
-      if (window.scrollY <= 2 && event.deltaY < 0) {
-        expansion = Math.min(1, expansion + Math.abs(event.deltaY) / 150);
-        applyExpansion();
-        event.preventDefault();
-      } else if (expansion > 0) {
-        expansion = Math.max(0, expansion - event.deltaY / 150);
-        applyExpansion();
-        if (expansion > 0) {
-          event.preventDefault();
-        }
-      }
-    }
-
-    function handleScroll() {
-      if (window.scrollY > 0 && expansion > 0) {
-        expansion = 0;
-        applyExpansion();
-      }
-    }
-
-    window.addEventListener("wheel", handleWheel, { passive: false });
     window.addEventListener("scroll", handleScroll, { passive: true });
-    applyExpansion();
+    handleScroll();
 
     return () => {
-      window.removeEventListener("wheel", handleWheel);
       window.removeEventListener("scroll", handleScroll);
     };
   }, [hasInterestMap]);
