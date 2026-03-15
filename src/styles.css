@@ -34,6 +34,7 @@
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    overscroll-behavior-y: none;
 }
 
 * {
@@ -92,9 +93,6 @@ h3 {
         opacity 220ms ease;
 }
 
-.app-shell.has-graph-stage {
-    overscroll-behavior-y: none;
-}
 
 .app-shell.has-graph-stage .app-content {
     padding-top: clamp(340px, 55vh, 620px);
