@@ -365,9 +365,8 @@ h3 {
 }
 
 .overlay-panel {
-    width: min(920px, 100%);
-    max-height: calc(100vh - 48px);
-    overflow: auto;
+    width: fit-content;
+    max-width: min(980px, 100%);
     padding: 22px;
     border: 1px solid var(--line);
     border-radius: var(--radius-xl);
@@ -385,6 +384,23 @@ h3 {
 
 .overlay-head h2 {
     font-size: 1.8rem;
+}
+
+.interest-map-overlay .interest-map {
+    gap: 14px;
+}
+
+.interest-map-overlay .interest-map-plot {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    max-height: calc(100vh - 240px);
+}
+
+.interest-map-overlay .interest-map-chart {
+    width: auto;
+    max-width: 100%;
+    max-height: calc(100vh - 252px);
 }
 
 .summary-number {
@@ -1101,6 +1117,7 @@ input:focus {
     }
 
     .overlay-panel {
+        width: min(100%, 980px);
         padding: 18px;
     }
 
