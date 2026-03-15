@@ -25,6 +25,9 @@ import {
   writeAuthorExperience,
   renameGenreInBooks,
   renameAuthorInBooks,
+  readUserLinks,
+  writeUserLinks,
+  type UserLink,
 } from "./lib/books-api";
 
 type BookDraft = {
@@ -271,6 +274,7 @@ function InterestMap({
   selectedPath = [],
   onSelectTag,
   expansion = 0,
+  userLinks = [],
 }: {
   books: Book[];
   interests: GenreInterestMap;
@@ -278,6 +282,7 @@ function InterestMap({
   selectedPath?: string[];
   onSelectTag?: (tag: string) => void;
   expansion?: number; // 0 = default, 1 = fully expanded
+  userLinks?: UserLink[];
 }) {
   const data = useMemo(() => {
     const tagCounts = new Map<string, number>();
@@ -864,7 +869,10 @@ function InterestMap({
     return { ...node, index, labelX, labelY, labelAnchor };
   });
 
-  const hasLinks = data.links.length > 0;
+  const validUserLinks = userLinks.filter(
+    ([a, b]) => nodeMap.has(a) && nodeMap.has(b),
+  );
+  const hasLinks = data.links.length > 0 || validUserLinks.length > 0;
   const interestLabel =
     data.nodes.length === 1 ? "1 interest" : `${data.nodes.length} interests`;
   const connectionLabel =
@@ -995,6 +1003,44 @@ function InterestMap({
               />
             );
           })}
+          {validUserLinks.map(([a, b]) => {
+            const source = nodeMap.get(a);
+            const target = nodeMap.get(b);
+
+            if (!source || !target) {
+              return null;
+            }
+
+            const dx = target.x - source.x;
+            const dy = target.y - source.y;
+            const distance = Math.max(1, Math.hypot(dx, dy));
+            const unitX = dx / distance;
+            const unitY = dy / distance;
+            const startX = source.x + unitX * (source.radius + 1);
+            const startY = source.y + unitY * (source.radius + 1);
+            const endX = target.x - unitX * (target.radius + 1);
+            const endY = target.y - unitY * (target.radius + 1);
+            const isHighlighted =
+              selectedPathSet.has(a) && selectedPathSet.has(b);
+
+            return (
+              <line
+                key={`user-link:${a}:${b}`}
+                x1={startX}
+                y1={startY}
+                x2={endX}
+                y2={endY}
+                stroke={
+                  isHighlighted
+                    ? "rgba(59, 130, 246, 0.8)"
+                    : "rgba(59, 130, 246, 0.4)"
+                }
+                strokeWidth={isHighlighted ? 2.2 : 1.5}
+                strokeDasharray="6 4"
+                strokeLinecap="round"
+              />
+            );
+          })}
           {renderNodes.map((node) => (
             <g
               key={node.tag}
@@ -1091,6 +1137,7 @@ export default function App() {
   const [genreInterests, setGenreInterests] = useState<GenreInterestMap>({});
   const [authorExperiences, setAuthorExperiences] =
     useState<AuthorExperienceMap>({});
+  const [userLinks, setUserLinks] = useState<UserLink[]>([]);
 
   useEffect(() => {
     let isActive = true;
@@ -1103,11 +1150,13 @@ export default function App() {
         const savedBooks = await fetchBooks();
         const savedGenreInterests = readGenreInterests();
         const savedAuthorExperiences = readAuthorExperiences();
+        const savedUserLinks = readUserLinks();
 
         if (isActive) {
           setBooks(savedBooks);
           setGenreInterests(savedGenreInterests);
           setAuthorExperiences(savedAuthorExperiences);
+          setUserLinks(savedUserLinks);
         }
       } catch (error) {
         if (isActive) {
@@ -1138,6 +1187,58 @@ export default function App() {
       return current.filter((currentTag) => currentTag !== tag);
     });
   }
+
+  function linkSelectedNodes() {
+    if (selectedInterestPath.length < 2) return;
+
+    const existingKeys = new Set(
+      userLinks.map(([a, b]) => {
+        const sorted = a < b ? [a, b] : [b, a];
+        return `${sorted[0]}\0${sorted[1]}`;
+      }),
+    );
+
+    const newLinks: UserLink[] = [];
+    for (let i = 0; i < selectedInterestPath.length; i++) {
+      for (let j = i + 1; j < selectedInterestPath.length; j++) {
+        const a = selectedInterestPath[i];
+        const b = selectedInterestPath[j];
+        const sorted: UserLink = a < b ? [a, b] : [b, a];
+        const key = `${sorted[0]}\0${sorted[1]}`;
+        if (!existingKeys.has(key)) {
+          newLinks.push(sorted);
+          existingKeys.add(key);
+        }
+      }
+    }
+
+    if (newLinks.length > 0) {
+      const updated = writeUserLinks([...userLinks, ...newLinks]);
+      setUserLinks(updated);
+    }
+    setSelectedInterestPath([]);
+  }
+
+  function unlinkSelectedNodes() {
+    if (selectedInterestPath.length < 2) return;
+
+    const selectedSet = new Set(selectedInterestPath);
+    const filtered = userLinks.filter(
+      ([a, b]) => !(selectedSet.has(a) && selectedSet.has(b)),
+    );
+
+    const updated = writeUserLinks(filtered);
+    setUserLinks(updated);
+    setSelectedInterestPath([]);
+  }
+
+  const selectedHaveUserLink = useMemo(() => {
+    if (selectedInterestPath.length < 2) return false;
+    const selectedSet = new Set(selectedInterestPath);
+    return userLinks.some(
+      ([a, b]) => selectedSet.has(a) && selectedSet.has(b),
+    );
+  }, [selectedInterestPath, userLinks]);
 
   const hasInterestMap = useMemo(
     () => books.some((book) => uniqueTags(book.genres).length > 0),
@@ -2028,7 +2129,26 @@ export default function App() {
               selectedPath={selectedInterestPath}
               onSelectTag={toggleInterestPathTag}
               expansion={graphExpansion}
+              userLinks={userLinks}
             />
+            {selectedInterestPath.length >= 2 ? (
+              <div className="interest-map-actions">
+                <button
+                  className="interest-map-action-btn link-btn"
+                  onClick={linkSelectedNodes}
+                >
+                  Link {selectedInterestPath.length} selected
+                </button>
+                {selectedHaveUserLink ? (
+                  <button
+                    className="interest-map-action-btn unlink-btn"
+                    onClick={unlinkSelectedNodes}
+                  >
+                    Unlink
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         </section>
       ) : (

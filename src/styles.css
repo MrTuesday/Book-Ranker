@@ -458,6 +458,43 @@ h3 {
     line-height: 1.5;
 }
 
+.interest-map-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    padding: 10px 0 4px;
+}
+
+.interest-map-action-btn {
+    padding: 6px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--line-strong);
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.interest-map-action-btn.link-btn {
+    background: rgba(59, 130, 246, 0.12);
+    border-color: rgba(59, 130, 246, 0.3);
+    color: rgb(37, 99, 235);
+}
+
+.interest-map-action-btn.link-btn:hover {
+    background: rgba(59, 130, 246, 0.22);
+}
+
+.interest-map-action-btn.unlink-btn {
+    background: rgba(239, 68, 68, 0.08);
+    border-color: rgba(239, 68, 68, 0.25);
+    color: rgb(185, 28, 28);
+}
+
+.interest-map-action-btn.unlink-btn:hover {
+    background: rgba(239, 68, 68, 0.18);
+}
+
 .interest-map-empty {
     display: grid;
     place-items: center;
