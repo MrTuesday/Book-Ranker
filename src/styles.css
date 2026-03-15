@@ -125,9 +125,14 @@ h3 {
     gap: 8px;
 }
 
-.right-column-head h3 {
-    font-size: 1.15rem;
-    margin: 0;
+.list-size-select {
+    font-size: 0.95rem;
+    padding: 4px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
 }
 
 .right-column-tags {

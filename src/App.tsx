@@ -1102,6 +1102,7 @@ export default function App() {
     useState<PathRecommendationResponse | null>(null);
   const [isLoadingRecs, setIsLoadingRecs] = useState(false);
   const [recError, setRecError] = useState<string | null>(null);
+  const [listSize, setListSize] = useState(5);
   const [addedRecIds] = useState<Set<string>>(new Set());
 
 
@@ -1980,10 +1981,20 @@ export default function App() {
           ) : recommendations && recommendations.candidates.length > 0 ? (
             <>
               <div className="right-column-head">
-                <h3>Reading List</h3>
+                <select
+                  className="list-size-select"
+                  value={listSize}
+                  onChange={(e) => setListSize(Number(e.target.value))}
+                >
+                  {[3, 5, 10, 15, 20].map((n) => (
+                    <option key={n} value={n}>
+                      Top {n}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="right-column-list">
-                {recommendations.candidates.slice(0, 5).map((rec, i) => (
+                {recommendations.candidates.slice(0, listSize).map((rec, i) => (
                   <BookCard
                     key={rec.id}
                     rank={i + 1}
