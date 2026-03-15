@@ -768,8 +768,9 @@ function InterestMap({
       return;
     }
 
-    event.preventDefault();
-    svgRef.current.setPointerCapture(event.pointerId);
+    // Don't use setPointerCapture — it retargets pointerup/click to the
+    // SVG element instead of the original node <g>, which prevents the
+    // React onClick handler from firing on nodes.
     dragRef.current = {
       nodeIndex: nodeIdx,
       pointerId: event.pointerId,
@@ -777,47 +778,45 @@ function InterestMap({
       startClientY: event.clientY,
       moved: false,
     };
-  }
 
-  function handlePointerMove(event: React.PointerEvent<SVGSVGElement>) {
-    const drag = dragRef.current;
+    // Use document-level listeners so drag tracking works even when
+    // the pointer leaves the SVG.
+    function onDocMove(e: PointerEvent) {
+      const drag = dragRef.current;
+      if (!drag || !svgRef.current) return;
 
-    if (!drag || !svgRef.current) {
-      return;
+      const dx = e.clientX - drag.startClientX;
+      const dy = e.clientY - drag.startClientY;
+
+      if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+
+      drag.moved = true;
+      const ctm = svgRef.current.getScreenCTM();
+      if (!ctm) return;
+
+      const pt = new DOMPoint(e.clientX, e.clientY).matrixTransform(
+        ctm.inverse(),
+      );
+      const node = simRef.current[drag.nodeIndex];
+      if (node) {
+        node.x = pt.x;
+        node.y = pt.y;
+        node.vx = 0;
+        node.vy = 0;
+      }
     }
 
-    const dx = event.clientX - drag.startClientX;
-    const dy = event.clientY - drag.startClientY;
-
-    if (!drag.moved && Math.hypot(dx, dy) < 4) {
-      return;
+    function onDocUp() {
+      if (dragRef.current) {
+        wasDraggedRef.current = dragRef.current.moved;
+        dragRef.current = null;
+      }
+      document.removeEventListener("pointermove", onDocMove);
+      document.removeEventListener("pointerup", onDocUp);
     }
 
-    drag.moved = true;
-    const ctm = svgRef.current.getScreenCTM();
-
-    if (!ctm) {
-      return;
-    }
-
-    const pt = new DOMPoint(event.clientX, event.clientY).matrixTransform(
-      ctm.inverse(),
-    );
-    const node = simRef.current[drag.nodeIndex];
-
-    if (node) {
-      node.x = pt.x;
-      node.y = pt.y;
-      node.vx = 0;
-      node.vy = 0;
-    }
-  }
-
-  function handlePointerUp() {
-    if (dragRef.current) {
-      wasDraggedRef.current = dragRef.current.moved;
-      dragRef.current = null;
-    }
+    document.addEventListener("pointermove", onDocMove);
+    document.addEventListener("pointerup", onDocUp);
   }
 
   function handleSvgClick(event: React.MouseEvent) {
@@ -932,8 +931,6 @@ function InterestMap({
           })()}
           aria-label="Interest graph showing how genre and topic tags connect across your books"
           onClick={!compact ? handleSvgClick : undefined}
-          onPointerMove={!compact ? handlePointerMove : undefined}
-          onPointerUp={!compact ? handlePointerUp : undefined}
         >
           {data.links.map((link) => {
             const source = nodeMap.get(link.source);
