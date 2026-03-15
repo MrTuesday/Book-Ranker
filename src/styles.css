@@ -125,7 +125,7 @@ h3 {
 .graph-stage-frame {
     pointer-events: auto;
     display: grid;
-    padding: 24px 0 0;
+    padding: 0;
     height: 100%;
 }
 
@@ -341,7 +341,12 @@ h3 {
 
 .graph-stage .interest-map {
     height: 100%;
-    grid-template-rows: auto 1fr auto;
+    grid-template-rows: 1fr;
+}
+
+.graph-stage .interest-map-meta,
+.graph-stage .interest-map-note {
+    display: none;
 }
 
 .graph-stage .interest-map-plot {
@@ -351,6 +356,7 @@ h3 {
     border: none;
     background: transparent;
     padding: 0;
+    overflow: visible;
 }
 
 .graph-stage .interest-map-chart {
