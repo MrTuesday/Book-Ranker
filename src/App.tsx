@@ -1882,8 +1882,129 @@ export default function App() {
   return (
     <main className="app-shell">
       <div className="app-layout">
-        {/* ── Left column: form + reading list ── */}
+        {/* ── Left column: reading list ── */}
         <aside className="left-column">
+        <section className="panel board">
+          <div className="ranking-list">
+            {isLoading ? (
+              <div className="empty-state">Loading your rankings...</div>
+            ) : rankedBooks.length === 0 ? (
+              <div className="empty-state">
+                No books yet. Add your first book to get started.
+              </div>
+            ) : (
+              rankedBooks.map((book, index) => {
+                const isDeleting = pendingDeleteId === book.id;
+                const rankClass =
+                  book.rank === 1
+                    ? "rank-gold"
+                    : book.rank === 2
+                      ? "rank-silver"
+                      : book.rank === 3
+                        ? "rank-bronze"
+                        : "";
+
+                return (
+                  <BookCard
+                    key={book.id}
+                    rank={book.rank}
+                    title={book.title}
+                    authors={book.authors}
+                    score={book.score}
+                    rankClass={rankClass}
+                    className={`${editingBookId === book.id ? "is-editing" : ""}${book.rank === 1 ? " is-leader" : ""}`}
+                    animationDelay={`${index * 60}ms`}
+                    stars={
+                      <span className="my-rating-stars">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <button
+                            key={star}
+                            type="button"
+                            className={`my-rating-star${book.myRating != null && star <= book.myRating ? " is-filled" : ""}`}
+                            onClick={() => void updateMyRating(book.id, star)}
+                            aria-label={`Rate ${star} out of 5`}
+                          >
+                            {book.myRating != null && star <= book.myRating ? "\u2605" : "\u2606"}
+                          </button>
+                        ))}
+                      </span>
+                    }
+                    actions={
+                      <>
+                        <button
+                          type="button"
+                          className="link-btn"
+                          onClick={() => startEditing(book)}
+                          disabled={isSaving || isDeleting}
+                        >
+                          {editingBookId === book.id ? "Editing" : "Edit"}
+                        </button>
+                        <span className="action-dot">·</span>
+                        <button
+                          type="button"
+                          className="link-btn link-btn-danger"
+                          onClick={() => void removeBook(book.id)}
+                          disabled={isSaving || isDeleting}
+                        >
+                          {isDeleting ? "Removing..." : "Remove"}
+                        </button>
+                      </>
+                    }
+                  />
+                );
+              })
+            )}
+          </div>
+        </section>
+        </aside>
+
+        {/* ── Center column: interest map graph ── */}
+        <section className="center-column">
+          <InterestMap
+            books={books}
+            interests={genreInterests}
+            selectedPath={selectedInterestPath}
+            onSelectTag={toggleInterestPathTag}
+          />
+        </section>
+
+        {/* ── Right column: reading list builder + add book ── */}
+        <aside className="right-column">
+          {recError ? (
+            <p className="panel-error">{recError}</p>
+          ) : null}
+          {isLoadingRecs ? (
+            <div className="right-column-status">
+              <p>Building reading list...</p>
+            </div>
+          ) : recommendations && recommendations.candidates.length > 0 ? (
+            <>
+              <div className="right-column-head">
+                <h3>Reading List</h3>
+              </div>
+              <div className="right-column-list">
+                {recommendations.candidates.slice(0, 5).map((rec, i) => (
+                  <BookCard
+                    key={rec.id}
+                    rank={i + 1}
+                    title={rec.title}
+                    authors={rec.authors}
+                    score={rec.score}
+                    className={addedRecIds.has(rec.id) ? "is-added" : undefined}
+                    scoreOverride={addedRecIds.has(rec.id) ? "✓" : undefined}
+                  />
+                ))}
+              </div>
+            </>
+          ) : recommendations && recommendations.candidates.length === 0 ? (
+            <div className="right-column-status">
+              <p>No new books found for these genres.</p>
+            </div>
+          ) : (
+            <div className="right-column-empty">
+              <p>Select a genre node to build a reading list.</p>
+            </div>
+          )}
           <section className="panel control-panel">
           <div className="section-heading">
             <div>
@@ -2449,128 +2570,6 @@ export default function App() {
             </div>
           </form>
         </section>
-
-        <section className="panel board">
-          <div className="ranking-list">
-            {isLoading ? (
-              <div className="empty-state">Loading your rankings...</div>
-            ) : rankedBooks.length === 0 ? (
-              <div className="empty-state">
-                No books yet. Add a title above to see your first ranking.
-              </div>
-            ) : (
-              rankedBooks.map((book, index) => {
-                const isDeleting = pendingDeleteId === book.id;
-                const rankClass =
-                  book.rank === 1
-                    ? "rank-gold"
-                    : book.rank === 2
-                      ? "rank-silver"
-                      : book.rank === 3
-                        ? "rank-bronze"
-                        : "";
-
-                return (
-                  <BookCard
-                    key={book.id}
-                    rank={book.rank}
-                    title={book.title}
-                    authors={book.authors}
-                    score={book.score}
-                    rankClass={rankClass}
-                    className={`${editingBookId === book.id ? "is-editing" : ""}${book.rank === 1 ? " is-leader" : ""}`}
-                    animationDelay={`${index * 60}ms`}
-                    stars={
-                      <span className="my-rating-stars">
-                        {[1, 2, 3, 4, 5].map((star) => (
-                          <button
-                            key={star}
-                            type="button"
-                            className={`my-rating-star${book.myRating != null && star <= book.myRating ? " is-filled" : ""}`}
-                            onClick={() => void updateMyRating(book.id, star)}
-                            aria-label={`Rate ${star} out of 5`}
-                          >
-                            {book.myRating != null && star <= book.myRating ? "\u2605" : "\u2606"}
-                          </button>
-                        ))}
-                      </span>
-                    }
-                    actions={
-                      <>
-                        <button
-                          type="button"
-                          className="link-btn"
-                          onClick={() => startEditing(book)}
-                          disabled={isSaving || isDeleting}
-                        >
-                          {editingBookId === book.id ? "Editing" : "Edit"}
-                        </button>
-                        <span className="action-dot">·</span>
-                        <button
-                          type="button"
-                          className="link-btn link-btn-danger"
-                          onClick={() => void removeBook(book.id)}
-                          disabled={isSaving || isDeleting}
-                        >
-                          {isDeleting ? "Removing..." : "Remove"}
-                        </button>
-                      </>
-                    }
-                  />
-                );
-              })
-            )}
-          </div>
-        </section>
-        </aside>
-
-        {/* ── Center column: interest map graph ── */}
-        <section className="center-column">
-          <InterestMap
-            books={books}
-            interests={genreInterests}
-            selectedPath={selectedInterestPath}
-            onSelectTag={toggleInterestPathTag}
-          />
-        </section>
-
-        {/* ── Right column: reading list builder ── */}
-        <aside className="right-column">
-          {recError ? (
-            <p className="panel-error">{recError}</p>
-          ) : null}
-          {isLoadingRecs ? (
-            <div className="right-column-status">
-              <p>Building reading list...</p>
-            </div>
-          ) : recommendations && recommendations.candidates.length > 0 ? (
-            <>
-              <div className="right-column-head">
-                <h3>Reading List</h3>
-              </div>
-              <div className="right-column-list">
-                {recommendations.candidates.slice(0, 5).map((rec, i) => (
-                  <BookCard
-                    key={rec.id}
-                    rank={i + 1}
-                    title={rec.title}
-                    authors={rec.authors}
-                    score={rec.score}
-                    className={addedRecIds.has(rec.id) ? "is-added" : undefined}
-                    scoreOverride={addedRecIds.has(rec.id) ? "✓" : undefined}
-                  />
-                ))}
-              </div>
-            </>
-          ) : recommendations && recommendations.candidates.length === 0 ? (
-            <div className="right-column-status">
-              <p>No new books found for these genres.</p>
-            </div>
-          ) : (
-            <div className="right-column-empty">
-              <p>Select a genre node to build a reading list.</p>
-            </div>
-          )}
         </aside>
       </div>
     </main>
