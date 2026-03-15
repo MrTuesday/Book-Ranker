@@ -37,7 +37,6 @@ import {
 } from "./lib/scoring";
 import {
   requestPathRecommendation,
-  type RecommendedBook,
   type PathRecommendationResponse,
 } from "./lib/recommend-api";
 import { BookCard } from "./components/BookCard";
@@ -1104,7 +1103,7 @@ export default function App() {
   const [isLoadingRecs, setIsLoadingRecs] = useState(false);
   const [recError, setRecError] = useState<string | null>(null);
   const [addedRecIds, setAddedRecIds] = useState<Set<string>>(new Set());
-  const [batchSize] = useState(5);
+
 
   useEffect(() => {
     let isActive = true;
@@ -1852,31 +1851,9 @@ export default function App() {
     };
   }, [selectedInterestPath]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function addRecommendedBook(rec: RecommendedBook) {
-    try {
-      const updated = await createBookRecord({
-        title: rec.title,
-        authors: rec.authors,
-        genres: rec.genres,
-        starRating: rec.averageRating,
-        ratingCount: rec.ratingsCount,
-      });
-      setBooks(updated);
-      setAddedRecIds((prev) => new Set([...prev, rec.id]));
-    } catch {
-      // silently ignore
-    }
-  }
 
-  async function addSelectedBatch() {
-    if (!recommendations) return;
-    const toAdd = recommendations.candidates
-      .filter((rec) => !addedRecIds.has(rec.id))
-      .slice(0, batchSize);
-    for (const rec of toAdd) {
-      await addRecommendedBook(rec);
-    }
-  }
+
+
 
   async function updateMyRating(bookId: number, rating: number) {
     const book = books.find((b) => b.id === bookId);
