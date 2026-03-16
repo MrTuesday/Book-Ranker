@@ -729,11 +729,12 @@ h3 {
     position: absolute;
     top: calc(100% + 8px);
     left: 0;
-    right: 0;
     z-index: 20;
     display: grid;
     gap: 6px;
     padding: 8px;
+    min-width: 100%;
+    width: max-content;
     border: 1px solid var(--line);
     border-radius: 16px;
     background: rgba(255, 253, 248, 0.98);
