@@ -17,6 +17,8 @@ export type BookCardProps = {
   rankClass?: string;
   /** Override the score display (e.g. "✓" for already-added recs) */
   scoreOverride?: ReactNode;
+  /** Reading progress bar — only shown when provided */
+  progressBar?: ReactNode;
   /** Star rating row (my-rating) — only shown when provided */
   stars?: ReactNode;
   /** Action buttons (edit / remove) — only shown when provided */
@@ -32,6 +34,7 @@ export function BookCard({
   animationDelay,
   rankClass = "",
   scoreOverride,
+  progressBar,
   stars,
   actions,
 }: BookCardProps) {
@@ -56,6 +59,7 @@ export function BookCard({
             {scoreOverride ?? formatScore(score)}
           </strong>
         </div>
+        {progressBar}
         {actions ? (
           <div className="ranking-meta">
             <span className="ranking-actions">{actions}</span>

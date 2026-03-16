@@ -104,6 +104,204 @@ h3 {
     grid-template-rows: 1fr auto;
     overflow: hidden;
     padding: 16px;
+    position: relative;
+}
+
+.center-column.is-editing {
+    outline: 2px solid rgba(180, 83, 9, 0.25);
+    outline-offset: -2px;
+    border-radius: 8px;
+}
+
+/* ── Graph edit toolbar ── */
+
+.graph-edit-toolbar {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 10;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.graph-edit-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--muted);
+    font-size: 16px;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.graph-edit-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.graph-edit-btn.is-active {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+}
+
+/* ── Node edit popover ── */
+
+.node-edit-popover {
+    position: absolute;
+    z-index: 15;
+    transform: translate(-50%, calc(-100% - 12px));
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 120px;
+    text-align: center;
+}
+
+.node-edit-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--fg);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 160px;
+}
+
+.rating-buttons {
+    display: flex;
+    gap: 4px;
+    justify-content: center;
+}
+
+.rating-btn {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--muted);
+    font-size: 0.7rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.1s ease;
+}
+
+.rating-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.rating-btn.is-active {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+}
+
+.node-edit-delete {
+    font-size: 0.65rem;
+    color: #b91c1c;
+    background: none;
+    border: 1px solid rgba(185, 28, 28, 0.2);
+    border-radius: 6px;
+    padding: 3px 8px;
+    cursor: pointer;
+    transition: all 0.1s ease;
+}
+
+.node-edit-delete:hover {
+    background: rgba(185, 28, 28, 0.08);
+    border-color: rgba(185, 28, 28, 0.4);
+}
+
+.graph-add-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.graph-add-row {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+.graph-add-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--accent);
+    font-size: 1.1rem;
+    font-weight: 600;
+    line-height: 1;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+}
+
+.graph-add-btn:hover:not(:disabled) {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+}
+
+.graph-add-btn:disabled {
+    color: var(--muted);
+    cursor: default;
+}
+
+.rating-buttons.toolbar-rating {
+    width: 140px;
+    justify-content: flex-start;
+}
+
+.toolbar-rating .rating-btn {
+    flex: 1;
+    width: auto;
+}
+
+.toolbar-rating-label {
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 0.02em;
+}
+
+/* ── Add genre input ── */
+
+.graph-add-input {
+    width: 140px;
+    height: 32px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--card);
+    padding: 0 10px;
+    font-size: 0.75rem;
+    color: var(--fg);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    transition: border-color 0.15s ease;
+}
+
+.graph-add-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.graph-add-input::placeholder {
+    color: var(--muted);
 }
 
 .right-column {
@@ -384,11 +582,14 @@ h3 {
     padding: 0;
     overflow: visible;
     height: 100%;
+    position: relative;
 }
 
 .center-column .interest-map-chart {
     width: 100%;
     height: 100%;
+    position: relative;
+    z-index: 1;
 }
 
 .distribution-chart {
@@ -629,14 +830,31 @@ h3 {
     gap: 8px;
 }
 
+.tag-entry-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.tag-entry-group .rating-buttons {
+    display: flex;
+    gap: 4px;
+    width: calc(100% - 36px);
+}
+
+.tag-entry-group .rating-btn {
+    flex: 1;
+    width: auto;
+}
+
 .tag-entry-row {
     display: flex;
-    gap: 8px;
-    align-items: flex-start;
+    gap: 4px;
+    align-items: center;
     min-width: 0;
 }
 
-.tag-entry-row .inline-composite {
+.tag-entry-row .suggestion-field {
     flex: 1;
 }
 
@@ -1074,6 +1292,96 @@ input:focus {
     font-size: 0.8rem;
     font-weight: 600;
     letter-spacing: 0.04em;
+}
+
+/* ── Reading progress bar (inline on card) ── */
+
+.reading-progress {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    cursor: pointer;
+}
+
+.ranking-body .reading-progress {
+    margin-top: 2px;
+    padding-left: 34px;
+}
+
+.reading-progress-track {
+    flex: 1;
+    height: 6px;
+    background: rgba(180, 83, 9, 0.1);
+    border-radius: 3px;
+    transition: transform 0.15s ease;
+    transform-origin: center;
+}
+
+.reading-progress:hover .reading-progress-track {
+    transform: scaleY(1.6);
+}
+
+.reading-progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 3px;
+    transition: width 0.2s ease;
+}
+
+.reading-progress-label {
+    flex-shrink: 0;
+    font-size: 0.65rem;
+    color: var(--muted);
+    font-weight: 600;
+}
+
+/* ── Progress slider (in form) ── */
+
+.progress-slider-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.progress-slider {
+    flex: 1;
+    height: 6px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: rgba(180, 83, 9, 0.12);
+    border-radius: 3px;
+    outline: none;
+}
+
+.progress-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    border: 2px solid #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.progress-slider::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    border: 2px solid #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.progress-slider-value {
+    min-width: 32px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-align: right;
 }
 
 .my-rating-stars {

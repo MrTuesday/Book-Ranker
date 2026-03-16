@@ -33,7 +33,6 @@ import {
   averageTagPreference,
   tagPreferences,
   scoreBook,
-  calibrateGenreInterests,
 } from "./lib/scoring";
 import {
   requestPathRecommendation,
@@ -55,6 +54,7 @@ type BookDraft = {
   genreInput: string;
   genres: string[];
   genreScores: Record<string, string>;
+  progress: string;
 };
 
 type RankedBook = Book & {
@@ -75,7 +75,8 @@ type DraftTextField =
   | "authorInput"
   | "authorExperience"
   | "genreInput"
-  | "genreInterest";
+  | "genreInterest"
+  | "progress";
 
 const MAX_SUGGESTIONS = 6;
 
@@ -94,6 +95,7 @@ function createDraft(): BookDraft {
     genreInput: "",
     genres: [],
     genreScores: {},
+    progress: "",
   };
 }
 
@@ -233,18 +235,100 @@ function hashTag(value: string) {
   return hash >>> 0;
 }
 
+function ProgressBar({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (pct: number) => void;
+}) {
+  return (
+    <div
+      className="reading-progress"
+      role="slider"
+      aria-label="Reading progress"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={value}
+      tabIndex={0}
+      onClick={(e) => {
+        const track = e.currentTarget.querySelector(".reading-progress-track");
+        if (!track) return;
+        const rect = track.getBoundingClientRect();
+        const raw = Math.max(
+          0,
+          Math.min(100, ((e.clientX - rect.left) / rect.width) * 100),
+        );
+        const pct =
+          raw >= 95 ? 100 : raw <= 5 ? 0 : Math.round(raw / 10) * 10;
+        onChange(pct);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowRight" || e.key === "ArrowUp") {
+          e.preventDefault();
+          onChange(Math.min(100, value + 10));
+        } else if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
+          e.preventDefault();
+          onChange(Math.max(0, value - 10));
+        }
+      }}
+    >
+      <div className="reading-progress-track">
+        <div
+          className="reading-progress-fill"
+          style={{ width: `${value}%` }}
+        />
+      </div>
+      {value > 0 && (
+        <span className="reading-progress-label">{value}%</span>
+      )}
+    </div>
+  );
+}
+
+function RatingButtons({
+  value,
+  onChange,
+  className,
+}: {
+  value: number | null;
+  onChange: (level: number) => void;
+  className?: string;
+}) {
+  return (
+    <div className={`rating-buttons${className ? ` ${className}` : ""}`}>
+      {[1, 2, 3, 4, 5].map((level) => (
+        <button
+          key={level}
+          type="button"
+          className={`rating-btn${level === value ? " is-active" : ""}`}
+          onClick={() => onChange(level)}
+        >
+          {level}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function InterestMap({
   books,
   interests,
   compact = false,
   selectedPath = [],
   onSelectTag,
+  editMode = false,
+  onUpdateInterest,
+  onDeleteInterest,
 }: {
   books: Book[];
   interests: GenreInterestMap;
   compact?: boolean;
   selectedPath?: string[];
   onSelectTag?: (tag: string) => void;
+  editMode?: boolean;
+  onUpdateInterest?: (genre: string, interest: number) => void;
+  onDeleteInterest?: (genre: string) => void;
 }) {
   const data = useMemo(() => {
     const tagCounts = new Map<string, number>();
@@ -281,6 +365,13 @@ function InterestMap({
 
     if (tagCounts.size === 0) {
       for (const genre of defaultGenres) {
+        tagCounts.set(genre, 0);
+      }
+    }
+
+    // Include genres from interest map that aren't on any book yet
+    for (const genre of Object.keys(interests)) {
+      if (!tagCounts.has(genre)) {
         tagCounts.set(genre, 0);
       }
     }
@@ -593,6 +684,14 @@ function InterestMap({
   const wasDraggedRef = useRef(false);
   const svgRef = useRef<SVGSVGElement>(null);
   const [, setTick] = useState(0);
+  const [editingNode, setEditingNode] = useState<{ tag: string; screenX: number; screenY: number } | null>(null);
+
+  // Close popover when leaving edit mode
+  useEffect(() => {
+    if (!editMode) {
+      setEditingNode(null);
+    }
+  }, [editMode]);
 
   // Initialize simulation from layout
   useEffect(() => {
@@ -796,6 +895,9 @@ function InterestMap({
       event.stopPropagation();
       wasDraggedRef.current = false;
     }
+    if (editMode) {
+      setEditingNode(null);
+    }
   }
 
   if (!initialLayout) {
@@ -870,6 +972,28 @@ function InterestMap({
 
     if (wasDraggedRef.current) {
       wasDraggedRef.current = false;
+      return;
+    }
+
+    if (editMode) {
+      // Convert SVG coordinates to screen coordinates for popover positioning
+      const svg = svgRef.current;
+      if (!svg) return;
+      const node = simRef.current.find((n) => n.tag === tag);
+      if (!node) return;
+      const point = svg.createSVGPoint();
+      point.x = node.x;
+      point.y = node.y;
+      const ctm = svg.getScreenCTM();
+      if (!ctm) return;
+      const screenPoint = point.matrixTransform(ctm);
+      const plotRect = svg.parentElement?.getBoundingClientRect();
+      if (!plotRect) return;
+      setEditingNode({
+        tag,
+        screenX: screenPoint.x - plotRect.left,
+        screenY: screenPoint.y - plotRect.top,
+      });
       return;
     }
 
@@ -1054,12 +1178,38 @@ function InterestMap({
                   y={node.labelY}
                   textAnchor={node.labelAnchor}
                 >
-                  {shortenLabel(node.tag)}
+                  {editMode ? `\u270E ${shortenLabel(node.tag)}` : shortenLabel(node.tag)}
                 </text>
               ) : null}
             </g>
           ))}
         </svg>
+        {editMode && editingNode ? (() => {
+          const currentInterest = interests[editingNode.tag] ?? 3;
+          return (
+            <div
+              className="node-edit-popover"
+              style={{ left: editingNode.screenX, top: editingNode.screenY }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="node-edit-label">{editingNode.tag}</div>
+              <RatingButtons
+                value={currentInterest}
+                onChange={(level) => onUpdateInterest?.(editingNode.tag, level)}
+              />
+              <button
+                type="button"
+                className="node-edit-delete"
+                onClick={() => {
+                  onDeleteInterest?.(editingNode.tag);
+                  setEditingNode(null);
+                }}
+              >
+                Remove
+              </button>
+            </div>
+          );
+        })() : null}
       </div>
       {!compact ? (
         <p className="interest-map-note">
@@ -1104,7 +1254,9 @@ export default function App() {
   const [recError, setRecError] = useState<string | null>(null);
   const [listSize, setListSize] = useState(5);
   const [addedRecIds] = useState<Set<string>>(new Set());
-
+  const [graphEditMode, setGraphEditMode] = useState(false);
+  const [graphAddGenreInput, setGraphAddGenreInput] = useState("");
+  const [graphAddGenreRating, setGraphAddGenreRating] = useState<number | null>(null);
 
   useEffect(() => {
     let isActive = true;
@@ -1152,24 +1304,17 @@ export default function App() {
     });
   }
 
-  // Calibrate genre interests by blending stated interests with myRating data.
-  // This lets personal ratings influence all books indirectly via genre weights.
-  const calibratedInterests = useMemo(
-    () => calibrateGenreInterests(genreInterests, books),
-    [genreInterests, books],
-  );
-
   const rankedBooks = useMemo<RankedBook[]>(() => {
     return books
       .map((book) => {
         const authorPref = averageTagPreference(book.authors, authorExperiences);
-        const genrePrefs = tagPreferences(book.genres, calibratedInterests);
+        const genrePrefs = tagPreferences(book.genres, genreInterests);
         const R = book.starRating ?? GLOBAL_MEAN;
         const v = book.ratingCount ?? 0;
         const bScore = bayesianScore(R, v, GLOBAL_MEAN, SMOOTHING_FACTOR);
         return {
           ...book,
-          score: scoreBook(bScore, authorPref, genrePrefs),
+          score: scoreBook(bScore, authorPref, genrePrefs, book.myRating, book.progress),
           rank: 0,
         };
       })
@@ -1183,7 +1328,7 @@ export default function App() {
         return (b.ratingCount ?? 0) - (a.ratingCount ?? 0);
       })
       .map((book, index) => ({ ...book, rank: index + 1 }));
-  }, [books, calibratedInterests, authorExperiences]);
+  }, [books, genreInterests, authorExperiences]);
 
   const isEditing = editingBookId !== null;
 
@@ -1683,6 +1828,7 @@ export default function App() {
       genreInput: "",
       genres: [...book.genres],
       genreScores: buildDraftScores(book.genres, genreInterests),
+      progress: book.progress != null ? String(book.progress) : "",
     });
     setErrorMessage(null);
   }
@@ -1698,12 +1844,16 @@ export default function App() {
     setErrorMessage(null);
 
     try {
+      const parsedProgress = draft.progress.trim()
+        ? Number(draft.progress)
+        : undefined;
       const payload = {
         title: draft.title.trim(),
         authors: draft.authors,
         starRating: parsedDraftRating,
         ratingCount: parsedDraftCount,
         genres: draft.genres,
+        progress: parsedProgress,
       };
 
       let nextInterests = genreInterests;
@@ -1817,6 +1967,7 @@ export default function App() {
     if (selectedInterestPath.length < 1) {
       setRecommendations(null);
       setRecError(null);
+      setIsLoadingRecs(false);
       return;
     }
 
@@ -1830,7 +1981,7 @@ export default function App() {
           selectedTags: selectedInterestPath,
           profile: {
             books,
-            genreInterests: calibratedInterests,
+            genreInterests,
             authorExperiences,
           },
         });
@@ -1864,6 +2015,20 @@ export default function App() {
       const updated = await updateBookRecord(bookId, {
         ...book,
         myRating: newRating,
+      });
+      setBooks(updated);
+    } catch {
+      // silently ignore
+    }
+  }
+
+  async function updateProgress(bookId: number, value: number | undefined) {
+    const book = books.find((b) => b.id === bookId);
+    if (!book) return;
+    try {
+      const updated = await updateBookRecord(bookId, {
+        ...book,
+        progress: value,
       });
       setBooks(updated);
     } catch {
@@ -1915,6 +2080,14 @@ export default function App() {
                     rankClass={rankClass}
                     className={`${editingBookId === book.id ? "is-editing" : ""}${book.rank === 1 ? " is-leader" : ""}`}
                     animationDelay={`${index * 60}ms`}
+                    progressBar={
+                      <ProgressBar
+                        value={book.progress ?? 0}
+                        onChange={(pct) =>
+                          void updateProgress(book.id, pct === 0 ? undefined : pct)
+                        }
+                      />
+                    }
                     stars={
                       <span className="my-rating-stars">
                         {[1, 2, 3, 4, 5].map((star) => (
@@ -1960,12 +2133,77 @@ export default function App() {
         </aside>
 
         {/* ── Center column: interest map graph ── */}
-        <section className="center-column">
+        <section className={`center-column${graphEditMode ? " is-editing" : ""}`}>
+          <div className="graph-edit-toolbar">
+            <button
+              type="button"
+              className={`graph-edit-btn${graphEditMode ? " is-active" : ""}`}
+              onClick={() => setGraphEditMode((prev) => !prev)}
+              aria-label={graphEditMode ? "Exit edit mode" : "Edit graph"}
+              title={graphEditMode ? "Exit edit mode" : "Edit interests"}
+            >
+              {graphEditMode ? "\u2715" : "\u270E"}
+            </button>
+            {graphEditMode ? (
+              <div className="graph-add-group">
+                <div className="graph-add-row">
+                  <input
+                    type="text"
+                    className="graph-add-input"
+                    placeholder="Add genre or topic..."
+                    value={graphAddGenreInput}
+                    onChange={(e) => setGraphAddGenreInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && graphAddGenreInput.trim()) {
+                        const next = writeGenreInterest(
+                          graphAddGenreInput.trim(),
+                          graphAddGenreRating ?? 3,
+                        );
+                        setGenreInterests(next);
+                        setGraphAddGenreInput("");
+                        setGraphAddGenreRating(null);
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="graph-add-btn"
+                    disabled={!graphAddGenreInput.trim()}
+                    onClick={() => {
+                      if (graphAddGenreInput.trim()) {
+                        const next = writeGenreInterest(
+                          graphAddGenreInput.trim(),
+                          graphAddGenreRating ?? 3,
+                        );
+                        setGenreInterests(next);
+                        setGraphAddGenreInput("");
+                        setGraphAddGenreRating(null);
+                      }
+                    }}
+                    aria-label="Add genre"
+                  >
+                    +
+                  </button>
+                </div>
+                <RatingButtons
+                  value={graphAddGenreRating}
+                  onChange={setGraphAddGenreRating}
+                  className="toolbar-rating"
+                />
+              </div>
+            ) : null}
+          </div>
           <InterestMap
             books={books}
             interests={genreInterests}
             selectedPath={selectedInterestPath}
             onSelectTag={toggleInterestPathTag}
+            editMode={graphEditMode}
+            onUpdateInterest={(genre, interest) => {
+              const next = writeGenreInterest(genre, interest);
+              setGenreInterests(next);
+            }}
+            onDeleteInterest={(genre) => void removeGlobalTag("genre", genre)}
           />
         </section>
 
@@ -2043,8 +2281,8 @@ export default function App() {
             <div className="field entry-author">
               <span>Author(s) + my experience with them</span>
               <div className="tag-editor">
-                <div className="tag-entry-row">
-                  <div className="inline-composite">
+                <div className="tag-entry-group">
+                  <div className="tag-entry-row">
                     <div
                       className="suggestion-field"
                       onFocus={() => setActiveSuggestionField("author")}
@@ -2119,29 +2357,26 @@ export default function App() {
                         </div>
                       ) : null}
                     </div>
-                    <input
-                      className="inline-rating"
-                      type="number"
-                      step="1"
-                      min="0"
-                      max="5"
-                      placeholder="-"
-                      title="Experience with author (0–5)"
-                      value={draft.authorExperience}
-                      onChange={(event) =>
-                        updateDraft("authorExperience", event.target.value)
-                      }
-                    />
+                    <button
+                      type="button"
+                      className="graph-add-btn"
+                      onClick={() => addDraftTag("author")}
+                      disabled={!draft.authorInput.trim()}
+                      aria-label="Add author tag"
+                    >
+                      +
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    className="btn btn-tag-add"
-                    onClick={() => addDraftTag("author")}
-                    disabled={!draft.authorInput.trim()}
-                    aria-label="Add author tag"
-                  >
-                    +
-                  </button>
+                  <RatingButtons
+                    value={
+                      draft.authorExperience
+                        ? Number(draft.authorExperience)
+                        : null
+                    }
+                    onChange={(level) =>
+                      updateDraft("authorExperience", String(level))
+                    }
+                  />
                 </div>
                 {draft.authors.length > 0 ? (
                   <div
@@ -2287,8 +2522,8 @@ export default function App() {
             <div className="field entry-genre">
               <span>Genre(s) / topic(s) + my current interest in them</span>
               <div className="tag-editor">
-                <div className="tag-entry-row">
-                  <div className="inline-composite">
+                <div className="tag-entry-group">
+                  <div className="tag-entry-row">
                     <div
                       className="suggestion-field"
                       onFocus={() => setActiveSuggestionField("genre")}
@@ -2363,29 +2598,26 @@ export default function App() {
                         </div>
                       ) : null}
                     </div>
-                    <input
-                      className="inline-rating"
-                      type="number"
-                      step="1"
-                      min="0"
-                      max="5"
-                      placeholder="-"
-                      title="Genre / topic interest (0–5)"
-                      value={draft.genreInterest}
-                      onChange={(event) =>
-                        updateDraft("genreInterest", event.target.value)
-                      }
-                    />
+                    <button
+                      type="button"
+                      className="graph-add-btn"
+                      onClick={() => addDraftTag("genre")}
+                      disabled={!draft.genreInput.trim()}
+                      aria-label="Add genre tag"
+                    >
+                      +
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    className="btn btn-tag-add"
-                    onClick={() => addDraftTag("genre")}
-                    disabled={!draft.genreInput.trim()}
-                    aria-label="Add genre tag"
-                  >
-                    +
-                  </button>
+                  <RatingButtons
+                    value={
+                      draft.genreInterest
+                        ? Number(draft.genreInterest)
+                        : null
+                    }
+                    onChange={(level) =>
+                      updateDraft("genreInterest", String(level))
+                    }
+                  />
                 </div>
                 {draft.genres.length > 0 ? (
                   <div
@@ -2526,6 +2758,16 @@ export default function App() {
                   </div>
                 ) : null}
               </div>
+            </div>
+
+            <div className="field entry-progress">
+              <span>Reading progress</span>
+              <ProgressBar
+                value={Number(draft.progress) || 0}
+                onChange={(pct) =>
+                  updateDraft("progress", pct === 0 ? "" : String(pct))
+                }
+              />
             </div>
 
             <label className="field entry-rating">

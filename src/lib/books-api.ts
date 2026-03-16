@@ -6,6 +6,7 @@ export type Book = {
   starRating?: number;
   ratingCount?: number;
   myRating?: number;
+  progress?: number;
 };
 
 type LegacyBook = Partial<Book> & {
@@ -84,6 +85,11 @@ function normalizeBook(value: unknown): Book | null {
     rawMyRating != null && Number.isFinite(Number(rawMyRating))
       ? Number(rawMyRating)
       : undefined;
+  const rawProgress = (book as Record<string, unknown>)?.progress;
+  const progress =
+    rawProgress != null && Number.isFinite(Number(rawProgress))
+      ? Math.max(0, Math.min(100, Number(rawProgress)))
+      : undefined;
   const authors = normalizeTagList(book?.authors ?? book?.author);
   const genres = normalizeTagList(book?.genres ?? book?.genre);
 
@@ -105,6 +111,7 @@ function normalizeBook(value: unknown): Book | null {
     ...(starRating != null ? { starRating } : {}),
     ...(ratingCount != null ? { ratingCount } : {}),
     ...(myRating != null ? { myRating } : {}),
+    ...(progress != null ? { progress } : {}),
   };
 }
 
@@ -150,6 +157,12 @@ function parsePayload(
     throw new Error("Personal rating must be between 1 and 5.");
   }
 
+  const rawProgress = (value as Record<string, unknown>)?.progress;
+  const progress =
+    rawProgress != null && Number.isFinite(Number(rawProgress))
+      ? Math.max(0, Math.min(100, Number(rawProgress)))
+      : undefined;
+
   const authors = normalizeTagList(value?.authors ?? value?.author);
   const genres = normalizeTagList(value?.genres ?? value?.genre);
 
@@ -160,6 +173,7 @@ function parsePayload(
     ...(starRating != null ? { starRating } : {}),
     ...(ratingCount != null ? { ratingCount } : {}),
     ...(myRating != null ? { myRating } : {}),
+    ...(progress != null ? { progress } : {}),
   };
 }
 
@@ -253,7 +267,7 @@ export async function updateBookRecord(id: number, payload: BookPayload) {
   }
 
   return writeBooks(
-    books.map((book) => (book.id === id ? { ...book, ...nextBook } : book)),
+    books.map((book) => (book.id === id ? { id: book.id, ...nextBook } : book)),
   );
 }
 

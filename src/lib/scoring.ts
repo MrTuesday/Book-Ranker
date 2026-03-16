@@ -35,44 +35,28 @@ export function tagPreferences(
 }
 
 /**
- * Score a book from its Bayesian rating and user preference signals.
- * myRating is NOT included here — it's used to calibrate the model
- * (e.g. adjusting genre interest weights) rather than as a direct input.
+ * Score a book by blending the predictive score (from public ratings and
+ * user preference signals) with the personal rating weighted by reading
+ * progress.
+ *
+ * - Read portion (progress %) → myRating (personal experience)
+ * - Unread portion (1 − progress %) → predictive score
+ * - No myRating → pure predictive score
+ * - myRating without progress → assume fully read (100%)
  */
 export function scoreBook(
   bayesian: number,
   authorPref: number,
   genrePrefs: number[],
+  myRating?: number,
+  progress?: number,
 ) {
-  return compositeScore(bayesian, authorPref, ...genrePrefs);
-}
+  const predictive = compositeScore(bayesian, authorPref, ...genrePrefs);
 
-/**
- * Build calibrated genre interests by blending stated interests with
- * actual personal ratings. This lets myRating influence all scores
- * indirectly by adjusting the genre interest map.
- */
-export function calibrateGenreInterests(
-  baseInterests: Record<string, number>,
-  books: Array<{ genres: string[]; myRating?: number }>,
-): Record<string, number> {
-  // Collect myRatings per genre
-  const genreRatings: Record<string, number[]> = {};
-  for (const book of books) {
-    if (book.myRating == null) continue;
-    for (const genre of book.genres) {
-      if (!genreRatings[genre]) genreRatings[genre] = [];
-      genreRatings[genre].push(book.myRating);
-    }
+  if (myRating == null) {
+    return predictive;
   }
 
-  // Blend: 60% stated interest + 40% average myRating for that genre
-  const calibrated = { ...baseInterests };
-  for (const [genre, ratings] of Object.entries(genreRatings)) {
-    const avgRating = ratings.reduce((a, b) => a + b, 0) / ratings.length;
-    const stated = baseInterests[genre] ?? 3;
-    calibrated[genre] = stated * 0.6 + avgRating * 0.4;
-  }
-
-  return calibrated;
+  const t = (progress ?? 100) / 100;
+  return t * myRating + (1 - t) * predictive;
 }
