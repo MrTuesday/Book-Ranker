@@ -42,7 +42,7 @@ export function tagPreferences(
  * - Read portion (progress %) → myRating (personal experience)
  * - Unread portion (1 − progress %) → predictive score
  * - No myRating → pure predictive score
- * - myRating without progress → assume fully read (100%)
+ * - myRating without progress → no read portion (0%), pure predictive
  */
 export function scoreBook(
   bayesian: number,
@@ -57,6 +57,6 @@ export function scoreBook(
     return predictive;
   }
 
-  const t = (progress ?? 100) / 100;
+  const t = (progress ?? 0) / 100;
   return t * myRating + (1 - t) * predictive;
 }
