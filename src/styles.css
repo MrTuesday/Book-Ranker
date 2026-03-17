@@ -803,7 +803,7 @@ h3 {
 
 .tag-entry-row .suggestion-field,
 .tag-entry-row > input {
-    width: 140px;
+    width: 176px;
     flex: none;
     min-width: 0;
 }
