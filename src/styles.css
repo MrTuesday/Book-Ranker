@@ -84,7 +84,7 @@ h3 {
 
 .app-layout {
     display: grid;
-    grid-template-columns: 320px 1fr 320px;
+    grid-template-columns: 320px 1fr 244px;
     gap: 0;
     height: 100vh;
 }
