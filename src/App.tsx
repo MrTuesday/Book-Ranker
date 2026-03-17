@@ -25,6 +25,7 @@ import {
   writeGenreInterest,
   writeAuthorExperience,
   renameGenreInBooks,
+  renameGenreInterest,
   renameAuthorInBooks,
 } from "./lib/books-api";
 import {
@@ -2191,7 +2192,25 @@ export default function App() {
               style={{ left: graphEditingNode.screenX, top: graphEditingNode.screenY }}
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="node-edit-label">{graphEditingNode.tag}</div>
+              <input
+                className="node-edit-label"
+                defaultValue={graphEditingNode.tag}
+                onBlur={(e) => {
+                  const newName = e.currentTarget.value.trim();
+                  const oldName = graphEditingNode.tag;
+                  if (newName && newName !== oldName) {
+                    renameGenreInBooks(oldName, newName).then((nextBooks) => {
+                      setBooks(nextBooks);
+                    });
+                    const nextInterests = renameGenreInterest(oldName, newName);
+                    setGenreInterests(nextInterests);
+                    setGraphEditingNode({ ...graphEditingNode, tag: newName });
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                }}
+              />
               <RatingButtons
                 value={genreInterests[graphEditingNode.tag] ?? null}
                 onChange={(level) => {
