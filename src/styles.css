@@ -802,6 +802,11 @@ h3 {
 .tag-entry-group .rating-buttons {
     display: flex;
     gap: 4px;
+    width: 100%;
+}
+
+.tag-entry-group .rating-btn {
+    flex: 1;
 }
 
 .tag-entry-row {
