@@ -790,6 +790,7 @@ h3 {
 }
 
 .tag-entry-group {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -900,7 +901,7 @@ h3 {
 }
 
 .suggestion-field {
-    position: relative;
+    position: static;
     min-width: 0;
 }
 
@@ -912,8 +913,8 @@ h3 {
     display: grid;
     gap: 6px;
     padding: 8px;
-    min-width: 100%;
-    width: max-content;
+    left: 0;
+    right: 0;
     border: 1px solid var(--line);
     border-radius: 16px;
     background: rgba(255, 253, 248, 0.98);
