@@ -1540,7 +1540,6 @@ input:focus {
     gap: 6px;
     max-width: 100%;
     min-width: 0;
-    overflow: hidden;
     padding: 2px 10px;
     border-radius: 999px;
     background: var(--accent-soft);
@@ -1551,6 +1550,7 @@ input:focus {
 }
 
 .genre-tag-name {
+    flex: 1 1 0;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
