@@ -7,6 +7,7 @@ export type Book = {
   ratingCount?: number;
   myRating?: number;
   progress?: number;
+  read?: boolean;
 };
 
 type LegacyBook = Partial<Book> & {
@@ -90,6 +91,8 @@ function normalizeBook(value: unknown): Book | null {
     rawProgress != null && Number.isFinite(Number(rawProgress))
       ? Math.max(0, Math.min(100, Number(rawProgress)))
       : undefined;
+  const rawRead = (book as Record<string, unknown>)?.read;
+  const read = rawRead === true ? true : undefined;
   const authors = normalizeTagList(book?.authors ?? book?.author);
   const genres = normalizeTagList(book?.genres ?? book?.genre);
 
@@ -112,6 +115,7 @@ function normalizeBook(value: unknown): Book | null {
     ...(ratingCount != null ? { ratingCount } : {}),
     ...(myRating != null ? { myRating } : {}),
     ...(progress != null ? { progress } : {}),
+    ...(read != null ? { read } : {}),
   };
 }
 
@@ -163,6 +167,9 @@ function parsePayload(
       ? Math.max(0, Math.min(100, Number(rawProgress)))
       : undefined;
 
+  const rawRead = (value as Record<string, unknown>)?.read;
+  const read = rawRead === true ? true : undefined;
+
   const authors = normalizeTagList(value?.authors ?? value?.author);
   const genres = normalizeTagList(value?.genres ?? value?.genre);
 
@@ -174,6 +181,7 @@ function parsePayload(
     ...(ratingCount != null ? { ratingCount } : {}),
     ...(myRating != null ? { myRating } : {}),
     ...(progress != null ? { progress } : {}),
+    ...(read != null ? { read } : {}),
   };
 }
 

@@ -56,6 +56,7 @@ type BookDraft = {
   genres: string[];
   genreScores: Record<string, string>;
   progress: string;
+  markAsRead: boolean;
 };
 
 type RankedBook = Book & {
@@ -97,6 +98,7 @@ function createDraft(): BookDraft {
     genres: [],
     genreScores: {},
     progress: "",
+    markAsRead: false,
   };
 }
 
@@ -1224,6 +1226,7 @@ export default function App() {
   const [isLoadingRecs, setIsLoadingRecs] = useState(false);
   const [recError, setRecError] = useState<string | null>(null);
   const [listSize, setListSize] = useState(5);
+  const [showArchive, setShowArchive] = useState(false);
   const [addedRecIds] = useState<Set<string>>(new Set());
   const [graphEditMode, setGraphEditMode] = useState(false);
   const [graphAddGenreInput, setGraphAddGenreInput] = useState("");
@@ -1278,6 +1281,7 @@ export default function App() {
 
   const rankedBooks = useMemo<RankedBook[]>(() => {
     return books
+      .filter((book) => !book.read)
       .map((book) => {
         const authorPref = averageTagPreference(book.authors, authorExperiences);
         const genrePref = averageTagPreference(book.genres, genreInterests);
@@ -1301,6 +1305,14 @@ export default function App() {
       })
       .map((book, index) => ({ ...book, rank: index + 1 }));
   }, [books, genreInterests, authorExperiences]);
+
+  const readBooks = useMemo(
+    () =>
+      books
+        .filter((book) => book.read)
+        .sort((a, b) => a.title.localeCompare(b.title)),
+    [books],
+  );
 
   const isEditing = editingBookId !== null;
 
@@ -1801,6 +1813,7 @@ export default function App() {
       genres: [...book.genres],
       genreScores: buildDraftScores(book.genres, genreInterests),
       progress: book.progress != null ? String(book.progress) : "",
+      markAsRead: book.read ?? false,
     });
     setErrorMessage(null);
   }
@@ -1826,6 +1839,7 @@ export default function App() {
         ratingCount: parsedDraftCount,
         genres: draft.genres,
         progress: parsedProgress,
+        ...(draft.markAsRead ? { read: true as const } : {}),
       };
 
       let nextInterests = genreInterests;
@@ -1934,6 +1948,18 @@ export default function App() {
     }
   }
 
+  async function toggleBookRead(id: number, read: boolean) {
+    setErrorMessage(null);
+    try {
+      const book = books.find((b) => b.id === id);
+      if (!book) return;
+      const nextBooks = await updateBookRecord(id, { ...book, read });
+      setBooks(nextBooks);
+    } catch (error) {
+      setErrorMessage(messageFromError(error));
+    }
+  }
+
   // Auto-build reading list when 2+ nodes are selected
   useEffect(() => {
     if (selectedInterestPath.length < 1) {
@@ -2022,6 +2048,7 @@ export default function App() {
       <div className="app-layout">
         {/* ── Left column: reading list ── */}
         <aside className="left-column">
+        {!showArchive ? (
         <section className="board">
           <div className="ranking-list">
             {isLoading ? (
@@ -2079,20 +2106,33 @@ export default function App() {
                       <>
                         <button
                           type="button"
-                          className="link-btn"
-                          onClick={() => startEditing(book)}
-                          disabled={isSaving || isDeleting}
-                        >
-                          {editingBookId === book.id ? "Editing" : "Edit"}
-                        </button>
-                        <span className="action-dot">·</span>
-                        <button
-                          type="button"
-                          className="link-btn link-btn-danger"
+                          className="icon-btn icon-btn-danger"
                           onClick={() => void removeBook(book.id)}
                           disabled={isSaving || isDeleting}
+                          aria-label="Remove"
+                          title="Remove"
                         >
-                          {isDeleting ? "Removing..." : "Remove"}
+                          {"\u2715"}
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          onClick={() => startEditing(book)}
+                          disabled={isSaving || isDeleting}
+                          aria-label="Edit"
+                          title="Edit"
+                        >
+                          {"\u270E"}
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          onClick={() => void toggleBookRead(book.id, true)}
+                          disabled={isSaving || isDeleting}
+                          aria-label="Mark as read"
+                          title="Mark as read"
+                        >
+                          {"\u2713"}
                         </button>
                       </>
                     }
@@ -2102,6 +2142,63 @@ export default function App() {
             )}
           </div>
         </section>
+        ) : (
+            <section className="board archive-list">
+              <div className="ranking-list">
+                {readBooks.length === 0 ? (
+                  <div className="empty-state">No read books yet.</div>
+                ) : (
+                  readBooks.map((book, index) => {
+                    const isDeleting = pendingDeleteId === book.id;
+                    return (
+                      <BookCard
+                        key={book.id}
+                        rank={index + 1}
+                        title={book.title}
+                        authors={book.authors}
+                        score={0}
+                        scoreOverride={"\u2713"}
+                        className="is-read"
+                        actions={
+                          <>
+                            <button
+                              type="button"
+                              className="icon-btn"
+                              onClick={() => void toggleBookRead(book.id, false)}
+                              disabled={isSaving || isDeleting}
+                              aria-label="Mark as unread"
+                              title="Mark as unread"
+                            >
+                              {"\u21A9"}
+                            </button>
+                            <button
+                              type="button"
+                              className="icon-btn icon-btn-danger"
+                              onClick={() => void removeBook(book.id)}
+                              disabled={isSaving || isDeleting}
+                              aria-label="Remove"
+                              title="Remove"
+                            >
+                              {"\u2715"}
+                            </button>
+                          </>
+                        }
+                      />
+                    );
+                  })
+                )}
+              </div>
+            </section>
+          )}
+          <button
+            type="button"
+            className="archive-toggle"
+            onClick={() => setShowArchive((prev) => !prev)}
+          >
+            {showArchive
+              ? "\u2190 Back to list"
+              : <>Archive{readBooks.length > 0 ? ` (${readBooks.length})` : ""} <svg className="archive-icon" viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M1 2h14v3H1zm1 4h12v8H2zm4 2v1h4V8z"/></svg></>}
+          </button>
         </aside>
 
         {/* ── Center column: interest map graph ── */}
@@ -2818,6 +2915,19 @@ export default function App() {
                 disabled={isSaving}
               >
                 {isEditing ? "Cancel" : "Clear"}
+              </button>
+              <button
+                type="button"
+                className={`btn${draft.markAsRead ? " btn-primary" : " btn-tertiary"}`}
+                onClick={() =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    markAsRead: !prev.markAsRead,
+                  }))
+                }
+                title={draft.markAsRead ? "Will be added as read" : "Mark as already read"}
+              >
+                {"\u2713"}
               </button>
               <button
                 type="submit"
