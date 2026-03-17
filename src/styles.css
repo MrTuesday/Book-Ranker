@@ -84,7 +84,7 @@ h3 {
 
 .app-layout {
     display: grid;
-    grid-template-columns: 320px 1fr 244px;
+    grid-template-columns: 320px 1fr 280px;
     gap: 0;
     height: 100vh;
 }
@@ -795,6 +795,18 @@ h3 {
     gap: 6px;
 }
 
+.graph-tag-entry {
+    width: 248px;
+}
+
+.tag-entry-group .rating-buttons {
+    width: calc(100% - 36px);
+}
+
+.tag-entry-group .rating-btn {
+    flex: 1;
+}
+
 .tag-entry-row {
     display: flex;
     gap: 4px;
@@ -803,8 +815,7 @@ h3 {
 
 .tag-entry-row .suggestion-field,
 .tag-entry-row > input {
-    width: 176px;
-    flex: none;
+    flex: 1;
     min-width: 0;
 }
 
