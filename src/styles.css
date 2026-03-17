@@ -239,18 +239,6 @@ h3 {
     border-color: rgba(185, 28, 28, 0.4);
 }
 
-.graph-add-group {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.graph-add-row {
-    display: flex;
-    gap: 4px;
-    align-items: center;
-}
-
 .graph-add-btn {
     width: 32px;
     height: 32px;
@@ -277,35 +265,8 @@ h3 {
     cursor: default;
 }
 
-.rating-buttons.toolbar-rating {
-    width: 140px;
-    justify-content: flex-start;
-}
-
-.toolbar-rating .rating-btn {
-    flex: 1;
-    width: auto;
-}
-
-.toolbar-rating-label {
-    font-size: 0.65rem;
-    color: var(--muted);
-    letter-spacing: 0.02em;
-}
-
-/* ── Add genre input ── */
-
-.graph-add-input {
-    width: 140px;
-    border: 1px solid var(--line);
-    background: var(--card);
-    font-size: 0.75rem;
-    color: var(--fg);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-}
-
-.graph-add-input::placeholder {
-    color: var(--muted);
+.graph-tag-entry {
+    width: 180px;
 }
 
 .right-column {

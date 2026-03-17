@@ -2117,11 +2117,10 @@ export default function App() {
               {graphEditMode ? "\u2715" : "\u270E"}
             </button>
             {graphEditMode ? (
-              <div className="graph-add-group">
-                <div className="graph-add-row">
+              <div className="tag-entry-group graph-tag-entry">
+                <div className="tag-entry-row">
                   <input
                     type="text"
-                    className="graph-add-input"
                     placeholder="Add genre or topic..."
                     value={graphAddGenreInput}
                     onChange={(e) => setGraphAddGenreInput(e.target.value)}
@@ -2160,7 +2159,6 @@ export default function App() {
                 <RatingButtons
                   value={graphAddGenreRating}
                   onChange={setGraphAddGenreRating}
-                  className="toolbar-rating"
                 />
               </div>
             ) : null}
