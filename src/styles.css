@@ -265,8 +265,8 @@ h3 {
     cursor: default;
 }
 
-.graph-tag-entry input {
-    width: 140px;
+.graph-tag-entry {
+    width: 288px;
 }
 
 .right-column {
@@ -811,8 +811,10 @@ h3 {
     min-width: 0;
 }
 
-.tag-entry-row .suggestion-field {
+.tag-entry-row .suggestion-field,
+.tag-entry-row > input {
     flex: 1;
+    min-width: 0;
 }
 
 .draft-tag-list {
