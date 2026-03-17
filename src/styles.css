@@ -265,9 +265,6 @@ h3 {
     cursor: default;
 }
 
-.graph-tag-entry {
-    width: 288px;
-}
 
 .right-column {
     overflow-y: auto;
@@ -802,11 +799,6 @@ h3 {
 .tag-entry-group .rating-buttons {
     display: flex;
     gap: 4px;
-    width: 100%;
-}
-
-.tag-entry-group .rating-btn {
-    flex: 1;
 }
 
 .tag-entry-row {
