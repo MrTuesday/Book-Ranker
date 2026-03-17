@@ -795,7 +795,6 @@ h3 {
     display: grid;
     gap: 8px;
     min-width: 0;
-    overflow: hidden;
 }
 
 .tag-entry-group {
