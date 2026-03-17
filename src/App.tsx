@@ -2841,14 +2841,16 @@ export default function App() {
               </button>
               <button
                 type="button"
-                className={`btn${draft.markAsRead ? " btn-primary" : " btn-tertiary"}`}
-                onClick={() =>
-                  setDraft((prev) => ({
-                    ...prev,
-                    markAsRead: !prev.markAsRead,
-                  }))
-                }
-                title={draft.markAsRead ? "Will be added as read" : "Mark as already read"}
+                className="btn btn-tertiary"
+                disabled={!canSubmit || isSaving}
+                onClick={() => {
+                  setDraft((prev) => ({ ...prev, markAsRead: true }));
+                  setTimeout(() => {
+                    const form = document.querySelector(".entry-form") as HTMLFormElement | null;
+                    if (form) form.requestSubmit();
+                  }, 0);
+                }}
+                title="Add to archive as read"
               >
                 {"\u2713"}
               </button>
