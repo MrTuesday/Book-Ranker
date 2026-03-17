@@ -2226,7 +2226,7 @@ export default function App() {
             >
               {showArchive
                 ? <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M10 2L4 8l6 6V2z"/></svg>
-                : <><svg className="archive-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M1 2h14v3H1zm1 4h12v8H2zm4 2v1h4V8z"/></svg>{readBooks.length > 0 ? <span className="archive-count">{readBooks.length}</span> : null}</>}
+                : <svg className="archive-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M1 2h14v3H1zm1 4h12v8H2zm4 2v1h4V8z"/></svg>}
             </button>
             </div>
           </div>
