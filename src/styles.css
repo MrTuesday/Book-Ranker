@@ -806,6 +806,10 @@ h3 {
     min-width: 0;
 }
 
+.tag-entry-group:focus-within {
+    z-index: 10;
+}
+
 .graph-tag-entry {
     width: 248px;
 }
