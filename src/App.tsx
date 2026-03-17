@@ -2178,18 +2178,19 @@ export default function App() {
                           />
                         }
                         stars={
-                          book.myRating != null ? (
-                            <span className="my-rating-stars">
-                              {[1, 2, 3, 4, 5].map((star) => (
-                                <span
-                                  key={star}
-                                  className={`my-rating-star${star <= book.myRating! ? " is-filled" : ""}`}
-                                >
-                                  {star <= book.myRating! ? "\u2605" : "\u2606"}
-                                </span>
-                              ))}
-                            </span>
-                          ) : null
+                          <span className="my-rating-stars">
+                            {[1, 2, 3, 4, 5].map((star) => (
+                              <button
+                                key={star}
+                                type="button"
+                                className={`my-rating-star${book.myRating != null && star <= book.myRating ? " is-filled" : ""}`}
+                                onClick={() => void updateMyRating(book.id, star)}
+                                aria-label={`Rate ${star} out of 5`}
+                              >
+                                {book.myRating != null && star <= book.myRating ? "\u2605" : "\u2606"}
+                              </button>
+                            ))}
+                          </span>
                         }
                         actions={
                           <>
