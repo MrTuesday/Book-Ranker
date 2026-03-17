@@ -2544,7 +2544,7 @@ export default function App() {
                     >
                       <input
                         type="text"
-                        placeholder="Historical Fiction"
+                        placeholder="Fictive Memoir"
                         value={draft.genreInput}
                         autoComplete="off"
                         aria-expanded={showGenreSuggestions}
