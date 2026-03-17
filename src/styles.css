@@ -265,8 +265,8 @@ h3 {
     cursor: default;
 }
 
-.graph-tag-entry {
-    width: 288px;
+.graph-tag-entry input {
+    width: 140px;
 }
 
 .right-column {
@@ -802,12 +802,6 @@ h3 {
 .tag-entry-group .rating-buttons {
     display: flex;
     gap: 4px;
-    width: calc(100% - 36px);
-}
-
-.tag-entry-group .rating-btn {
-    flex: 1;
-    width: auto;
 }
 
 .tag-entry-row {
