@@ -803,6 +803,8 @@ h3 {
     display: flex;
     flex-direction: column;
     gap: 6px;
+    overflow: hidden;
+    min-width: 0;
 }
 
 .graph-tag-entry {
@@ -835,6 +837,8 @@ h3 {
     gap: 6px;
     min-height: 28px;
     border-radius: 14px;
+    overflow: hidden;
+    min-width: 0;
 }
 
 .draft-tag-list.is-drag-active {
