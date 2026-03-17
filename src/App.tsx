@@ -2165,6 +2165,20 @@ export default function App() {
                         score={0}
                         scoreOverride={"\u2713"}
                         className="is-read"
+                        stars={
+                          book.myRating != null ? (
+                            <span className="my-rating-stars">
+                              {[1, 2, 3, 4, 5].map((star) => (
+                                <span
+                                  key={star}
+                                  className={`my-rating-star${star <= book.myRating! ? " is-filled" : ""}`}
+                                >
+                                  {star <= book.myRating! ? "\u2605" : "\u2606"}
+                                </span>
+                              ))}
+                            </span>
+                          ) : null
+                        }
                         actions={
                           <>
                             <button
