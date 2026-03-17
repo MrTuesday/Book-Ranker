@@ -2824,7 +2824,7 @@ export default function App() {
                 className="btn btn-primary"
                 disabled={!canSubmit}
               >
-                {isSaving ? "Saving..." : isEditing ? "Update" : "Add book"}
+                {isSaving ? "Saving..." : isEditing ? "Update" : "Add"}
               </button>
             </div>
           </form>
