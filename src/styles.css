@@ -1240,29 +1240,110 @@ input:focus {
     cursor: not-allowed;
 }
 
+.column-footer {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-top: 1px solid var(--line);
+    background: var(--surface);
+}
+
+.profile-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.profile-avatar {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.profile-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.profile-name {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--fg);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.profile-plan {
+    font-size: 0.7rem;
+    color: var(--muted);
+}
+
 .archive-toggle {
     flex-shrink: 0;
     display: flex;
     align-items: center;
-    gap: 6px;
-    width: 100%;
-    padding: 10px 16px;
-    border: 0;
-    border-top: 1px solid var(--line);
+    justify-content: center;
+    gap: 4px;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 8px;
     background: var(--surface);
     color: var(--muted);
-    font-size: 0.82rem;
-    text-align: left;
     cursor: pointer;
-    transition: color 160ms ease;
+    transition: color 160ms ease, border-color 160ms ease;
+}
+
+.archive-toggle svg {
+    width: 18px;
+    height: 18px;
 }
 
 .archive-icon {
     flex-shrink: 0;
 }
 
+.archive-count {
+    font-size: 0.7rem;
+    font-weight: 600;
+    min-width: 16px;
+    height: 16px;
+    line-height: 16px;
+    text-align: center;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #fff;
+}
+
+.footer-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
 .archive-toggle:hover {
     color: var(--accent);
+    border-color: var(--accent);
+}
+
+.archive-toggle.icon-btn-danger:hover {
+    color: #a64b2a;
+    border-color: #a64b2a;
 }
 
 .mark-read-label {

@@ -1948,6 +1948,23 @@ export default function App() {
     }
   }
 
+  async function clearDisplayedList() {
+    setErrorMessage(null);
+    const targets = showArchive ? readBooks : rankedBooks;
+    try {
+      for (const book of targets) {
+        await deleteBookRecord(book.id);
+      }
+      const nextBooks = await fetchBooks();
+      setBooks(nextBooks);
+      if (editingBookId != null && targets.some((b) => b.id === editingBookId)) {
+        resetDraft();
+      }
+    } catch (error) {
+      setErrorMessage(messageFromError(error));
+    }
+  }
+
   async function toggleBookRead(id: number, read: boolean) {
     setErrorMessage(null);
     try {
@@ -2190,15 +2207,40 @@ export default function App() {
               </div>
             </section>
           )}
-          <button
-            type="button"
-            className="archive-toggle"
-            onClick={() => setShowArchive((prev) => !prev)}
-          >
-            {showArchive
-              ? "\u2190 Back to list"
-              : <>Archive{readBooks.length > 0 ? ` (${readBooks.length})` : ""} <svg className="archive-icon" viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M1 2h14v3H1zm1 4h12v8H2zm4 2v1h4V8z"/></svg></>}
-          </button>
+          <div className="column-footer">
+            <div className="profile-info">
+              <div className="profile-avatar">DL</div>
+              <div className="profile-text">
+                <span className="profile-name">Dan L.</span>
+                <span className="profile-plan">Free plan</span>
+              </div>
+            </div>
+            <div className="footer-actions">
+            <button
+              type="button"
+              className="archive-toggle icon-btn-danger"
+              onClick={() => {
+                const count = showArchive ? readBooks.length : rankedBooks.length;
+                if (count > 0 && window.confirm(`Delete all ${count} ${showArchive ? "archived" : "ranked"} books?`)) {
+                  void clearDisplayedList();
+                }
+              }}
+              title={showArchive ? "Delete all archived books" : "Delete all ranked books"}
+            >
+              <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M5 2V1h6v1h4v2H1V2h4zm1 4h1v7H6V6zm3 0h1v7H9V6zM2 5h12l-1 10H3L2 5z"/></svg>
+            </button>
+            <button
+              type="button"
+              className="archive-toggle"
+              onClick={() => setShowArchive((prev) => !prev)}
+              title={showArchive ? "Back to list" : "Archive"}
+            >
+              {showArchive
+                ? <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M10 2L4 8l6 6V2z"/></svg>
+                : <><svg className="archive-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M1 2h14v3H1zm1 4h12v8H2zm4 2v1h4V8z"/></svg>{readBooks.length > 0 ? <span className="archive-count">{readBooks.length}</span> : null}</>}
+            </button>
+            </div>
+          </div>
         </aside>
 
         {/* ── Center column: interest map graph ── */}
