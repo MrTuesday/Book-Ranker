@@ -47,11 +47,11 @@ export function tagPreferences(
 export function scoreBook(
   bayesian: number,
   authorPref: number,
-  genrePrefs: number[],
+  genrePref: number,
   myRating?: number,
   progress?: number,
 ) {
-  const predictive = compositeScore(bayesian, authorPref, ...genrePrefs);
+  const predictive = compositeScore(bayesian, authorPref, genrePref);
 
   if (myRating == null) {
     return predictive;

@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   createBookRecord,
   deleteAuthorExperience,
@@ -31,7 +32,6 @@ import {
   SMOOTHING_FACTOR,
   bayesianScore,
   averageTagPreference,
-  tagPreferences,
   scoreBook,
 } from "./lib/scoring";
 import {
@@ -292,7 +292,7 @@ function RatingButtons({
   className,
 }: {
   value: number | null;
-  onChange: (level: number) => void;
+  onChange: (level: number | null) => void;
   className?: string;
 }) {
   return (
@@ -302,7 +302,7 @@ function RatingButtons({
           key={level}
           type="button"
           className={`rating-btn${level === value ? " is-active" : ""}`}
-          onClick={() => onChange(level)}
+          onClick={() => onChange(level === value ? null : level)}
         >
           {level}
         </button>
@@ -320,6 +320,8 @@ function InterestMap({
   editMode = false,
   onUpdateInterest,
   onDeleteInterest,
+  editingNode,
+  onEditingNodeChange,
 }: {
   books: Book[];
   interests: GenreInterestMap;
@@ -329,6 +331,8 @@ function InterestMap({
   editMode?: boolean;
   onUpdateInterest?: (genre: string, interest: number) => void;
   onDeleteInterest?: (genre: string) => void;
+  editingNode?: { tag: string; screenX: number; screenY: number } | null;
+  onEditingNodeChange?: (node: { tag: string; screenX: number; screenY: number } | null) => void;
 }) {
   const data = useMemo(() => {
     const tagCounts = new Map<string, number>();
@@ -684,7 +688,7 @@ function InterestMap({
   const wasDraggedRef = useRef(false);
   const svgRef = useRef<SVGSVGElement>(null);
   const [, setTick] = useState(0);
-  const [editingNode, setEditingNode] = useState<{ tag: string; screenX: number; screenY: number } | null>(null);
+  const setEditingNode = onEditingNodeChange ?? (() => {});
 
   // Close popover when leaving edit mode
   useEffect(() => {
@@ -987,12 +991,10 @@ function InterestMap({
       const ctm = svg.getScreenCTM();
       if (!ctm) return;
       const screenPoint = point.matrixTransform(ctm);
-      const plotRect = svg.parentElement?.getBoundingClientRect();
-      if (!plotRect) return;
       setEditingNode({
         tag,
-        screenX: screenPoint.x - plotRect.left,
-        screenY: screenPoint.y - plotRect.top,
+        screenX: screenPoint.x,
+        screenY: screenPoint.y,
       });
       return;
     }
@@ -1184,32 +1186,6 @@ function InterestMap({
             </g>
           ))}
         </svg>
-        {editMode && editingNode ? (() => {
-          const currentInterest = interests[editingNode.tag] ?? 3;
-          return (
-            <div
-              className="node-edit-popover"
-              style={{ left: editingNode.screenX, top: editingNode.screenY }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="node-edit-label">{editingNode.tag}</div>
-              <RatingButtons
-                value={currentInterest}
-                onChange={(level) => onUpdateInterest?.(editingNode.tag, level)}
-              />
-              <button
-                type="button"
-                className="node-edit-delete"
-                onClick={() => {
-                  onDeleteInterest?.(editingNode.tag);
-                  setEditingNode(null);
-                }}
-              >
-                Remove
-              </button>
-            </div>
-          );
-        })() : null}
       </div>
       {!compact ? (
         <p className="interest-map-note">
@@ -1257,6 +1233,7 @@ export default function App() {
   const [graphEditMode, setGraphEditMode] = useState(false);
   const [graphAddGenreInput, setGraphAddGenreInput] = useState("");
   const [graphAddGenreRating, setGraphAddGenreRating] = useState<number | null>(null);
+  const [graphEditingNode, setGraphEditingNode] = useState<{ tag: string; screenX: number; screenY: number } | null>(null);
 
   useEffect(() => {
     let isActive = true;
@@ -1308,13 +1285,13 @@ export default function App() {
     return books
       .map((book) => {
         const authorPref = averageTagPreference(book.authors, authorExperiences);
-        const genrePrefs = tagPreferences(book.genres, genreInterests);
+        const genrePref = averageTagPreference(book.genres, genreInterests);
         const R = book.starRating ?? GLOBAL_MEAN;
         const v = book.ratingCount ?? 0;
         const bScore = bayesianScore(R, v, GLOBAL_MEAN, SMOOTHING_FACTOR);
         return {
           ...book,
-          score: scoreBook(bScore, authorPref, genrePrefs, book.myRating, book.progress),
+          score: scoreBook(bScore, authorPref, genrePref, book.myRating, book.progress),
           rank: 0,
         };
       })
@@ -2204,8 +2181,37 @@ export default function App() {
               setGenreInterests(next);
             }}
             onDeleteInterest={(genre) => void removeGlobalTag("genre", genre)}
+            editingNode={graphEditingNode}
+            onEditingNodeChange={setGraphEditingNode}
           />
         </section>
+          {graphEditMode && graphEditingNode ? createPortal(
+            <div
+              className="node-edit-popover"
+              style={{ left: graphEditingNode.screenX, top: graphEditingNode.screenY }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="node-edit-label">{graphEditingNode.tag}</div>
+              <RatingButtons
+                value={genreInterests[graphEditingNode.tag] ?? null}
+                onChange={(level) => {
+                  const next = writeGenreInterest(graphEditingNode.tag, level ?? 3);
+                  setGenreInterests(next);
+                }}
+              />
+              <button
+                type="button"
+                className="node-edit-delete"
+                onClick={() => {
+                  void removeGlobalTag("genre", graphEditingNode.tag);
+                  setGraphEditingNode(null);
+                }}
+              >
+                Remove
+              </button>
+            </div>,
+            document.body,
+          ) : null}
 
         {/* ── Right column: reading list builder + add book ── */}
         <aside className="right-column">
@@ -2374,7 +2380,7 @@ export default function App() {
                         : null
                     }
                     onChange={(level) =>
-                      updateDraft("authorExperience", String(level))
+                      updateDraft("authorExperience", level ? String(level) : "")
                     }
                   />
                 </div>
@@ -2615,7 +2621,7 @@ export default function App() {
                         : null
                     }
                     onChange={(level) =>
-                      updateDraft("genreInterest", String(level))
+                      updateDraft("genreInterest", level ? String(level) : "")
                     }
                   />
                 </div>
