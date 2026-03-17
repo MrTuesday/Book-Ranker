@@ -2165,6 +2165,14 @@ export default function App() {
                         score={0}
                         scoreOverride={"\u2713"}
                         className="is-read"
+                        progressBar={
+                          <ProgressBar
+                            value={book.progress ?? 0}
+                            onChange={(pct) =>
+                              void updateProgress(book.id, pct === 0 ? undefined : pct)
+                            }
+                          />
+                        }
                         stars={
                           book.myRating != null ? (
                             <span className="my-rating-stars">
@@ -2183,16 +2191,6 @@ export default function App() {
                           <>
                             <button
                               type="button"
-                              className="icon-btn"
-                              onClick={() => void toggleBookRead(book.id, false)}
-                              disabled={isSaving || isDeleting}
-                              aria-label="Mark as unread"
-                              title="Mark as unread"
-                            >
-                              {"\u21A9"}
-                            </button>
-                            <button
-                              type="button"
                               className="icon-btn icon-btn-danger"
                               onClick={() => void removeBook(book.id)}
                               disabled={isSaving || isDeleting}
@@ -2200,6 +2198,26 @@ export default function App() {
                               title="Remove"
                             >
                               {"\u2715"}
+                            </button>
+                            <button
+                              type="button"
+                              className="icon-btn"
+                              onClick={() => startEditing(book)}
+                              disabled={isSaving || isDeleting}
+                              aria-label="Edit"
+                              title="Edit"
+                            >
+                              {"\u270E"}
+                            </button>
+                            <button
+                              type="button"
+                              className="icon-btn"
+                              onClick={() => void toggleBookRead(book.id, false)}
+                              disabled={isSaving || isDeleting}
+                              aria-label="Move back to list"
+                              title="Move back to list"
+                            >
+                              {"\u21A9"}
                             </button>
                           </>
                         }
