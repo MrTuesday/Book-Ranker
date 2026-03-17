@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   createBookRecord,
   deleteAuthorExperience,
@@ -24,11 +25,21 @@ import {
   writeGenreInterest,
   writeAuthorExperience,
   renameGenreInBooks,
+  renameGenreInterest,
   renameAuthorInBooks,
-  readUserLinks,
-  writeUserLinks,
-  type UserLink,
 } from "./lib/books-api";
+import {
+  GLOBAL_MEAN,
+  SMOOTHING_FACTOR,
+  bayesianScore,
+  averageTagPreference,
+  scoreBook,
+} from "./lib/scoring";
+import {
+  requestPathRecommendation,
+  type PathRecommendationResponse,
+} from "./lib/recommend-api";
+import { BookCard } from "./components/BookCard";
 
 type BookDraft = {
   title: string;
@@ -44,6 +55,7 @@ type BookDraft = {
   genreInput: string;
   genres: string[];
   genreScores: Record<string, string>;
+  progress: string;
 };
 
 type RankedBook = Book & {
@@ -56,11 +68,6 @@ type DraftTagDrag = {
   field: SuggestionField;
   tag: string;
 };
-type BookTagDrag = {
-  bookId: number;
-  field: SuggestionField;
-  tag: string;
-};
 type TagActionScope = "draft" | "book";
 type DraftTextField =
   | "title"
@@ -69,10 +76,9 @@ type DraftTextField =
   | "authorInput"
   | "authorExperience"
   | "genreInput"
-  | "genreInterest";
+  | "genreInterest"
+  | "progress";
 
-const GLOBAL_MEAN = 3.8;
-const SMOOTHING_FACTOR = 500;
 const MAX_SUGGESTIONS = 6;
 
 function createDraft(): BookDraft {
@@ -90,6 +96,7 @@ function createDraft(): BookDraft {
     genreInput: "",
     genres: [],
     genreScores: {},
+    progress: "",
   };
 }
 
@@ -140,23 +147,6 @@ function resolvedSuggestion(
   return exactMatch ?? (suggestions.length === 1 ? suggestions[0] : null);
 }
 
-function averageTagPreference(tags: string[], scores: Record<string, number>) {
-  if (tags.length === 0) {
-    return 3;
-  }
-
-  return (
-    tags.reduce((total, tag) => total + (scores[tag] ?? 3), 0) / tags.length
-  );
-}
-
-function tagPreferences(tags: string[], scores: Record<string, number>) {
-  if (tags.length === 0) {
-    return [3];
-  }
-
-  return tags.map((tag) => scores[tag] ?? 3);
-}
 
 function buildDraftScores(tags: string[], scores: Record<string, number>) {
   return Object.fromEntries(
@@ -219,30 +209,9 @@ function moveTagToEnd(tags: string[], draggedTag: string) {
   return next;
 }
 
-function bayesianScore(R: number, v: number, C: number, m: number) {
-  return (v / (v + m)) * R + (m / (v + m)) * C;
-}
 
-function compositeScore(bayesian: number, ...inputs: number[]) {
-  const values = [bayesian, ...inputs];
-  return values.reduce((a, b) => a + b, 0) / values.length;
-}
 
-function formatScore(value: number, places = 2) {
-  return value.toFixed(places);
-}
 
-function formatMainResult(value: number) {
-  return `${Math.round(Math.max(0, Math.min(100, (value / 5) * 100)))}%`;
-}
-
-function formatCount(value: number) {
-  return new Intl.NumberFormat("en-US").format(Number(value.toPrecision(2)));
-}
-
-function clampPercentage(value: number) {
-  return Math.max(0, Math.min(100, value));
-}
 
 function messageFromError(error: unknown) {
   if (error instanceof Error && error.message) {
@@ -267,22 +236,98 @@ function hashTag(value: string) {
   return hash >>> 0;
 }
 
+function ProgressBar({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (pct: number) => void;
+}) {
+  return (
+    <div
+      className="reading-progress"
+      role="slider"
+      aria-label="Reading progress"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={value}
+      tabIndex={0}
+      onClick={(e) => {
+        const track = e.currentTarget.querySelector(".reading-progress-track");
+        if (!track) return;
+        const rect = track.getBoundingClientRect();
+        const raw = Math.max(
+          0,
+          Math.min(100, ((e.clientX - rect.left) / rect.width) * 100),
+        );
+        const pct =
+          raw >= 95 ? 100 : raw <= 5 ? 0 : Math.round(raw / 10) * 10;
+        onChange(pct);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowRight" || e.key === "ArrowUp") {
+          e.preventDefault();
+          onChange(Math.min(100, value + 10));
+        } else if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
+          e.preventDefault();
+          onChange(Math.max(0, value - 10));
+        }
+      }}
+    >
+      <div className="reading-progress-track">
+        <div
+          className="reading-progress-fill"
+          style={{ width: `${value}%` }}
+        />
+      </div>
+      {value > 0 && (
+        <span className="reading-progress-label">{value}%</span>
+      )}
+    </div>
+  );
+}
+
+function RatingButtons({
+  value,
+  onChange,
+  className,
+}: {
+  value: number | null;
+  onChange: (level: number | null) => void;
+  className?: string;
+}) {
+  return (
+    <div className={`rating-buttons${className ? ` ${className}` : ""}`}>
+      {[1, 2, 3, 4, 5].map((level) => (
+        <button
+          key={level}
+          type="button"
+          className={`rating-btn${level === value ? " is-active" : ""}`}
+          onClick={() => onChange(level === value ? null : level)}
+        >
+          {level}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function InterestMap({
   books,
   interests,
   compact = false,
   selectedPath = [],
   onSelectTag,
-  expansion = 0,
-  userLinks = [],
+  editMode = false,
+  onEditingNodeChange,
 }: {
   books: Book[];
   interests: GenreInterestMap;
   compact?: boolean;
   selectedPath?: string[];
   onSelectTag?: (tag: string) => void;
-  expansion?: number; // 0 = default, 1 = fully expanded
-  userLinks?: UserLink[];
+  editMode?: boolean;
+  onEditingNodeChange?: (node: { tag: string; screenX: number; screenY: number } | null) => void;
 }) {
   const data = useMemo(() => {
     const tagCounts = new Map<string, number>();
@@ -307,6 +352,26 @@ function InterestMap({
           const key = `${left}\u0000${right}`;
           pairCounts.set(key, (pairCounts.get(key) ?? 0) + 1);
         }
+      }
+    }
+
+    // Default genre nodes shown when user has no books yet
+    const defaultGenres = [
+      "Science Fiction", "Fantasy", "Literary Fiction", "Mystery",
+      "Historical Fiction", "Romance", "Thriller", "Horror",
+      "Non-Fiction", "Philosophy", "Biography", "Self-Help",
+    ];
+
+    if (tagCounts.size === 0) {
+      for (const genre of defaultGenres) {
+        tagCounts.set(genre, 0);
+      }
+    }
+
+    // Include genres from interest map that aren't on any book yet
+    for (const genre of Object.keys(interests)) {
+      if (!tagCounts.has(genre)) {
+        tagCounts.set(genre, 0);
       }
     }
 
@@ -410,7 +475,6 @@ function InterestMap({
     const positionedNodes = rankedNodes.map((node, index) => {
       const seed = hashTag(node.tag);
       const radius = 6 + (node.count / maxNodeCount) * 6;
-      const fillOpacity = 0.12 + (node.interest / 5) * 0.26;
       let x = centerX;
       let y = centerY;
 
@@ -442,7 +506,6 @@ function InterestMap({
         vx: 0,
         vy: 0,
         radius,
-        fillOpacity,
       };
     });
 
@@ -608,7 +671,6 @@ function InterestMap({
       vx: number;
       vy: number;
       radius: number;
-      fillOpacity: number;
     }>
   >([]);
   const dragRef = useRef<{
@@ -621,6 +683,14 @@ function InterestMap({
   const wasDraggedRef = useRef(false);
   const svgRef = useRef<SVGSVGElement>(null);
   const [, setTick] = useState(0);
+  const setEditingNode = onEditingNodeChange ?? (() => {});
+
+  // Close popover when leaving edit mode
+  useEffect(() => {
+    if (!editMode) {
+      setEditingNode(null);
+    }
+  }, [editMode]);
 
   // Initialize simulation from layout
   useEffect(() => {
@@ -824,6 +894,9 @@ function InterestMap({
       event.stopPropagation();
       wasDraggedRef.current = false;
     }
+    if (editMode) {
+      setEditingNode(null);
+    }
   }
 
   if (!initialLayout) {
@@ -868,10 +941,7 @@ function InterestMap({
     return { ...node, index, labelX, labelY, labelAnchor };
   });
 
-  const validUserLinks = userLinks.filter(
-    ([a, b]) => nodeMap.has(a) && nodeMap.has(b),
-  );
-  const hasLinks = data.links.length > 0 || validUserLinks.length > 0;
+  const hasLinks = data.links.length > 0;
   const interestLabel =
     data.nodes.length === 1 ? "1 interest" : `${data.nodes.length} interests`;
   const connectionLabel =
@@ -904,6 +974,26 @@ function InterestMap({
       return;
     }
 
+    if (editMode) {
+      // Convert SVG coordinates to screen coordinates for popover positioning
+      const svg = svgRef.current;
+      if (!svg) return;
+      const node = simRef.current.find((n) => n.tag === tag);
+      if (!node) return;
+      const point = svg.createSVGPoint();
+      point.x = node.x;
+      point.y = node.y;
+      const ctm = svg.getScreenCTM();
+      if (!ctm) return;
+      const screenPoint = point.matrixTransform(ctm);
+      setEditingNode({
+        tag,
+        screenX: screenPoint.x,
+        screenY: screenPoint.y,
+      });
+      return;
+    }
+
     onSelectTag?.(tag);
   }
 
@@ -920,15 +1010,7 @@ function InterestMap({
           ref={svgRef}
           className={`interest-map-chart${dragRef.current ? " is-dragging" : ""}`}
           preserveAspectRatio="xMidYMid slice"
-          viewBox={(() => {
-            // Subtle zoom as graph is revealed — graph is already full-size
-            const zoomFactor = 1 - expansion * 0.15; // 1.0 → 0.85
-            const w = initialLayout.width * zoomFactor;
-            const h = initialLayout.height * zoomFactor;
-            const x = (initialLayout.width - w) / 2;
-            const y = (initialLayout.height - h) / 2;
-            return `${x} ${y} ${w} ${h}`;
-          })()}
+          viewBox={`0 0 ${initialLayout.width} ${initialLayout.height}`}
           aria-label="Interest graph showing how genre and topic tags connect across your books"
           onClick={!compact ? handleSvgClick : undefined}
         >
@@ -1000,44 +1082,38 @@ function InterestMap({
               />
             );
           })}
-          {validUserLinks.map(([a, b]) => {
-            const source = nodeMap.get(a);
-            const target = nodeMap.get(b);
+          {/* Selection web: connect all selected path nodes */}
+          {selectedPath.length >= 2 &&
+            selectedPath.flatMap((a, i) =>
+              selectedPath.slice(i + 1).map((b) => {
+                const source = nodeMap.get(a);
+                const target = nodeMap.get(b);
+                if (!source || !target) return null;
 
-            if (!source || !target) {
-              return null;
-            }
+                const dx = target.x - source.x;
+                const dy = target.y - source.y;
+                const distance = Math.max(1, Math.hypot(dx, dy));
+                const unitX = dx / distance;
+                const unitY = dy / distance;
+                const startX = source.x + unitX * (source.radius + 1);
+                const startY = source.y + unitY * (source.radius + 1);
+                const endX = target.x - unitX * (target.radius + 1);
+                const endY = target.y - unitY * (target.radius + 1);
 
-            const dx = target.x - source.x;
-            const dy = target.y - source.y;
-            const distance = Math.max(1, Math.hypot(dx, dy));
-            const unitX = dx / distance;
-            const unitY = dy / distance;
-            const startX = source.x + unitX * (source.radius + 1);
-            const startY = source.y + unitY * (source.radius + 1);
-            const endX = target.x - unitX * (target.radius + 1);
-            const endY = target.y - unitY * (target.radius + 1);
-            const isHighlighted =
-              selectedPathSet.has(a) && selectedPathSet.has(b);
-
-            return (
-              <line
-                key={`user-link:${a}:${b}`}
-                x1={startX}
-                y1={startY}
-                x2={endX}
-                y2={endY}
-                stroke={
-                  isHighlighted
-                    ? "rgba(59, 130, 246, 0.8)"
-                    : "rgba(59, 130, 246, 0.4)"
-                }
-                strokeWidth={isHighlighted ? 2.2 : 1.5}
-                strokeDasharray="6 4"
-                strokeLinecap="round"
-              />
-            );
-          })}
+                return (
+                  <line
+                    key={`selection-web:${a}:${b}`}
+                    x1={startX}
+                    y1={startY}
+                    x2={endX}
+                    y2={endY}
+                    stroke="rgba(180, 83, 9, 0.6)"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                );
+              }),
+            )}
           {renderNodes.map((node) => (
             <g
               key={node.tag}
@@ -1063,20 +1139,35 @@ function InterestMap({
                 <circle
                   cx={node.x}
                   cy={node.y}
-                  r={node.radius + 4}
-                  fill="rgba(180, 83, 9, 0.08)"
-                  stroke="rgba(180, 83, 9, 0.62)"
-                  strokeWidth="1.4"
+                  r={node.radius + 5}
+                  fill="rgba(180, 83, 9, 0.12)"
+                  stroke="rgba(180, 83, 9, 0.7)"
+                  strokeWidth="2"
                 />
               ) : null}
               <circle
                 cx={node.x}
                 cy={node.y}
                 r={node.radius}
-                fill={`rgba(180, 83, 9, ${node.fillOpacity})`}
-                stroke="rgba(180, 83, 9, 0.24)"
+                fill={selectedPathSet.has(node.tag) ? "rgba(180, 83, 9, 0.85)" : "rgba(180, 83, 9, 0.55)"}
+                stroke="rgba(180, 83, 9, 0.3)"
                 strokeWidth="1"
               />
+              {node.count > 0 ? (
+                <text
+                  className="interest-map-score"
+                  x={node.x}
+                  y={node.y}
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  fontSize={Math.max(9, node.radius * 0.7)}
+                  fill="white"
+                  fontWeight="600"
+                  pointerEvents="none"
+                >
+                  {node.interest}
+                </text>
+              ) : null}
               {!compact ? (
                 <text
                   className="interest-map-label"
@@ -1084,7 +1175,7 @@ function InterestMap({
                   y={node.labelY}
                   textAnchor={node.labelAnchor}
                 >
-                  {shortenLabel(node.tag)}
+                  {editMode ? `\u270E ${shortenLabel(node.tag)}` : shortenLabel(node.tag)}
                 </text>
               ) : null}
             </g>
@@ -1121,12 +1212,6 @@ export default function App() {
     field: SuggestionField;
     tag: string | null;
   } | null>(null);
-  const [bookTagDrag, setBookTagDrag] = useState<BookTagDrag | null>(null);
-  const [bookTagDropTarget, setBookTagDropTarget] = useState<{
-    bookId: number;
-    field: SuggestionField;
-    tag: string | null;
-  } | null>(null);
   const [selectedInterestPath, setSelectedInterestPath] = useState<string[]>(
     [],
   );
@@ -1134,7 +1219,16 @@ export default function App() {
   const [genreInterests, setGenreInterests] = useState<GenreInterestMap>({});
   const [authorExperiences, setAuthorExperiences] =
     useState<AuthorExperienceMap>({});
-  const [userLinks, setUserLinks] = useState<UserLink[]>([]);
+  const [recommendations, setRecommendations] =
+    useState<PathRecommendationResponse | null>(null);
+  const [isLoadingRecs, setIsLoadingRecs] = useState(false);
+  const [recError, setRecError] = useState<string | null>(null);
+  const [listSize, setListSize] = useState(5);
+  const [addedRecIds] = useState<Set<string>>(new Set());
+  const [graphEditMode, setGraphEditMode] = useState(false);
+  const [graphAddGenreInput, setGraphAddGenreInput] = useState("");
+  const [graphAddGenreRating, setGraphAddGenreRating] = useState<number | null>(null);
+  const [graphEditingNode, setGraphEditingNode] = useState<{ tag: string; screenX: number; screenY: number } | null>(null);
 
   useEffect(() => {
     let isActive = true;
@@ -1147,13 +1241,10 @@ export default function App() {
         const savedBooks = await fetchBooks();
         const savedGenreInterests = readGenreInterests();
         const savedAuthorExperiences = readAuthorExperiences();
-        const savedUserLinks = readUserLinks();
-
         if (isActive) {
           setBooks(savedBooks);
           setGenreInterests(savedGenreInterests);
           setAuthorExperiences(savedAuthorExperiences);
-          setUserLinks(savedUserLinks);
         }
       } catch (error) {
         if (isActive) {
@@ -1185,102 +1276,17 @@ export default function App() {
     });
   }
 
-  function linkSelectedNodes() {
-    if (selectedInterestPath.length < 2) return;
-
-    const existingKeys = new Set(
-      userLinks.map(([a, b]) => {
-        const sorted = a < b ? [a, b] : [b, a];
-        return `${sorted[0]}\0${sorted[1]}`;
-      }),
-    );
-
-    const newLinks: UserLink[] = [];
-    for (let i = 0; i < selectedInterestPath.length; i++) {
-      for (let j = i + 1; j < selectedInterestPath.length; j++) {
-        const a = selectedInterestPath[i];
-        const b = selectedInterestPath[j];
-        const sorted: UserLink = a < b ? [a, b] : [b, a];
-        const key = `${sorted[0]}\0${sorted[1]}`;
-        if (!existingKeys.has(key)) {
-          newLinks.push(sorted);
-          existingKeys.add(key);
-        }
-      }
-    }
-
-    if (newLinks.length > 0) {
-      const updated = writeUserLinks([...userLinks, ...newLinks]);
-      setUserLinks(updated);
-    }
-    setSelectedInterestPath([]);
-  }
-
-  function unlinkSelectedNodes() {
-    if (selectedInterestPath.length < 2) return;
-
-    const selectedSet = new Set(selectedInterestPath);
-    const filtered = userLinks.filter(
-      ([a, b]) => !(selectedSet.has(a) && selectedSet.has(b)),
-    );
-
-    const updated = writeUserLinks(filtered);
-    setUserLinks(updated);
-    setSelectedInterestPath([]);
-  }
-
-  const selectedHaveUserLink = useMemo(() => {
-    if (selectedInterestPath.length < 2) return false;
-    const selectedSet = new Set(selectedInterestPath);
-    return userLinks.some(
-      ([a, b]) => selectedSet.has(a) && selectedSet.has(b),
-    );
-  }, [selectedInterestPath, userLinks]);
-
-  const hasInterestMap = useMemo(
-    () => books.some((book) => uniqueTags(book.genres).length > 0),
-    [books],
-  );
-
-  /* ── scroll-driven graph expansion ── */
-  const [graphExpansion, setGraphExpansion] = useState(0);
-  useEffect(() => {
-    if (!hasInterestMap) return;
-
-    // Auto-scroll so only a strip of graph peeks out (iceberg effect)
-    const timer = setTimeout(() => {
-      window.scrollTo({ top: window.innerHeight * 0.85, behavior: "instant" as ScrollBehavior });
-    }, 200);
-
-    function onScroll() {
-      const threshold = window.innerHeight * 0.85;
-      const scrollY = window.scrollY ?? window.pageYOffset;
-      const t = 1 - Math.min(1, scrollY / threshold); // 1 at top, 0 when scrolled down
-      setGraphExpansion(t);
-    }
-
-    window.addEventListener("scroll", onScroll, { passive: true });
-    onScroll();
-
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener("scroll", onScroll);
-    };
-  }, [hasInterestMap]);
-
   const rankedBooks = useMemo<RankedBook[]>(() => {
     return books
       .map((book) => {
-        const preferences = [
-          averageTagPreference(book.authors, authorExperiences),
-          ...tagPreferences(book.genres, genreInterests),
-        ];
+        const authorPref = averageTagPreference(book.authors, authorExperiences);
+        const genrePref = averageTagPreference(book.genres, genreInterests);
         const R = book.starRating ?? GLOBAL_MEAN;
         const v = book.ratingCount ?? 0;
         const bScore = bayesianScore(R, v, GLOBAL_MEAN, SMOOTHING_FACTOR);
         return {
           ...book,
-          score: compositeScore(bScore, ...preferences),
+          score: scoreBook(bScore, authorPref, genrePref, book.myRating, book.progress),
           rank: 0,
         };
       })
@@ -1339,8 +1345,6 @@ export default function App() {
     setActiveTagActionMenu(null);
     setDraftTagDrag(null);
     setDraftTagDropTarget(null);
-    setBookTagDrag(null);
-    setBookTagDropTarget(null);
   }, []);
 
   useEffect(() => {
@@ -1778,156 +1782,10 @@ export default function App() {
     setDraftTagDropTarget(null);
   }
 
-  async function reorderBookTags(
-    bookId: number,
-    field: SuggestionField,
-    draggedTag: string,
-    targetTag: string | null,
-  ) {
-    const book = books.find((candidate) => candidate.id === bookId);
-
-    if (!book) {
-      return;
-    }
-
-    const currentTags = field === "author" ? book.authors : book.genres;
-    const nextTags =
-      targetTag == null
-        ? moveTagToEnd(currentTags, draggedTag)
-        : reorderTags(currentTags, draggedTag, targetTag);
-
-    if (nextTags === currentTags) {
-      return;
-    }
-
-    setErrorMessage(null);
-
-    try {
-      const payload = {
-        title: book.title,
-        authors: field === "author" ? nextTags : book.authors,
-        starRating: book.starRating,
-        ratingCount: book.ratingCount,
-        genres: field === "genre" ? nextTags : book.genres,
-      };
-      const nextBooks = await updateBookRecord(bookId, payload);
-      setBooks(nextBooks);
-
-      if (editingBookId === bookId) {
-        const tagsKey = field === "author" ? "authors" : "genres";
-        setDraft((current) => ({
-          ...current,
-          [tagsKey]: nextTags,
-        }));
-      }
-    } catch (error) {
-      setErrorMessage(messageFromError(error));
-    }
-  }
-
-  function handleBookTagDragStart(
-    event: ReactDragEvent<HTMLSpanElement>,
-    bookId: number,
-    field: SuggestionField,
-    tag: string,
-  ) {
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", `${bookId}:${field}:${tag}`);
-    setActiveTagActionMenu(null);
-    setBookTagDrag({ bookId, field, tag });
-    setBookTagDropTarget(null);
-  }
-
-  function handleBookTagGroupDragOver(
-    event: ReactDragEvent<HTMLDivElement>,
-    bookId: number,
-    field: SuggestionField,
-  ) {
-    if (
-      !bookTagDrag ||
-      bookTagDrag.bookId !== bookId ||
-      bookTagDrag.field !== field
-    ) {
-      return;
-    }
-
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
-    setBookTagDropTarget((current) =>
-      current?.bookId === bookId &&
-      current.field === field &&
-      current.tag === null
-        ? current
-        : { bookId, field, tag: null },
-    );
-  }
-
-  function handleBookTagDragOver(
-    event: ReactDragEvent<HTMLSpanElement>,
-    bookId: number,
-    field: SuggestionField,
-    tag: string,
-  ) {
-    if (
-      !bookTagDrag ||
-      bookTagDrag.bookId !== bookId ||
-      bookTagDrag.field !== field
-    ) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-    event.dataTransfer.dropEffect = "move";
-
-    if (bookTagDrag.tag === tag) {
-      setBookTagDropTarget(null);
-      return;
-    }
-
-    setBookTagDropTarget((current) =>
-      current?.bookId === bookId &&
-      current.field === field &&
-      current.tag === tag
-        ? current
-        : { bookId, field, tag },
-    );
-  }
-
-  async function handleBookTagDrop(
-    event: ReactDragEvent<HTMLElement>,
-    bookId: number,
-    field: SuggestionField,
-    targetTag: string | null = null,
-  ) {
-    if (
-      !bookTagDrag ||
-      bookTagDrag.bookId !== bookId ||
-      bookTagDrag.field !== field
-    ) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-
-    const draggedTag = bookTagDrag.tag;
-    setBookTagDrag(null);
-    setBookTagDropTarget(null);
-    await reorderBookTags(bookId, field, draggedTag, targetTag);
-  }
-
-  function handleBookTagDragEnd() {
-    setBookTagDrag(null);
-    setBookTagDropTarget(null);
-  }
-
   function startEditing(book: Book) {
     setEditingBookId(book.id);
     setScrollToForm(true);
     setActiveTagActionMenu(null);
-    setBookTagDrag(null);
-    setBookTagDropTarget(null);
     setDraft({
       title: book.title,
       starRating: book.starRating != null ? String(book.starRating) : "",
@@ -1942,6 +1800,7 @@ export default function App() {
       genreInput: "",
       genres: [...book.genres],
       genreScores: buildDraftScores(book.genres, genreInterests),
+      progress: book.progress != null ? String(book.progress) : "",
     });
     setErrorMessage(null);
   }
@@ -1957,12 +1816,16 @@ export default function App() {
     setErrorMessage(null);
 
     try {
+      const parsedProgress = draft.progress.trim()
+        ? Number(draft.progress)
+        : undefined;
       const payload = {
         title: draft.title.trim(),
         authors: draft.authors,
         starRating: parsedDraftRating,
         ratingCount: parsedDraftCount,
         genres: draft.genres,
+        progress: parsedProgress,
       };
 
       let nextInterests = genreInterests;
@@ -1993,34 +1856,6 @@ export default function App() {
       setErrorMessage(messageFromError(error));
     } finally {
       setIsSaving(false);
-    }
-  }
-
-  async function clearTag(bookId: number, field: SuggestionField, tag: string) {
-    try {
-      const book = books.find((b) => b.id === bookId);
-      if (!book) return;
-      const payload = {
-        title: book.title,
-        authors:
-          field === "author"
-            ? book.authors.filter((author) => author !== tag)
-            : book.authors,
-        starRating: book.starRating,
-        ratingCount: book.ratingCount,
-        genres:
-          field === "genre"
-            ? book.genres.filter((genre) => genre !== tag)
-            : book.genres,
-      };
-      const nextBooks = await updateBookRecord(bookId, payload);
-      setBooks(nextBooks);
-
-      if (editingBookId === bookId) {
-        removeDraftTag(field, tag);
-      }
-    } catch (error) {
-      setErrorMessage(messageFromError(error));
     }
   }
 
@@ -2099,6 +1934,80 @@ export default function App() {
     }
   }
 
+  // Auto-build reading list when 2+ nodes are selected
+  useEffect(() => {
+    if (selectedInterestPath.length < 1) {
+      setRecommendations(null);
+      setRecError(null);
+      setIsLoadingRecs(false);
+      return;
+    }
+
+    let cancelled = false;
+    const debounce = setTimeout(async () => {
+      setIsLoadingRecs(true);
+      setRecError(null);
+
+      try {
+        const result = await requestPathRecommendation({
+          selectedTags: selectedInterestPath,
+          profile: {
+            books,
+            genreInterests,
+            authorExperiences,
+          },
+        });
+        if (!cancelled) setRecommendations(result);
+      } catch (error) {
+        if (!cancelled) {
+          setRecError(
+            error instanceof Error ? error.message : "Failed to get recommendations.",
+          );
+        }
+      } finally {
+        if (!cancelled) setIsLoadingRecs(false);
+      }
+    }, 400); // debounce to avoid hammering API on rapid clicks
+
+    return () => {
+      cancelled = true;
+      clearTimeout(debounce);
+    };
+  }, [selectedInterestPath]); // eslint-disable-line react-hooks/exhaustive-deps
+
+
+
+
+
+  async function updateMyRating(bookId: number, rating: number) {
+    const book = books.find((b) => b.id === bookId);
+    if (!book) return;
+    const newRating = book.myRating === rating ? undefined : rating;
+    try {
+      const updated = await updateBookRecord(bookId, {
+        ...book,
+        myRating: newRating,
+      });
+      setBooks(updated);
+    } catch {
+      // silently ignore
+    }
+  }
+
+  async function updateProgress(bookId: number, value: number | undefined) {
+    const book = books.find((b) => b.id === bookId);
+    if (!book) return;
+    try {
+      const updated = await updateBookRecord(bookId, {
+        ...book,
+        progress: value,
+      });
+      setBooks(updated);
+    } catch {
+      // silently ignore
+    }
+  }
+
   const showAuthorSuggestions =
     activeSuggestionField === "author" &&
     draft.authorInput.trim().length > 0 &&
@@ -2109,67 +2018,254 @@ export default function App() {
     genreSuggestions.length > 0;
 
   return (
-    <main
-      className={[
-        "app-shell",
-        hasInterestMap ? "has-graph-stage" : "",
-      ]
-        .filter(Boolean)
-        .join(" ")}
-    >
-      {hasInterestMap ? (
-        <section className="graph-stage" aria-label="Interest map">
-          <div className="graph-stage-frame">
-            <InterestMap
-              books={books}
-              interests={genreInterests}
-              selectedPath={selectedInterestPath}
-              onSelectTag={toggleInterestPathTag}
-              expansion={graphExpansion}
-              userLinks={userLinks}
-            />
-            {selectedInterestPath.length >= 2 ? (
-              <div className="interest-map-actions">
-                <button
-                  className="interest-map-action-btn link-btn"
-                  onClick={linkSelectedNodes}
-                >
-                  Link {selectedInterestPath.length} selected
-                </button>
-                {selectedHaveUserLink ? (
+    <main className="app-shell">
+      <div className="app-layout">
+        {/* ── Left column: reading list ── */}
+        <aside className="left-column">
+        <section className="board">
+          <div className="ranking-list">
+            {isLoading ? (
+              <div className="empty-state">Loading your rankings...</div>
+            ) : rankedBooks.length === 0 ? (
+              <div className="empty-state">
+                No books yet. Add your first book to get started.
+              </div>
+            ) : (
+              rankedBooks.map((book, index) => {
+                const isDeleting = pendingDeleteId === book.id;
+                const rankClass =
+                  book.rank === 1
+                    ? "rank-gold"
+                    : book.rank === 2
+                      ? "rank-silver"
+                      : book.rank === 3
+                        ? "rank-bronze"
+                        : "";
+
+                return (
+                  <BookCard
+                    key={book.id}
+                    rank={book.rank}
+                    title={book.title}
+                    authors={book.authors}
+                    score={book.score}
+                    rankClass={rankClass}
+                    className={`${editingBookId === book.id ? "is-editing" : ""}${book.rank === 1 ? " is-leader" : ""}`}
+                    animationDelay={`${index * 60}ms`}
+                    progressBar={
+                      <ProgressBar
+                        value={book.progress ?? 0}
+                        onChange={(pct) =>
+                          void updateProgress(book.id, pct === 0 ? undefined : pct)
+                        }
+                      />
+                    }
+                    stars={
+                      <span className="my-rating-stars">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <button
+                            key={star}
+                            type="button"
+                            className={`my-rating-star${book.myRating != null && star <= book.myRating ? " is-filled" : ""}`}
+                            onClick={() => void updateMyRating(book.id, star)}
+                            aria-label={`Rate ${star} out of 5`}
+                          >
+                            {book.myRating != null && star <= book.myRating ? "\u2605" : "\u2606"}
+                          </button>
+                        ))}
+                      </span>
+                    }
+                    actions={
+                      <>
+                        <button
+                          type="button"
+                          className="link-btn"
+                          onClick={() => startEditing(book)}
+                          disabled={isSaving || isDeleting}
+                        >
+                          {editingBookId === book.id ? "Editing" : "Edit"}
+                        </button>
+                        <span className="action-dot">·</span>
+                        <button
+                          type="button"
+                          className="link-btn link-btn-danger"
+                          onClick={() => void removeBook(book.id)}
+                          disabled={isSaving || isDeleting}
+                        >
+                          {isDeleting ? "Removing..." : "Remove"}
+                        </button>
+                      </>
+                    }
+                  />
+                );
+              })
+            )}
+          </div>
+        </section>
+        </aside>
+
+        {/* ── Center column: interest map graph ── */}
+        <section className={`center-column${graphEditMode ? " is-editing" : ""}`}>
+          <div className="graph-edit-toolbar">
+            <button
+              type="button"
+              className={`graph-edit-btn${graphEditMode ? " is-active" : ""}`}
+              onClick={() => setGraphEditMode((prev) => !prev)}
+              aria-label={graphEditMode ? "Exit edit mode" : "Edit graph"}
+              title={graphEditMode ? "Exit edit mode" : "Edit interests"}
+            >
+              {graphEditMode ? "\u2715" : "\u270E"}
+            </button>
+            {graphEditMode ? (
+              <div className="tag-entry-group graph-tag-entry">
+                <div className="tag-entry-row">
+                  <input
+                    type="text"
+                    placeholder="Add genre or topic..."
+                    value={graphAddGenreInput}
+                    onChange={(e) => setGraphAddGenreInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && graphAddGenreInput.trim()) {
+                        const next = writeGenreInterest(
+                          graphAddGenreInput.trim(),
+                          graphAddGenreRating ?? 3,
+                        );
+                        setGenreInterests(next);
+                        setGraphAddGenreInput("");
+                        setGraphAddGenreRating(null);
+                      }
+                    }}
+                  />
                   <button
-                    className="interest-map-action-btn unlink-btn"
-                    onClick={unlinkSelectedNodes}
+                    type="button"
+                    className="graph-add-btn"
+                    disabled={!graphAddGenreInput.trim()}
+                    onClick={() => {
+                      if (graphAddGenreInput.trim()) {
+                        const next = writeGenreInterest(
+                          graphAddGenreInput.trim(),
+                          graphAddGenreRating ?? 3,
+                        );
+                        setGenreInterests(next);
+                        setGraphAddGenreInput("");
+                        setGraphAddGenreRating(null);
+                      }
+                    }}
+                    aria-label="Add genre"
                   >
-                    Unlink
+                    +
                   </button>
-                ) : null}
+                </div>
+                <RatingButtons
+                  value={graphAddGenreRating}
+                  onChange={setGraphAddGenreRating}
+                />
               </div>
             ) : null}
           </div>
+          <InterestMap
+            books={books}
+            interests={genreInterests}
+            selectedPath={selectedInterestPath}
+            onSelectTag={toggleInterestPathTag}
+            editMode={graphEditMode}
+            onEditingNodeChange={setGraphEditingNode}
+          />
         </section>
-      ) : (
-        <section className="hero hero-empty">
-          <div className="hero-copy">
-            <h1>
-              Sort your reading list by what actually{" "}
-              <span className="hero-title-accent">matters to you.</span>
-            </h1>
-            <p className="hero-text">
-              Statistical modelling is applied to the inputs you provide to
-              estimate how likely you are to enjoy each book.
-            </p>
-          </div>
-        </section>
-      )}
+          {graphEditMode && graphEditingNode ? createPortal(
+            <div
+              className="node-edit-popover"
+              style={{ left: graphEditingNode.screenX, top: graphEditingNode.screenY }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <input
+                className="node-edit-label"
+                defaultValue={graphEditingNode.tag}
+                onBlur={(e) => {
+                  const newName = e.currentTarget.value.trim();
+                  const oldName = graphEditingNode.tag;
+                  if (newName && newName !== oldName) {
+                    renameGenreInBooks(oldName, newName).then((nextBooks) => {
+                      setBooks(nextBooks);
+                    });
+                    const nextInterests = renameGenreInterest(oldName, newName);
+                    setGenreInterests(nextInterests);
+                    setGraphEditingNode({ ...graphEditingNode, tag: newName });
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                }}
+              />
+              <RatingButtons
+                value={genreInterests[graphEditingNode.tag] ?? null}
+                onChange={(level) => {
+                  const next = writeGenreInterest(graphEditingNode.tag, level ?? 3);
+                  setGenreInterests(next);
+                }}
+              />
+              <button
+                type="button"
+                className="node-edit-delete"
+                onClick={() => {
+                  void removeGlobalTag("genre", graphEditingNode.tag);
+                  setGraphEditingNode(null);
+                }}
+              >
+                Remove
+              </button>
+            </div>,
+            document.body,
+          ) : null}
 
-      <div className="app-content">
-        <section className="panel control-panel">
-          <div className="section-heading">
-            <div>
-              <h2>{isEditing ? "Edit book" : "Add a book"}</h2>
+        {/* ── Right column: reading list builder + add book ── */}
+        <aside className="right-column">
+          {recError ? (
+            <p className="panel-error">{recError}</p>
+          ) : null}
+          {isLoadingRecs ? (
+            <div className="right-column-status">
+              <p>Building reading list...</p>
             </div>
-          </div>
+          ) : recommendations && recommendations.candidates.length > 0 ? (
+            <>
+              <div className="right-column-head">
+                <select
+                  className="list-size-select"
+                  value={listSize}
+                  onChange={(e) => setListSize(Number(e.target.value))}
+                >
+                  {[3, 5, 10, 15, 20].map((n) => (
+                    <option key={n} value={n}>
+                      Top {n}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="right-column-list">
+                {recommendations.candidates.slice(0, listSize).map((rec, i) => (
+                  <BookCard
+                    key={rec.id}
+                    rank={i + 1}
+                    title={rec.title}
+                    authors={rec.authors}
+                    score={rec.score}
+                    className={addedRecIds.has(rec.id) ? "is-added" : undefined}
+                    scoreOverride={addedRecIds.has(rec.id) ? "✓" : undefined}
+                  />
+                ))}
+              </div>
+            </>
+          ) : recommendations && recommendations.candidates.length === 0 ? (
+            <div className="right-column-status">
+              <p>No new books found for these genres.</p>
+            </div>
+          ) : (
+            <div className="right-column-empty">
+              <p>Select nodes to generate a list</p>
+            </div>
+          )}
+          <section className="panel control-panel">
 
           {isLoading || errorMessage ? (
             <div className="panel-status-row">
@@ -2196,8 +2292,8 @@ export default function App() {
             <div className="field entry-author">
               <span>Author(s) + my experience with them</span>
               <div className="tag-editor">
-                <div className="tag-entry-row">
-                  <div className="inline-composite">
+                <div className="tag-entry-group">
+                  <div className="tag-entry-row">
                     <div
                       className="suggestion-field"
                       onFocus={() => setActiveSuggestionField("author")}
@@ -2272,29 +2368,26 @@ export default function App() {
                         </div>
                       ) : null}
                     </div>
-                    <input
-                      className="inline-rating"
-                      type="number"
-                      step="1"
-                      min="0"
-                      max="5"
-                      placeholder="-"
-                      title="Experience with author (0–5)"
-                      value={draft.authorExperience}
-                      onChange={(event) =>
-                        updateDraft("authorExperience", event.target.value)
-                      }
-                    />
+                    <button
+                      type="button"
+                      className="graph-add-btn"
+                      onClick={() => addDraftTag("author")}
+                      disabled={!draft.authorInput.trim()}
+                      aria-label="Add author tag"
+                    >
+                      +
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    className="btn btn-tag-add"
-                    onClick={() => addDraftTag("author")}
-                    disabled={!draft.authorInput.trim()}
-                    aria-label="Add author tag"
-                  >
-                    +
-                  </button>
+                  <RatingButtons
+                    value={
+                      draft.authorExperience
+                        ? Number(draft.authorExperience)
+                        : null
+                    }
+                    onChange={(level) =>
+                      updateDraft("authorExperience", level ? String(level) : "")
+                    }
+                  />
                 </div>
                 {draft.authors.length > 0 ? (
                   <div
@@ -2440,8 +2533,8 @@ export default function App() {
             <div className="field entry-genre">
               <span>Genre(s) / topic(s) + my current interest in them</span>
               <div className="tag-editor">
-                <div className="tag-entry-row">
-                  <div className="inline-composite">
+                <div className="tag-entry-group">
+                  <div className="tag-entry-row">
                     <div
                       className="suggestion-field"
                       onFocus={() => setActiveSuggestionField("genre")}
@@ -2451,7 +2544,7 @@ export default function App() {
                     >
                       <input
                         type="text"
-                        placeholder="Historical Fiction"
+                        placeholder="Fictive Memoir"
                         value={draft.genreInput}
                         autoComplete="off"
                         aria-expanded={showGenreSuggestions}
@@ -2516,29 +2609,26 @@ export default function App() {
                         </div>
                       ) : null}
                     </div>
-                    <input
-                      className="inline-rating"
-                      type="number"
-                      step="1"
-                      min="0"
-                      max="5"
-                      placeholder="-"
-                      title="Genre / topic interest (0–5)"
-                      value={draft.genreInterest}
-                      onChange={(event) =>
-                        updateDraft("genreInterest", event.target.value)
-                      }
-                    />
+                    <button
+                      type="button"
+                      className="graph-add-btn"
+                      onClick={() => addDraftTag("genre")}
+                      disabled={!draft.genreInput.trim()}
+                      aria-label="Add genre tag"
+                    >
+                      +
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    className="btn btn-tag-add"
-                    onClick={() => addDraftTag("genre")}
-                    disabled={!draft.genreInput.trim()}
-                    aria-label="Add genre tag"
-                  >
-                    +
-                  </button>
+                  <RatingButtons
+                    value={
+                      draft.genreInterest
+                        ? Number(draft.genreInterest)
+                        : null
+                    }
+                    onChange={(level) =>
+                      updateDraft("genreInterest", level ? String(level) : "")
+                    }
+                  />
                 </div>
                 {draft.genres.length > 0 ? (
                   <div
@@ -2681,6 +2771,16 @@ export default function App() {
               </div>
             </div>
 
+            <div className="field entry-progress">
+              <span>Reading progress</span>
+              <ProgressBar
+                value={Number(draft.progress) || 0}
+                onChange={(pct) =>
+                  updateDraft("progress", pct === 0 ? "" : String(pct))
+                }
+              />
+            </div>
+
             <label className="field entry-rating">
               <span>Average rating</span>
               <input
@@ -2724,421 +2824,12 @@ export default function App() {
                 className="btn btn-primary"
                 disabled={!canSubmit}
               >
-                {isSaving ? "Saving..." : isEditing ? "Update" : "Add book"}
+                {isSaving ? "Saving..." : isEditing ? "Update" : "Add"}
               </button>
             </div>
           </form>
         </section>
-
-        <section className="panel board">
-          <div className="board-toolbar">
-            <h2>My list</h2>
-          </div>
-          <div className="ranking-list">
-            {isLoading ? (
-              <div className="empty-state">Loading your rankings...</div>
-            ) : rankedBooks.length === 0 ? (
-              <div className="empty-state">
-                No books yet. Add a title above to see your first ranking.
-              </div>
-            ) : (
-              rankedBooks.map((book, index) => {
-                const scoreFill = clampPercentage((book.score / 5) * 100);
-                const isDeleting = pendingDeleteId === book.id;
-                const rankClass =
-                  book.rank === 1
-                    ? "rank-gold"
-                    : book.rank === 2
-                      ? "rank-silver"
-                      : book.rank === 3
-                        ? "rank-bronze"
-                        : "";
-
-                return (
-                  <article
-                    key={book.id}
-                    className={`ranking-row${editingBookId === book.id ? " is-editing" : ""}${book.rank === 1 ? " is-leader" : ""}`}
-                    style={{ animationDelay: `${index * 60}ms` }}
-                  >
-                    <div className={`rank-badge ${rankClass}`}>
-                      #{book.rank}
-                    </div>
-
-                    <div className="ranking-body">
-                      <div className="ranking-topline">
-                        <div className="ranking-info">
-                          <h3>{book.title}</h3>
-                          <div className="book-tags">
-                            {book.authors.length > 0 ? (
-                              <div
-                                className={[
-                                  "book-tag-group",
-                                  bookTagDrag?.bookId === book.id &&
-                                  bookTagDrag.field === "author"
-                                    ? "is-drag-active"
-                                    : "",
-                                  bookTagDropTarget?.bookId === book.id &&
-                                  bookTagDropTarget.field === "author" &&
-                                  bookTagDropTarget.tag === null
-                                    ? "is-drop-target-end"
-                                    : "",
-                                ]
-                                  .filter(Boolean)
-                                  .join(" ")}
-                                onDragOver={(event) =>
-                                  handleBookTagGroupDragOver(
-                                    event,
-                                    book.id,
-                                    "author",
-                                  )
-                                }
-                                onDrop={(event) =>
-                                  void handleBookTagDrop(
-                                    event,
-                                    book.id,
-                                    "author",
-                                  )
-                                }
-                              >
-                                {book.authors.map((author) => {
-                                  const deleteKey = `author:${author}`;
-                                  const actionMenuId = tagActionMenuId(
-                                    "book",
-                                    "author",
-                                    author,
-                                    book.id,
-                                  );
-                                  const isDeletingTag =
-                                    pendingTagDelete === deleteKey;
-                                  const isActionMenuOpen =
-                                    activeTagActionMenu === actionMenuId;
-                                  const isDragging =
-                                    bookTagDrag?.bookId === book.id &&
-                                    bookTagDrag.field === "author" &&
-                                    bookTagDrag.tag === author;
-                                  const isDropTarget =
-                                    bookTagDropTarget?.bookId === book.id &&
-                                    bookTagDropTarget.field === "author" &&
-                                    bookTagDropTarget.tag === author;
-
-                                  return (
-                                    <span
-                                      key={`author-${book.id}-${author}`}
-                                      className={[
-                                        "genre-tag",
-                                        "book-tag-chip",
-                                        isDragging ? "is-dragging" : "",
-                                        isDropTarget ? "is-drag-target" : "",
-                                      ]
-                                        .filter(Boolean)
-                                        .join(" ")}
-                                      draggable
-                                      onDragStart={(event) =>
-                                        handleBookTagDragStart(
-                                          event,
-                                          book.id,
-                                          "author",
-                                          author,
-                                        )
-                                      }
-                                      onDragOver={(event) =>
-                                        handleBookTagDragOver(
-                                          event,
-                                          book.id,
-                                          "author",
-                                          author,
-                                        )
-                                      }
-                                      onDrop={(event) =>
-                                        void handleBookTagDrop(
-                                          event,
-                                          book.id,
-                                          "author",
-                                          author,
-                                        )
-                                      }
-                                      onDragEnd={handleBookTagDragEnd}
-                                      aria-grabbed={isDragging}
-                                      title={`Drag to reorder ${author}`}
-                                    >
-                                      {author}
-                                      {authorExperiences[author] != null ? (
-                                        <span className="genre-tag-interest">
-                                          {authorExperiences[author]}
-                                        </span>
-                                      ) : null}
-                                      <span className="tag-action-shell">
-                                        <button
-                                          type="button"
-                                          className={`tag-remove tag-action-toggle${isActionMenuOpen ? " is-open" : ""}`}
-                                          onClick={() =>
-                                            setActiveTagActionMenu((current) =>
-                                              current === actionMenuId
-                                                ? null
-                                                : actionMenuId,
-                                            )
-                                          }
-                                          aria-label={`Open delete options for author ${author}`}
-                                          title={`Open delete options for author ${author}`}
-                                          disabled={isDeletingTag}
-                                        >
-                                          x
-                                        </button>
-                                        {isActionMenuOpen ? (
-                                          <span className="tag-action-menu">
-                                            <button
-                                              type="button"
-                                              className="tag-action-option"
-                                              onClick={() => {
-                                                setActiveTagActionMenu(null);
-                                                void clearTag(
-                                                  book.id,
-                                                  "author",
-                                                  author,
-                                                );
-                                              }}
-                                              aria-label={`Remove author ${author} from this book`}
-                                              title={`Remove author ${author} from this book`}
-                                              disabled={isDeletingTag}
-                                            >
-                                              This book
-                                            </button>
-                                            <button
-                                              type="button"
-                                              className="tag-action-option tag-action-option-danger"
-                                              onClick={() => {
-                                                setActiveTagActionMenu(null);
-                                                void removeGlobalTag(
-                                                  "author",
-                                                  author,
-                                                );
-                                              }}
-                                              aria-label={`Delete author tag ${author} everywhere`}
-                                              title={`Delete author tag ${author} everywhere`}
-                                              disabled={isDeletingTag}
-                                            >
-                                              {isDeletingTag
-                                                ? "Deleting..."
-                                                : "Everywhere"}
-                                            </button>
-                                          </span>
-                                        ) : null}
-                                      </span>
-                                    </span>
-                                  );
-                                })}
-                              </div>
-                            ) : (
-                              <span className="genre-tag">Author unknown</span>
-                            )}
-                            <div
-                              className={[
-                                "book-tag-group",
-                                bookTagDrag?.bookId === book.id &&
-                                bookTagDrag.field === "genre"
-                                  ? "is-drag-active"
-                                  : "",
-                                bookTagDropTarget?.bookId === book.id &&
-                                bookTagDropTarget.field === "genre" &&
-                                bookTagDropTarget.tag === null
-                                  ? "is-drop-target-end"
-                                  : "",
-                              ]
-                                .filter(Boolean)
-                                .join(" ")}
-                              onDragOver={(event) =>
-                                handleBookTagGroupDragOver(
-                                  event,
-                                  book.id,
-                                  "genre",
-                                )
-                              }
-                              onDrop={(event) =>
-                                void handleBookTagDrop(event, book.id, "genre")
-                              }
-                            >
-                              {book.genres.map((genre) => {
-                                const deleteKey = `genre:${genre}`;
-                                const actionMenuId = tagActionMenuId(
-                                  "book",
-                                  "genre",
-                                  genre,
-                                  book.id,
-                                );
-                                const isDeletingTag =
-                                  pendingTagDelete === deleteKey;
-                                const isActionMenuOpen =
-                                  activeTagActionMenu === actionMenuId;
-                                const isDragging =
-                                  bookTagDrag?.bookId === book.id &&
-                                  bookTagDrag.field === "genre" &&
-                                  bookTagDrag.tag === genre;
-                                const isDropTarget =
-                                  bookTagDropTarget?.bookId === book.id &&
-                                  bookTagDropTarget.field === "genre" &&
-                                  bookTagDropTarget.tag === genre;
-
-                                return (
-                                  <span
-                                    key={`genre-${book.id}-${genre}`}
-                                    className={[
-                                      "genre-tag",
-                                      "book-tag-chip",
-                                      isDragging ? "is-dragging" : "",
-                                      isDropTarget ? "is-drag-target" : "",
-                                    ]
-                                      .filter(Boolean)
-                                      .join(" ")}
-                                    draggable
-                                    onDragStart={(event) =>
-                                      handleBookTagDragStart(
-                                        event,
-                                        book.id,
-                                        "genre",
-                                        genre,
-                                      )
-                                    }
-                                    onDragOver={(event) =>
-                                      handleBookTagDragOver(
-                                        event,
-                                        book.id,
-                                        "genre",
-                                        genre,
-                                      )
-                                    }
-                                    onDrop={(event) =>
-                                      void handleBookTagDrop(
-                                        event,
-                                        book.id,
-                                        "genre",
-                                        genre,
-                                      )
-                                    }
-                                    onDragEnd={handleBookTagDragEnd}
-                                    aria-grabbed={isDragging}
-                                    title={`Drag to reorder ${genre}`}
-                                  >
-                                    {genre}
-                                    {genreInterests[genre] != null ? (
-                                      <span className="genre-tag-interest">
-                                        {genreInterests[genre]}
-                                      </span>
-                                    ) : null}
-                                    <span className="tag-action-shell">
-                                      <button
-                                        type="button"
-                                        className={`tag-remove tag-action-toggle${isActionMenuOpen ? " is-open" : ""}`}
-                                        onClick={() =>
-                                          setActiveTagActionMenu((current) =>
-                                            current === actionMenuId
-                                              ? null
-                                              : actionMenuId,
-                                          )
-                                        }
-                                        aria-label={`Open delete options for genre ${genre}`}
-                                        title={`Open delete options for genre ${genre}`}
-                                        disabled={isDeletingTag}
-                                      >
-                                        x
-                                      </button>
-                                      {isActionMenuOpen ? (
-                                        <span className="tag-action-menu">
-                                          <button
-                                            type="button"
-                                            className="tag-action-option"
-                                            onClick={() => {
-                                              setActiveTagActionMenu(null);
-                                              void clearTag(
-                                                book.id,
-                                                "genre",
-                                                genre,
-                                              );
-                                            }}
-                                            aria-label={`Remove genre ${genre} from this book`}
-                                            title={`Remove genre ${genre} from this book`}
-                                            disabled={isDeletingTag}
-                                          >
-                                            This book
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="tag-action-option tag-action-option-danger"
-                                            onClick={() => {
-                                              setActiveTagActionMenu(null);
-                                              void removeGlobalTag(
-                                                "genre",
-                                                genre,
-                                              );
-                                            }}
-                                            aria-label={`Delete genre tag ${genre} everywhere`}
-                                            title={`Delete genre tag ${genre} everywhere`}
-                                            disabled={isDeletingTag}
-                                          >
-                                            {isDeletingTag
-                                              ? "Deleting..."
-                                              : "Everywhere"}
-                                          </button>
-                                        </span>
-                                      ) : null}
-                                    </span>
-                                  </span>
-                                );
-                              })}
-                            </div>
-                          </div>
-                          <div className="meta-row">
-                            {book.starRating != null ? (
-                              <span>{formatScore(book.starRating)} avg</span>
-                            ) : null}
-                            {book.ratingCount != null ? (
-                              <span>
-                                {formatCount(book.ratingCount)} ratings
-                              </span>
-                            ) : null}
-                            <div className="inline-actions">
-                              <button
-                                type="button"
-                                className="link-btn"
-                                onClick={() => startEditing(book)}
-                                disabled={isSaving || isDeleting}
-                              >
-                                {editingBookId === book.id ? "Editing" : "Edit"}
-                              </button>
-                              <span className="action-dot">·</span>
-                              <button
-                                type="button"
-                                className="link-btn link-btn-danger"
-                                onClick={() => void removeBook(book.id)}
-                                disabled={isSaving || isDeleting}
-                              >
-                                {isDeleting ? "Removing..." : "Remove"}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-
-                        <strong className="score-value">
-                          {formatMainResult(book.score)}
-                        </strong>
-                      </div>
-
-                      <div className="score-meter" aria-hidden="true">
-                        <span
-                          className="score-meter-fill"
-                          style={
-                            {
-                              "--fill-width": `${scoreFill}%`,
-                            } as React.CSSProperties
-                          }
-                        />
-                      </div>
-                    </div>
-                  </article>
-                );
-              })
-            )}
-          </div>
-        </section>
+        </aside>
       </div>
     </main>
   );

@@ -5,6 +5,8 @@ export type Book = {
   genres: string[];
   starRating?: number;
   ratingCount?: number;
+  myRating?: number;
+  progress?: number;
 };
 
 type LegacyBook = Partial<Book> & {
@@ -19,7 +21,6 @@ export type BookPayload = Omit<Book, "id">;
 const STORAGE_KEY = "book-ranker.books.v1";
 const GENRE_INTEREST_KEY = "book-ranker.genre-interests.v1";
 const AUTHOR_EXP_KEY = "book-ranker.author-experiences.v1";
-const USER_LINKS_KEY = "book-ranker.user-links.v1";
 const seededBooks: Book[] = [];
 
 function cloneBooks(books: Book[]) {
@@ -79,6 +80,16 @@ function normalizeBook(value: unknown): Book | null {
       ? Number(rawRatingCount)
       : undefined;
   const id = Number(book?.id);
+  const rawMyRating = (book as Record<string, unknown>)?.myRating;
+  const myRating =
+    rawMyRating != null && Number.isFinite(Number(rawMyRating))
+      ? Number(rawMyRating)
+      : undefined;
+  const rawProgress = (book as Record<string, unknown>)?.progress;
+  const progress =
+    rawProgress != null && Number.isFinite(Number(rawProgress))
+      ? Math.max(0, Math.min(100, Number(rawProgress)))
+      : undefined;
   const authors = normalizeTagList(book?.authors ?? book?.author);
   const genres = normalizeTagList(book?.genres ?? book?.genre);
 
@@ -86,7 +97,8 @@ function normalizeBook(value: unknown): Book | null {
     !title ||
     !Number.isFinite(id) ||
     (starRating != null && (starRating < 0 || starRating > 5)) ||
-    (ratingCount != null && ratingCount < 0)
+    (ratingCount != null && ratingCount < 0) ||
+    (myRating != null && (myRating < 1 || myRating > 5))
   ) {
     return null;
   }
@@ -98,6 +110,8 @@ function normalizeBook(value: unknown): Book | null {
     genres,
     ...(starRating != null ? { starRating } : {}),
     ...(ratingCount != null ? { ratingCount } : {}),
+    ...(myRating != null ? { myRating } : {}),
+    ...(progress != null ? { progress } : {}),
   };
 }
 
@@ -133,6 +147,22 @@ function parsePayload(
     throw new Error("Ratings must be a non-negative number.");
   }
 
+  const rawMyRating = value?.myRating;
+  const myRating =
+    rawMyRating != null && Number.isFinite(Number(rawMyRating))
+      ? Number(rawMyRating)
+      : undefined;
+
+  if (myRating != null && (myRating < 1 || myRating > 5)) {
+    throw new Error("Personal rating must be between 1 and 5.");
+  }
+
+  const rawProgress = (value as Record<string, unknown>)?.progress;
+  const progress =
+    rawProgress != null && Number.isFinite(Number(rawProgress))
+      ? Math.max(0, Math.min(100, Number(rawProgress)))
+      : undefined;
+
   const authors = normalizeTagList(value?.authors ?? value?.author);
   const genres = normalizeTagList(value?.genres ?? value?.genre);
 
@@ -142,6 +172,8 @@ function parsePayload(
     genres,
     ...(starRating != null ? { starRating } : {}),
     ...(ratingCount != null ? { ratingCount } : {}),
+    ...(myRating != null ? { myRating } : {}),
+    ...(progress != null ? { progress } : {}),
   };
 }
 
@@ -235,7 +267,7 @@ export async function updateBookRecord(id: number, payload: BookPayload) {
   }
 
   return writeBooks(
-    books.map((book) => (book.id === id ? { ...book, ...nextBook } : book)),
+    books.map((book) => (book.id === id ? { id: book.id, ...nextBook } : book)),
   );
 }
 
@@ -367,66 +399,6 @@ export async function renameAuthorInBooks(oldAuthor: string, newAuthor: string) 
     authors: replaceTag(book.authors, oldAuthor, newAuthor),
   }));
   return writeBooks(updated);
-}
-
-export type UserLink = [string, string];
-
-function normalizeLink(a: string, b: string): UserLink {
-  return a < b ? [a, b] : [b, a];
-}
-
-function linkKey(link: UserLink): string {
-  return `${link[0]}\0${link[1]}`;
-}
-
-export function readUserLinks(): UserLink[] {
-  try {
-    const storage = getStorage();
-    const raw = storage.getItem(USER_LINKS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    if (Array.isArray(parsed)) {
-      const seen = new Set<string>();
-      const links: UserLink[] = [];
-      for (const item of parsed) {
-        if (
-          Array.isArray(item) &&
-          item.length === 2 &&
-          typeof item[0] === "string" &&
-          typeof item[1] === "string" &&
-          item[0].trim() &&
-          item[1].trim()
-        ) {
-          const link = normalizeLink(item[0].trim(), item[1].trim());
-          const key = linkKey(link);
-          if (!seen.has(key)) {
-            seen.add(key);
-            links.push(link);
-          }
-        }
-      }
-      return links;
-    }
-  } catch {
-    // ignore
-  }
-  return [];
-}
-
-export function writeUserLinks(links: UserLink[]): UserLink[] {
-  const storage = getStorage();
-  const seen = new Set<string>();
-  const deduped: UserLink[] = [];
-  for (const [a, b] of links) {
-    const link = normalizeLink(a.trim(), b.trim());
-    const key = linkKey(link);
-    if (link[0] && link[1] && link[0] !== link[1] && !seen.has(key)) {
-      seen.add(key);
-      deduped.push(link);
-    }
-  }
-  storage.setItem(USER_LINKS_KEY, JSON.stringify(deduped));
-  return deduped;
 }
 
 export async function deleteBookRecord(id: number) {
