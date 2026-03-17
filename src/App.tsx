@@ -56,6 +56,7 @@ type BookDraft = {
   genres: string[];
   genreScores: Record<string, string>;
   progress: string;
+  myRating: number | null;
   markAsRead: boolean;
 };
 
@@ -97,6 +98,7 @@ function createDraft(): BookDraft {
     genres: [],
     genreScores: {},
     progress: "",
+    myRating: null,
     markAsRead: false,
   };
 }
@@ -1802,6 +1804,7 @@ export default function App() {
       genres: [...book.genres],
       genreScores: buildDraftScores(book.genres, genreInterests),
       progress: book.progress != null ? String(book.progress) : "",
+      myRating: book.myRating ?? null,
       markAsRead: book.read ?? false,
     });
     setErrorMessage(null);
@@ -1828,6 +1831,7 @@ export default function App() {
         ratingCount: parsedDraftCount,
         genres: draft.genres,
         progress: parsedProgress,
+        myRating: draft.myRating ?? undefined,
         ...(draft.markAsRead ? { read: true as const } : {}),
       };
 
@@ -2831,6 +2835,28 @@ export default function App() {
                   updateDraft("progress", pct === 0 ? "" : String(pct))
                 }
               />
+            </div>
+
+            <div className="field entry-my-rating">
+              <span>My rating</span>
+              <span className="my-rating-stars">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <button
+                    key={star}
+                    type="button"
+                    className={`my-rating-star${draft.myRating != null && star <= draft.myRating ? " is-filled" : ""}`}
+                    onClick={() =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        myRating: prev.myRating === star ? null : star,
+                      }))
+                    }
+                    aria-label={`Rate ${star} out of 5`}
+                  >
+                    {draft.myRating != null && star <= draft.myRating ? "\u2605" : "\u2606"}
+                  </button>
+                ))}
+              </span>
             </div>
 
             <label className="field entry-rating">
