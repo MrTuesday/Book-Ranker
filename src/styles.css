@@ -803,7 +803,6 @@ h3 {
     display: flex;
     flex-direction: column;
     gap: 6px;
-    overflow: hidden;
     min-width: 0;
 }
 
