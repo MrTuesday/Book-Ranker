@@ -794,18 +794,24 @@ h3 {
     display: flex;
     flex-direction: column;
     gap: 6px;
+    width: 212px;
 }
 
 .tag-entry-group .rating-buttons {
     display: flex;
     gap: 4px;
+    width: 100%;
+}
+
+.tag-entry-group .rating-btn {
+    flex: 1;
 }
 
 .tag-entry-row {
     display: flex;
     gap: 4px;
     align-items: center;
-    min-width: 0;
+    width: 100%;
 }
 
 .tag-entry-row .suggestion-field,
