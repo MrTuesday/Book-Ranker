@@ -5,7 +5,7 @@ export function formatScore(value: number) {
 }
 
 export type BookCardProps = {
-  rank: number;
+  rank?: number;
   title: string;
   authors: string[];
   score: number;
@@ -45,9 +45,11 @@ export function BookCard({
     >
       <div className="ranking-body">
         <div className="ranking-topline">
-          <div className={`rank-badge${rankClass ? ` ${rankClass}` : ""}`}>
-            #{rank}
-          </div>
+          {rank != null ? (
+            <div className={`rank-badge${rankClass ? ` ${rankClass}` : ""}`}>
+              #{rank}
+            </div>
+          ) : null}
           <div className="ranking-info">
             <h3>{title}</h3>
             <p className="ranking-author">

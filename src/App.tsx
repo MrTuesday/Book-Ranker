@@ -1301,7 +1301,7 @@ export default function App() {
     () =>
       books
         .filter((book) => book.read)
-        .sort((a, b) => a.title.localeCompare(b.title)),
+        .sort((a, b) => b.id - a.id),
     [books],
   );
 
@@ -2158,12 +2158,11 @@ export default function App() {
                 {readBooks.length === 0 ? (
                   <div className="empty-state">No read books yet.</div>
                 ) : (
-                  readBooks.map((book, index) => {
+                  readBooks.map((book) => {
                     const isDeleting = pendingDeleteId === book.id;
                     return (
                       <BookCard
                         key={book.id}
-                        rank={index + 1}
                         title={book.title}
                         authors={book.authors}
                         score={0}
