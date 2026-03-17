@@ -319,9 +319,6 @@ function InterestMap({
   selectedPath = [],
   onSelectTag,
   editMode = false,
-  onUpdateInterest,
-  onDeleteInterest,
-  editingNode,
   onEditingNodeChange,
 }: {
   books: Book[];
@@ -330,9 +327,6 @@ function InterestMap({
   selectedPath?: string[];
   onSelectTag?: (tag: string) => void;
   editMode?: boolean;
-  onUpdateInterest?: (genre: string, interest: number) => void;
-  onDeleteInterest?: (genre: string) => void;
-  editingNode?: { tag: string; screenX: number; screenY: number } | null;
   onEditingNodeChange?: (node: { tag: string; screenX: number; screenY: number } | null) => void;
 }) {
   const data = useMemo(() => {
@@ -2177,12 +2171,6 @@ export default function App() {
             selectedPath={selectedInterestPath}
             onSelectTag={toggleInterestPathTag}
             editMode={graphEditMode}
-            onUpdateInterest={(genre, interest) => {
-              const next = writeGenreInterest(genre, interest);
-              setGenreInterests(next);
-            }}
-            onDeleteInterest={(genre) => void removeGlobalTag("genre", genre)}
-            editingNode={graphEditingNode}
             onEditingNodeChange={setGraphEditingNode}
           />
         </section>
