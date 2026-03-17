@@ -272,8 +272,10 @@ h3 {
 
 .right-column {
     overflow-y: auto;
+    overflow-x: hidden;
     display: grid;
     gap: 8px;
+    min-width: 0;
     align-content: start;
     padding: 16px;
     border-left: 1px solid var(--line);
@@ -792,6 +794,8 @@ h3 {
 .tag-editor {
     display: grid;
     gap: 8px;
+    min-width: 0;
+    overflow: hidden;
 }
 
 .tag-entry-group {
@@ -1535,6 +1539,8 @@ input:focus {
     align-items: center;
     gap: 6px;
     max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
     padding: 2px 10px;
     border-radius: 999px;
     background: var(--accent-soft);
