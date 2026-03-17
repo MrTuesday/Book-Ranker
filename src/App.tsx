@@ -69,7 +69,6 @@ type DraftTagDrag = {
   field: SuggestionField;
   tag: string;
 };
-type TagActionScope = "draft" | "book";
 type DraftTextField =
   | "title"
   | "starRating"
@@ -164,16 +163,6 @@ function removeTagFromScores(scores: Record<string, string>, tag: string) {
   return nextScores;
 }
 
-function tagActionMenuId(
-  scope: TagActionScope,
-  field: SuggestionField,
-  tag: string,
-  bookId?: number,
-) {
-  return scope === "draft"
-    ? `draft:${field}:${tag}`
-    : `book:${bookId}:${field}:${tag}`;
-}
 
 function reorderTags(tags: string[], draggedTag: string, targetTag: string) {
   if (draggedTag === targetTag) {
@@ -2547,21 +2536,12 @@ export default function App() {
                   >
                     {draft.authors.map((author) => {
                       const score = getDraftTagScore("author", author);
-                      const deleteKey = `author:${author}`;
-                      const actionMenuId = tagActionMenuId(
-                        "draft",
-                        "author",
-                        author,
-                      );
                       const isDragging =
                         draftTagDrag?.field === "author" &&
                         draftTagDrag.tag === author;
                       const isDropTarget =
                         draftTagDropTarget?.field === "author" &&
                         draftTagDropTarget.tag === author;
-                      const isDeletingTag = pendingTagDelete === deleteKey;
-                      const isActionMenuOpen =
-                        activeTagActionMenu === actionMenuId;
 
                       return (
                         <span
@@ -2743,21 +2723,12 @@ export default function App() {
                   >
                     {draft.genres.map((genre) => {
                       const score = getDraftTagScore("genre", genre);
-                      const deleteKey = `genre:${genre}`;
-                      const actionMenuId = tagActionMenuId(
-                        "draft",
-                        "genre",
-                        genre,
-                      );
                       const isDragging =
                         draftTagDrag?.field === "genre" &&
                         draftTagDrag.tag === genre;
                       const isDropTarget =
                         draftTagDropTarget?.field === "genre" &&
                         draftTagDropTarget.tag === genre;
-                      const isDeletingTag = pendingTagDelete === deleteKey;
-                      const isActionMenuOpen =
-                        activeTagActionMenu === actionMenuId;
 
                       return (
                         <span
