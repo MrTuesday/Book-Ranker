@@ -1,4 +1,5 @@
 import {
+  memo,
   type DragEvent as ReactDragEvent,
   type FocusEvent as ReactFocusEvent,
   type FormEvent,
@@ -232,6 +233,69 @@ function hashTag(value: string) {
   return hash >>> 0;
 }
 
+function sameStringList(left: string[], right: string[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function normalizedGenreSignature(book: Book) {
+  return uniqueTags(book.genres).sort((left, right) => left.localeCompare(right));
+}
+
+function sameGraphBooks(left: Book[], right: Book[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  const rightById = new Map(right.map((book) => [book.id, book] as const));
+
+  for (const leftBook of left) {
+    const rightBook = rightById.get(leftBook.id);
+
+    if (!rightBook) {
+      return false;
+    }
+
+    const leftGenres = normalizedGenreSignature(leftBook);
+    const rightGenres = normalizedGenreSignature(rightBook);
+
+    if (!sameStringList(leftGenres, rightGenres)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function sameInterestMap(
+  left: GenreInterestMap,
+  right: GenreInterestMap,
+) {
+  const leftKeys = Object.keys(left).sort((a, b) => a.localeCompare(b));
+  const rightKeys = Object.keys(right).sort((a, b) => a.localeCompare(b));
+
+  if (!sameStringList(leftKeys, rightKeys)) {
+    return false;
+  }
+
+  for (const key of leftKeys) {
+    if (left[key] !== right[key]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function ProgressBar({
   value,
   onChange,
@@ -423,15 +487,7 @@ function BookActionIcon() {
   );
 }
 
-function InterestMap({
-  books,
-  interests,
-  compact = false,
-  selectedPath = [],
-  onSelectTag,
-  editMode = false,
-  onEditingNodeChange,
-}: {
+type InterestMapProps = {
   books: Book[];
   interests: GenreInterestMap;
   compact?: boolean;
@@ -439,7 +495,17 @@ function InterestMap({
   onSelectTag?: (tag: string) => void;
   editMode?: boolean;
   onEditingNodeChange?: (node: { tag: string; screenX: number; screenY: number } | null) => void;
-}) {
+};
+
+function InterestMapView({
+  books,
+  interests,
+  compact = false,
+  selectedPath = [],
+  onSelectTag,
+  editMode = false,
+  onEditingNodeChange,
+}: InterestMapProps) {
   const data = useMemo(() => {
     const tagCounts = new Map<string, number>();
     const pairCounts = new Map<string, number>();
@@ -1304,6 +1370,16 @@ function InterestMap({
   );
 }
 
+const InterestMap = memo(
+  InterestMapView,
+  (previousProps, nextProps) =>
+    previousProps.compact === nextProps.compact &&
+    previousProps.editMode === nextProps.editMode &&
+    sameStringList(previousProps.selectedPath ?? [], nextProps.selectedPath ?? []) &&
+    sameGraphBooks(previousProps.books, nextProps.books) &&
+    sameInterestMap(previousProps.interests, nextProps.interests),
+);
+
 export default function App() {
   const [books, setBooks] = useState<Book[]>([]);
   const [draft, setDraft] = useState<BookDraft>(createDraft());
@@ -1476,7 +1552,7 @@ export default function App() {
     };
   }, []);
 
-  function toggleInterestPathTag(tag: string) {
+  const toggleInterestPathTag = useCallback((tag: string) => {
     setSelectedInterestPath((current) => {
       const existingIndex = current.indexOf(tag);
 
@@ -1486,7 +1562,7 @@ export default function App() {
 
       return current.filter((currentTag) => currentTag !== tag);
     });
-  }
+  }, []);
 
   const rankedBooks = useMemo<RankedBook[]>(() => {
     return books
