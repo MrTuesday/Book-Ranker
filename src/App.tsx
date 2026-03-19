@@ -296,6 +296,18 @@ function sameInterestMap(
   return true;
 }
 
+function matchesSelectedGenres(
+  genres: string[],
+  selectedGenres: string[],
+) {
+  if (selectedGenres.length === 0) {
+    return true;
+  }
+
+  const genreSet = new Set(uniqueTags(genres));
+  return selectedGenres.every((genre) => genreSet.has(genre));
+}
+
 function ProgressBar({
   value,
   onChange,
@@ -1632,6 +1644,24 @@ export default function App() {
       .map((book, index) => ({ ...book, rank: index + 1 }));
   }, [books, genreInterests, authorExperiences]);
 
+  const visibleRankedBooks = useMemo(
+    () =>
+      rankedBooks.filter((book) =>
+        matchesSelectedGenres(book.genres, selectedInterestPath),
+      ),
+    [rankedBooks, selectedInterestPath],
+  );
+
+  const visibleReadBooks = useMemo(
+    () =>
+      readBooks.filter((book) =>
+        matchesSelectedGenres(book.genres, selectedInterestPath),
+      ),
+    [readBooks, selectedInterestPath],
+  );
+
+  const hasSelectedNodeFilter = selectedInterestPath.length > 0;
+
   const isEditing = editingBookId !== null;
 
   const knownGenres = useMemo(() => {
@@ -2272,7 +2302,7 @@ export default function App() {
 
   async function clearDisplayedList() {
     setErrorMessage(null);
-    const targets = showArchive ? readBooks : rankedBooks;
+    const targets = showArchive ? visibleReadBooks : visibleRankedBooks;
     try {
       for (const book of targets) {
         await deleteBookRecord(book.id);
@@ -2432,8 +2462,12 @@ export default function App() {
               <div className="empty-state">
                 No books yet. Add your first book to get started.
               </div>
+            ) : visibleRankedBooks.length === 0 ? (
+              <div className="empty-state">
+                No books in your reading list match the selected nodes.
+              </div>
             ) : (
-              rankedBooks.map((book, index) => {
+              visibleRankedBooks.map((book, index) => {
                 const isDeleting = pendingDeleteId === book.id;
                 const rankClass =
                   book.rank === 1
@@ -2534,8 +2568,12 @@ export default function App() {
               <div className="ranking-list">
                 {readBooks.length === 0 ? (
                   <div className="empty-state">No read books yet.</div>
+                ) : visibleReadBooks.length === 0 ? (
+                  <div className="empty-state">
+                    No rereads match the selected nodes.
+                  </div>
                 ) : (
-                  readBooks.map((book) => {
+                  visibleReadBooks.map((book) => {
                     const isDeleting = pendingDeleteId === book.id;
                     const rankClass =
                       book.rank === 1
@@ -2641,12 +2679,21 @@ export default function App() {
               type="button"
               className="archive-toggle icon-btn-danger"
               onClick={() => {
-                const count = showArchive ? readBooks.length : rankedBooks.length;
-                if (count > 0 && window.confirm(`Delete all ${count} ${showArchive ? "archived" : "ranked"} books?`)) {
+                const count = showArchive ? visibleReadBooks.length : visibleRankedBooks.length;
+                const scope = hasSelectedNodeFilter ? "displayed " : "";
+                if (count > 0 && window.confirm(`Delete all ${count} ${scope}${showArchive ? "archived" : "ranked"} books?`)) {
                   void clearDisplayedList();
                 }
               }}
-              title={showArchive ? "Delete all archived books" : "Delete all ranked books"}
+              title={
+                hasSelectedNodeFilter
+                  ? showArchive
+                    ? "Delete all displayed archived books"
+                    : "Delete all displayed ranked books"
+                  : showArchive
+                    ? "Delete all archived books"
+                    : "Delete all ranked books"
+              }
             >
               <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M5 2V1h6v1h4v2H1V2h4zm1 4h1v7H6V6zm3 0h1v7H9V6zM2 5h12l-1 10H3L2 5z"/></svg>
             </button>
