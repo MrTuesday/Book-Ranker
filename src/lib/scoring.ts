@@ -7,6 +7,8 @@ export const ARCHIVE_NOT_YET_MAX = 1.75;
 export const ARCHIVE_SOON_MAX = 2.75;
 export const ARCHIVE_READY_MAX = 3.5;
 export const ARCHIVE_DUE_MAX = 4.25;
+export const ARCHIVE_AVOID_MAX =
+  ARCHIVE_DUE_MAX * ARCHIVE_SCORE_FLOOR - 0.01;
 
 export function bayesianScore(R: number, v: number, C: number, m: number) {
   return (v / (v + m)) * R + (m / (v + m)) * C;
@@ -95,8 +97,8 @@ export function realizeArchiveScore(
 }
 
 export function capArchiveScore(realizedScore: number, fullScore: number) {
-  if (fullScore < ARCHIVE_READY_MAX) {
-    return Math.min(realizedScore, ARCHIVE_NOT_YET_MAX - 0.01);
+  if (fullScore < ARCHIVE_DUE_MAX) {
+    return Math.min(realizedScore, ARCHIVE_AVOID_MAX);
   }
 
   return realizedScore;
@@ -106,7 +108,7 @@ export function archiveReadinessFromScores(
   realizedScore: number,
   fullScore: number,
 ) {
-  if (fullScore < ARCHIVE_READY_MAX) {
+  if (fullScore < ARCHIVE_DUE_MAX) {
     return { label: "Avoid", tone: "avoid" as const };
   }
 
