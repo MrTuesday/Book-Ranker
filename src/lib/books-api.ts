@@ -8,6 +8,7 @@ export type Book = {
   myRating?: number;
   progress?: number;
   read?: boolean;
+  readCount?: number;
 };
 
 type LegacyBook = Partial<Book> & {
@@ -22,7 +23,135 @@ export type BookPayload = Omit<Book, "id">;
 const STORAGE_KEY = "book-ranker.books.v1";
 const GENRE_INTEREST_KEY = "book-ranker.genre-interests.v1";
 const AUTHOR_EXP_KEY = "book-ranker.author-experiences.v1";
-const seededBooks: Book[] = [];
+const seededBooks: Book[] = [
+  {
+    id: 1,
+    title: "The Left Hand of Darkness",
+    authors: ["Ursula K. Le Guin"],
+    genres: ["Science Fiction", "Political", "Classic"],
+    starRating: 4.1,
+    ratingCount: 358000,
+    progress: 70,
+  },
+  {
+    id: 2,
+    title: "Piranesi",
+    authors: ["Susanna Clarke"],
+    genres: ["Fantasy", "Mystery", "Literary"],
+    starRating: 4.2,
+    ratingCount: 312000,
+    myRating: 5,
+    progress: 40,
+  },
+  {
+    id: 3,
+    title: "The Fifth Season",
+    authors: ["N. K. Jemisin"],
+    genres: ["Fantasy", "Science Fiction", "Apocalyptic"],
+    starRating: 4.3,
+    ratingCount: 289000,
+    myRating: 4,
+    progress: 20,
+  },
+  {
+    id: 4,
+    title: "A Visit from the Goon Squad",
+    authors: ["Jennifer Egan"],
+    genres: ["Literary", "Experimental", "Contemporary"],
+    starRating: 3.9,
+    ratingCount: 146000,
+    progress: 10,
+  },
+  {
+    id: 5,
+    title: "The Name of the Rose",
+    authors: ["Umberto Eco"],
+    genres: ["Historical", "Mystery", "Classic"],
+    starRating: 4,
+    ratingCount: 163000,
+    myRating: 4,
+    progress: 55,
+  },
+  {
+    id: 6,
+    title: "Sea of Tranquility",
+    authors: ["Emily St. John Mandel"],
+    genres: ["Science Fiction", "Literary", "Time Travel"],
+    starRating: 4.1,
+    ratingCount: 228000,
+    progress: 30,
+  },
+  {
+    id: 7,
+    title: "Tomorrow, and Tomorrow, and Tomorrow",
+    authors: ["Gabrielle Zevin"],
+    genres: ["Contemporary", "Literary", "Friendship"],
+    starRating: 4.2,
+    ratingCount: 694000,
+    myRating: 5,
+    progress: 80,
+  },
+  {
+    id: 8,
+    title: "Kindred",
+    authors: ["Octavia E. Butler"],
+    genres: ["Science Fiction", "Historical", "Classic"],
+    starRating: 4.3,
+    ratingCount: 423000,
+    myRating: 5,
+    progress: 100,
+    read: true,
+    readCount: 1,
+  },
+  {
+    id: 9,
+    title: "Station Eleven",
+    authors: ["Emily St. John Mandel"],
+    genres: ["Apocalyptic", "Literary", "Science Fiction"],
+    starRating: 4.1,
+    ratingCount: 518000,
+    myRating: 4,
+    progress: 100,
+    read: true,
+    readCount: 2,
+  },
+  {
+    id: 10,
+    title: "The Goldfinch",
+    authors: ["Donna Tartt"],
+    genres: ["Literary", "Coming-of-Age", "Drama"],
+    starRating: 3.9,
+    ratingCount: 819000,
+    myRating: 3,
+    progress: 100,
+    read: true,
+    readCount: 1,
+  },
+  {
+    id: 11,
+    title: "Never Let Me Go",
+    authors: ["Kazuo Ishiguro"],
+    genres: ["Literary", "Science Fiction", "Dystopian"],
+    starRating: 3.8,
+    ratingCount: 621000,
+    myRating: 5,
+    progress: 100,
+    read: true,
+    readCount: 2,
+  },
+  {
+    id: 12,
+    title: "The City & the City",
+    authors: ["China Mieville"],
+    genres: ["Mystery", "Fantasy", "Political"],
+    starRating: 3.9,
+    ratingCount: 82000,
+    myRating: 4,
+    progress: 100,
+    read: true,
+    readCount: 1,
+  },
+];
 
 function cloneBooks(books: Book[]) {
   return books.map((book) => ({
@@ -67,6 +196,26 @@ function normalizeTagList(value: unknown) {
   return Array.from(seen);
 }
 
+function normalizeReadCount(
+  read: boolean | undefined,
+  progress: number | undefined,
+  readCount: number | undefined,
+) {
+  if (!read) {
+    return readCount;
+  }
+
+  if (readCount != null && readCount > 0) {
+    return readCount;
+  }
+
+  if (progress != null && progress < 100) {
+    return 0;
+  }
+
+  return 1;
+}
+
 function normalizeBook(value: unknown): Book | null {
   const book = value as LegacyBook | null;
   const title = typeof book?.title === "string" ? book.title.trim() : "";
@@ -93,6 +242,12 @@ function normalizeBook(value: unknown): Book | null {
       : undefined;
   const rawRead = (book as Record<string, unknown>)?.read;
   const read = rawRead === true ? true : undefined;
+  const rawReadCount = (book as Record<string, unknown>)?.readCount;
+  const parsedReadCount =
+    rawReadCount != null && Number.isFinite(Number(rawReadCount))
+      ? Math.max(0, Math.floor(Number(rawReadCount)))
+      : undefined;
+  const readCount = normalizeReadCount(read, progress, parsedReadCount);
   const authors = normalizeTagList(book?.authors ?? book?.author);
   const genres = normalizeTagList(book?.genres ?? book?.genre);
 
@@ -116,6 +271,7 @@ function normalizeBook(value: unknown): Book | null {
     ...(myRating != null ? { myRating } : {}),
     ...(progress != null ? { progress } : {}),
     ...(read != null ? { read } : {}),
+    ...(readCount != null ? { readCount } : {}),
   };
 }
 
@@ -169,6 +325,12 @@ function parsePayload(
 
   const rawRead = (value as Record<string, unknown>)?.read;
   const read = rawRead === true ? true : undefined;
+  const rawReadCount = (value as Record<string, unknown>)?.readCount;
+  const parsedReadCount =
+    rawReadCount != null && Number.isFinite(Number(rawReadCount))
+      ? Math.max(0, Math.floor(Number(rawReadCount)))
+      : undefined;
+  const readCount = normalizeReadCount(read, progress, parsedReadCount);
 
   const authors = normalizeTagList(value?.authors ?? value?.author);
   const genres = normalizeTagList(value?.genres ?? value?.genre);
@@ -182,6 +344,7 @@ function parsePayload(
     ...(myRating != null ? { myRating } : {}),
     ...(progress != null ? { progress } : {}),
     ...(read != null ? { read } : {}),
+    ...(readCount != null ? { readCount } : {}),
   };
 }
 
@@ -202,6 +365,10 @@ function readBooks() {
     const parsed = JSON.parse(raw) as unknown;
 
     if (Array.isArray(parsed)) {
+      if (parsed.length === 0) {
+        return seedBooks(storage);
+      }
+
       const books = parsed
         .map(normalizeBook)
         .filter((book): book is Book => book !== null);

@@ -5,6 +5,7 @@ export function formatScore(value: number) {
 }
 
 export type BookCardProps = {
+  itemId?: number;
   rank?: number;
   title: string;
   authors: string[];
@@ -19,6 +20,8 @@ export type BookCardProps = {
   scoreOverride?: ReactNode;
   /** Reading progress bar — only shown when provided */
   progressBar?: ReactNode;
+  /** Inline control row shown under the author line */
+  subMeta?: ReactNode;
   /** Star rating row (my-rating) — only shown when provided */
   stars?: ReactNode;
   /** Action buttons (edit / remove) — only shown when provided */
@@ -26,6 +29,7 @@ export type BookCardProps = {
 };
 
 export function BookCard({
+  itemId,
   rank,
   title,
   authors,
@@ -35,16 +39,20 @@ export function BookCard({
   rankClass = "",
   scoreOverride,
   progressBar,
+  subMeta,
   stars,
   actions,
 }: BookCardProps) {
+  const cardStyle = animationDelay ? { animationDelay } : undefined;
+
   return (
     <article
       className={`ranking-row${className ? ` ${className}` : ""}`}
-      style={animationDelay ? { animationDelay } : undefined}
+      data-book-id={itemId}
+      style={cardStyle}
     >
       <div className="ranking-body">
-        <div className="ranking-topline">
+        <div className={`ranking-topline${rank != null ? " has-rank" : ""}`}>
           {rank != null ? (
             <div className={`rank-badge${rankClass ? ` ${rankClass}` : ""}`}>
               #{rank}
@@ -55,13 +63,24 @@ export function BookCard({
             <p className="ranking-author">
               {authors.join(", ") || "Unknown author"}
             </p>
-            {stars}
           </div>
           <strong className="score-value">
             {scoreOverride ?? formatScore(score)}
           </strong>
+          {progressBar ? (
+            <div
+              className={`ranking-progress-row${rank != null ? " has-rank" : ""}`}
+            >
+              {progressBar}
+            </div>
+          ) : null}
+          {stars || subMeta ? (
+            <div className={`ranking-detail-row${rank != null ? " has-rank" : ""}`}>
+              {stars}
+              {subMeta}
+            </div>
+          ) : null}
         </div>
-        {progressBar}
         {actions ? (
           <div className="ranking-meta">
             <span className="ranking-actions">{actions}</span>

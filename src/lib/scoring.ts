@@ -1,5 +1,6 @@
 export const GLOBAL_MEAN = 3.8;
 export const SMOOTHING_FACTOR = 500;
+export const REREAD_DECAY = 0.65;
 
 export function bayesianScore(R: number, v: number, C: number, m: number) {
   return (v / (v + m)) * R + (m / (v + m)) * C;
@@ -34,15 +35,39 @@ export function tagPreferences(
   return tags.map((tag) => scores[tag] ?? 3);
 }
 
+function decayedReadWeight(readCount: number, decay = REREAD_DECAY) {
+  if (readCount <= 0) {
+    return 0;
+  }
+
+  if (decay <= 0) {
+    return 1;
+  }
+
+  if (decay === 1) {
+    return readCount;
+  }
+
+  return (1 - decay ** readCount) / (1 - decay);
+}
+
 /**
  * Score a book by blending the predictive score (from public ratings and
- * user preference signals) with the personal rating weighted by reading
- * progress.
+ * user preference signals) with the personal rating weighted first by current
+ * reading progress, then further by prior full reads.
  *
- * - Read portion (progress %) → myRating (personal experience)
- * - Unread portion (1 − progress %) → predictive score
+ * Base score:
+ * - 1 portion → predictive score
+ * - progress % portion → myRating (current experience)
+ * - current progress tilts the base toward myRating without removing
+ *   predictive scoring entirely
+ *
+ * Final score:
+ * - 0 prior reads → base score
+ * - R prior reads → a decayed reread weight (1 + decay + decay² ...)
+ * - decayed reread weight → myRating (personal experience)
+ * - 1 portion → base score
  * - No myRating → pure predictive score
- * - myRating without progress → no read portion (0%), pure predictive
  */
 export function scoreBook(
   bayesian: number,
@@ -50,6 +75,7 @@ export function scoreBook(
   genrePref: number,
   myRating?: number,
   progress?: number,
+  readCount = 0,
 ) {
   const predictive = compositeScore(bayesian, authorPref, genrePref);
 
@@ -57,6 +83,13 @@ export function scoreBook(
     return predictive;
   }
 
-  const t = (progress ?? 0) / 100;
-  return t * myRating + (1 - t) * predictive;
+  const progressWeight = Math.max(0, Math.min(100, progress ?? 0)) / 100;
+  const baseScore = (predictive + progressWeight * myRating) / (1 + progressWeight);
+
+  if (readCount <= 0) {
+    return baseScore;
+  }
+
+  const rereadWeight = decayedReadWeight(readCount);
+  return (rereadWeight * myRating + baseScore) / (rereadWeight + 1);
 }

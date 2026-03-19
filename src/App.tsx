@@ -5,6 +5,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -43,6 +44,7 @@ import { BookCard } from "./components/BookCard";
 
 type BookDraft = {
   title: string;
+  readCount: number;
   starRating: string;
   ratingCount: string;
   authorInput: string;
@@ -85,6 +87,7 @@ const MAX_SUGGESTIONS = 6;
 function createDraft(): BookDraft {
   return {
     title: "",
+    readCount: 0,
     starRating: "",
     ratingCount: "",
     authorInput: "",
@@ -302,6 +305,121 @@ function RatingButtons({
         </button>
       ))}
     </div>
+  );
+}
+
+function ReadCountStepper({
+  value,
+  onIncrement,
+  onDecrement,
+  disabled = false,
+}: {
+  value: number;
+  onIncrement: () => void;
+  onDecrement: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="read-count-stepper" role="group" aria-label="Read count">
+      <button
+        type="button"
+        className="icon-btn read-count-stepper-btn"
+        onClick={onDecrement}
+        disabled={disabled || value === 0}
+        aria-label={
+          value === 0 ? "Read count is already 0" : `Decrease read count from ${value}`
+        }
+        title="Decrease read count"
+      >
+        -
+      </button>
+      <span
+        className={`read-count-value${value > 0 ? " has-reads" : ""}`}
+        aria-label={value === 1 ? "Read 1 time" : `Read ${value} times`}
+        title={value === 1 ? "Read 1 time" : `Read ${value} times`}
+      >
+        {value}
+      </span>
+      <button
+        type="button"
+        className="icon-btn read-count-stepper-btn"
+        onClick={onIncrement}
+        disabled={disabled}
+        aria-label={
+          value === 1 ? "Increase read count from 1" : `Increase read count from ${value}`
+        }
+        title="Increase read count"
+      >
+        +
+      </button>
+    </div>
+  );
+}
+
+function BookActionIcon() {
+  return (
+    <svg
+      className="book-state-icon"
+      viewBox="0 0 16 16"
+      width="16"
+      height="16"
+      fill="none"
+      aria-hidden="true"
+    >
+      <g className="book-icon-open">
+        <path
+          d="M8 4.35C6.65 3.55 5 3.15 3.3 3.15v8.3c1.7 0 3.35.4 4.7 1.2"
+          stroke="currentColor"
+          strokeWidth="1.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M8 4.35C9.35 3.55 11 3.15 12.7 3.15v8.3c-1.7 0-3.35.4-4.7 1.2"
+          stroke="currentColor"
+          strokeWidth="1.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M8 4.35v8.3"
+          stroke="currentColor"
+          strokeWidth="1.2"
+          strokeLinecap="round"
+          opacity="0.85"
+        />
+        <path
+          d="M4.35 5.55h2.1M4.35 7h2.1M9.55 5.55h2.1M9.55 7h2.1"
+          stroke="currentColor"
+          strokeWidth="1"
+          strokeLinecap="round"
+          opacity="0.34"
+        />
+      </g>
+      <g className="book-icon-closed">
+        <path
+          d="M4.1 3.2h6.15a1.35 1.35 0 0 1 1.35 1.35v8.15H5.45A1.35 1.35 0 0 0 4.1 14.05z"
+          stroke="currentColor"
+          strokeWidth="1.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M4.1 3.2v10.85"
+          stroke="currentColor"
+          strokeWidth="1.2"
+          strokeLinecap="round"
+          opacity="0.9"
+        />
+        <path
+          d="M5.55 5.15h4.35M5.55 6.7h4.35M5.55 8.25h3.55"
+          stroke="currentColor"
+          strokeWidth="1"
+          strokeLinecap="round"
+          opacity="0.34"
+        />
+      </g>
+    </svg>
   );
 }
 
@@ -1223,6 +1341,106 @@ export default function App() {
   const [graphAddGenreInput, setGraphAddGenreInput] = useState("");
   const [graphAddGenreRating, setGraphAddGenreRating] = useState<number | null>(null);
   const [graphEditingNode, setGraphEditingNode] = useState<{ tag: string; screenX: number; screenY: number } | null>(null);
+  const leftColumnRef = useRef<HTMLElement | null>(null);
+  const pendingBookRectsRef = useRef<Map<number, DOMRect> | null>(null);
+
+  const captureVisibleBookRects = useCallback(() => {
+    const rects = new Map<number, DOMRect>();
+    const cards = leftColumnRef.current?.querySelectorAll<HTMLElement>(
+      ".ranking-row[data-book-id]",
+    );
+
+    cards?.forEach((card) => {
+      const id = Number(card.dataset.bookId);
+
+      if (Number.isFinite(id)) {
+        rects.set(id, card.getBoundingClientRect());
+      }
+    });
+
+    return rects;
+  }, []);
+
+  const applyBooksUpdate = useCallback(
+    (nextBooks: Book[]) => {
+      pendingBookRectsRef.current = captureVisibleBookRects();
+      setBooks(nextBooks);
+    },
+    [captureVisibleBookRects],
+  );
+
+  useLayoutEffect(() => {
+    const previousRects = pendingBookRectsRef.current;
+
+    if (!previousRects || previousRects.size === 0) {
+      pendingBookRectsRef.current = null;
+      return;
+    }
+
+    pendingBookRectsRef.current = null;
+
+    const cards = leftColumnRef.current?.querySelectorAll<HTMLElement>(
+      ".ranking-row[data-book-id]",
+    );
+
+    if (!cards || cards.length === 0) {
+      return;
+    }
+
+    const animatedCards: HTMLElement[] = [];
+
+    cards.forEach((card) => {
+      const id = Number(card.dataset.bookId);
+      const previousRect = previousRects.get(id);
+
+      if (!previousRect) {
+        return;
+      }
+
+      const nextRect = card.getBoundingClientRect();
+      const deltaX = previousRect.left - nextRect.left;
+      const deltaY = previousRect.top - nextRect.top;
+
+      if (Math.abs(deltaX) < 0.5 && Math.abs(deltaY) < 0.5) {
+        return;
+      }
+
+      card.style.transition = "none";
+      card.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
+      card.style.willChange = "transform";
+      animatedCards.push(card);
+    });
+
+    if (animatedCards.length === 0) {
+      return;
+    }
+
+    void document.body.offsetHeight;
+
+    const cleanup = () => {
+      animatedCards.forEach((card) => {
+        card.style.removeProperty("transition");
+        card.style.removeProperty("transform");
+        card.style.removeProperty("will-change");
+      });
+    };
+
+    const frameId = window.requestAnimationFrame(() => {
+      animatedCards.forEach((card) => {
+        card.style.transition =
+          "transform 720ms cubic-bezier(0.22, 1, 0.36, 1)";
+        card.style.transform = "translate(0, 0)";
+      });
+    });
+
+    const timeoutId = window.setTimeout(cleanup, 800);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.clearTimeout(timeoutId);
+      cleanup();
+    };
+  }, [books, showArchive]);
 
   useEffect(() => {
     let isActive = true;
@@ -1281,7 +1499,14 @@ export default function App() {
         const bScore = bayesianScore(R, v, GLOBAL_MEAN, SMOOTHING_FACTOR);
         return {
           ...book,
-          score: scoreBook(bScore, authorPref, genrePref, book.myRating, book.progress),
+          score: scoreBook(
+            bScore,
+            authorPref,
+            genrePref,
+            book.myRating,
+            book.progress,
+            book.readCount ?? 0,
+          ),
           rank: 0,
         };
       })
@@ -1297,13 +1522,39 @@ export default function App() {
       .map((book, index) => ({ ...book, rank: index + 1 }));
   }, [books, genreInterests, authorExperiences]);
 
-  const readBooks = useMemo(
-    () =>
-      books
-        .filter((book) => book.read)
-        .sort((a, b) => b.id - a.id),
-    [books],
-  );
+  const readBooks = useMemo<RankedBook[]>(() => {
+    return books
+      .filter((book) => book.read)
+      .map((book) => {
+        const authorPref = averageTagPreference(book.authors, authorExperiences);
+        const genrePref = averageTagPreference(book.genres, genreInterests);
+        const R = book.starRating ?? GLOBAL_MEAN;
+        const v = book.ratingCount ?? 0;
+        const bScore = bayesianScore(R, v, GLOBAL_MEAN, SMOOTHING_FACTOR);
+        return {
+          ...book,
+          score: scoreBook(
+            bScore,
+            authorPref,
+            genrePref,
+            book.myRating,
+            book.progress,
+            book.readCount ?? 0,
+          ),
+          rank: 0,
+        };
+      })
+      .sort((a, b) => {
+        if (b.score !== a.score) {
+          return b.score - a.score;
+        }
+        if ((b.starRating ?? 0) !== (a.starRating ?? 0)) {
+          return (b.starRating ?? 0) - (a.starRating ?? 0);
+        }
+        return (b.ratingCount ?? 0) - (a.ratingCount ?? 0);
+      })
+      .map((book, index) => ({ ...book, rank: index + 1 }));
+  }, [books, genreInterests, authorExperiences]);
 
   const isEditing = editingBookId !== null;
 
@@ -1791,6 +2042,7 @@ export default function App() {
     setActiveTagActionMenu(null);
     setDraft({
       title: book.title,
+      readCount: book.readCount ?? 0,
       starRating: book.starRating != null ? String(book.starRating) : "",
       ratingCount: book.ratingCount != null ? String(book.ratingCount) : "",
       authorInput: "",
@@ -1832,6 +2084,7 @@ export default function App() {
         genres: draft.genres,
         progress: parsedProgress,
         myRating: draft.myRating ?? undefined,
+        readCount: draft.readCount,
         ...(draft.markAsRead ? { read: true as const } : {}),
       };
 
@@ -1857,7 +2110,7 @@ export default function App() {
         ? await updateBookRecord(editingBookId, payload)
         : await createBookRecord(payload);
 
-      setBooks(nextBooks);
+      applyBooksUpdate(nextBooks);
       resetDraft();
     } catch (error) {
       setErrorMessage(messageFromError(error));
@@ -1881,7 +2134,7 @@ export default function App() {
         const nextBooks = await renameAuthorInBooks(tag, "");
         const nextExps = deleteAuthorExperience(tag);
 
-        setBooks(nextBooks);
+        applyBooksUpdate(nextBooks);
         setAuthorExperiences(nextExps);
         setDraft((current) => ({
           ...current,
@@ -1900,7 +2153,7 @@ export default function App() {
         const nextBooks = await renameGenreInBooks(tag, "");
         const nextInterests = deleteGenreInterest(tag);
 
-        setBooks(nextBooks);
+        applyBooksUpdate(nextBooks);
         setGenreInterests(nextInterests);
         setDraft((current) => ({
           ...current,
@@ -1929,7 +2182,7 @@ export default function App() {
 
     try {
       const nextBooks = await deleteBookRecord(id);
-      setBooks(nextBooks);
+      applyBooksUpdate(nextBooks);
 
       if (editingBookId === id) {
         resetDraft();
@@ -1949,7 +2202,7 @@ export default function App() {
         await deleteBookRecord(book.id);
       }
       const nextBooks = await fetchBooks();
-      setBooks(nextBooks);
+      applyBooksUpdate(nextBooks);
       if (editingBookId != null && targets.some((b) => b.id === editingBookId)) {
         resetDraft();
       }
@@ -1963,11 +2216,44 @@ export default function App() {
     try {
       const book = books.find((b) => b.id === id);
       if (!book) return;
-      const nextBooks = await updateBookRecord(id, { ...book, read });
-      setBooks(nextBooks);
+      const nextBooks = await updateBookRecord(id, {
+        ...book,
+        read,
+      });
+      applyBooksUpdate(nextBooks);
     } catch (error) {
       setErrorMessage(messageFromError(error));
     }
+  }
+
+  async function setReadCount(bookId: number, value: number) {
+    const book = books.find((b) => b.id === bookId);
+    if (!book) return;
+
+    try {
+      const nextValue = Math.max(0, Math.floor(value));
+      const updated = await updateBookRecord(bookId, {
+        ...book,
+        readCount: nextValue,
+      });
+      applyBooksUpdate(updated);
+    } catch {
+      // silently ignore
+    }
+  }
+
+  async function incrementReadCount(bookId: number) {
+    const book = books.find((b) => b.id === bookId);
+    if (!book) return;
+
+    await setReadCount(bookId, (book.readCount ?? 0) + 1);
+  }
+
+  async function decrementReadCount(bookId: number) {
+    const book = books.find((b) => b.id === bookId);
+    if (!book) return;
+
+    await setReadCount(bookId, (book.readCount ?? 0) - 1);
   }
 
   // Auto-build reading list when 2+ nodes are selected
@@ -2024,7 +2310,7 @@ export default function App() {
         ...book,
         myRating: newRating,
       });
-      setBooks(updated);
+      applyBooksUpdate(updated);
     } catch {
       // silently ignore
     }
@@ -2038,7 +2324,7 @@ export default function App() {
         ...book,
         progress: value,
       });
-      setBooks(updated);
+      applyBooksUpdate(updated);
     } catch {
       // silently ignore
     }
@@ -2057,9 +2343,12 @@ export default function App() {
     <main className="app-shell">
       <div className="app-layout">
         {/* ── Left column: reading list ── */}
-        <aside className="left-column">
+        <aside ref={leftColumnRef} className="left-column">
         {!showArchive ? (
         <section className="board">
+          <header className="list-header">
+            <h2>Reading list</h2>
+          </header>
           <div className="ranking-list">
             {isLoading ? (
               <div className="empty-state">Loading your rankings...</div>
@@ -2082,6 +2371,7 @@ export default function App() {
                 return (
                   <BookCard
                     key={book.id}
+                    itemId={book.id}
                     rank={book.rank}
                     title={book.title}
                     authors={book.authors}
@@ -2095,6 +2385,14 @@ export default function App() {
                         onChange={(pct) =>
                           void updateProgress(book.id, pct === 0 ? undefined : pct)
                         }
+                      />
+                    }
+                    subMeta={
+                      <ReadCountStepper
+                        value={book.readCount ?? 0}
+                        onIncrement={() => void incrementReadCount(book.id)}
+                        onDecrement={() => void decrementReadCount(book.id)}
+                        disabled={isSaving || isDeleting}
                       />
                     }
                     stars={
@@ -2136,13 +2434,13 @@ export default function App() {
                         </button>
                         <button
                           type="button"
-                          className="icon-btn"
+                          className="icon-btn book-state-btn is-open-default"
                           onClick={() => void toggleBookRead(book.id, true)}
                           disabled={isSaving || isDeleting}
                           aria-label="Mark as read"
                           title="Mark as read"
                         >
-                          {"\u2713"}
+                          <BookActionIcon />
                         </button>
                       </>
                     }
@@ -2154,19 +2452,33 @@ export default function App() {
         </section>
         ) : (
             <section className="board archive-list">
+              <header className="list-header">
+                <h2>Recommended rereads</h2>
+              </header>
               <div className="ranking-list">
                 {readBooks.length === 0 ? (
                   <div className="empty-state">No read books yet.</div>
                 ) : (
                   readBooks.map((book) => {
                     const isDeleting = pendingDeleteId === book.id;
+                    const rankClass =
+                      book.rank === 1
+                        ? "rank-gold"
+                        : book.rank === 2
+                          ? "rank-silver"
+                          : book.rank === 3
+                            ? "rank-bronze"
+                            : "";
+
                     return (
                       <BookCard
                         key={book.id}
+                        itemId={book.id}
+                        rank={book.rank}
                         title={book.title}
                         authors={book.authors}
-                        score={0}
-                        scoreOverride={"\u2713"}
+                        score={book.score}
+                        rankClass={rankClass}
                         className="is-read"
                         progressBar={
                           <ProgressBar
@@ -2174,6 +2486,14 @@ export default function App() {
                             onChange={(pct) =>
                               void updateProgress(book.id, pct === 0 ? undefined : pct)
                             }
+                          />
+                        }
+                        subMeta={
+                          <ReadCountStepper
+                            value={book.readCount ?? 0}
+                            onIncrement={() => void incrementReadCount(book.id)}
+                            onDecrement={() => void decrementReadCount(book.id)}
+                            disabled={isSaving || isDeleting}
                           />
                         }
                         stars={
@@ -2215,13 +2535,13 @@ export default function App() {
                             </button>
                             <button
                               type="button"
-                              className="icon-btn"
+                              className="icon-btn book-state-btn is-closed-default"
                               onClick={() => void toggleBookRead(book.id, false)}
                               disabled={isSaving || isDeleting}
-                              aria-label="Move back to list"
-                              title="Move back to list"
+                              aria-label="Reread this book"
+                              title="Reread this book"
                             >
-                              {"\u21A9"}
+                              <BookActionIcon />
                             </button>
                           </>
                         }
@@ -2350,7 +2670,7 @@ export default function App() {
                   const oldName = graphEditingNode.tag;
                   if (newName && newName !== oldName) {
                     renameGenreInBooks(oldName, newName).then((nextBooks) => {
-                      setBooks(nextBooks);
+                      applyBooksUpdate(nextBooks);
                     });
                     const nextInterests = renameGenreInterest(oldName, newName);
                     setGenreInterests(nextInterests);
@@ -2837,6 +3157,25 @@ export default function App() {
               />
             </div>
 
+            <div className="field entry-read-count">
+              <span>Times read before</span>
+              <ReadCountStepper
+                value={draft.readCount}
+                onIncrement={() =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    readCount: prev.readCount + 1,
+                  }))
+                }
+                onDecrement={() =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    readCount: Math.max(0, prev.readCount - 1),
+                  }))
+                }
+              />
+            </div>
+
             <div className="field entry-my-rating">
               <span>My rating</span>
               <span className="my-rating-stars">
@@ -2908,9 +3247,19 @@ export default function App() {
                     if (form) form.requestSubmit();
                   }, 0);
                 }}
+                aria-label="Add to archive as read"
                 title="Add to archive as read"
               >
-                {"\u2713"}
+                <svg
+                  className="archive-icon"
+                  viewBox="0 0 16 16"
+                  width="16"
+                  height="16"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path d="M1 2h14v3H1zm1 4h12v8H2zm4 2v1h4V8z" />
+                </svg>
               </button>
               <button
                 type="submit"
