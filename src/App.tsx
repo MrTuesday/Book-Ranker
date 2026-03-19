@@ -504,6 +504,21 @@ function BookActionIcon() {
   );
 }
 
+function ArchiveShelfIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 16 16"
+      width="16"
+      height="16"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M2 2.3h1.9v9H2zM5.2 1.4h1.9v9.9H5.2zM8.4 3.1h1.9v8.2H8.4zM11.6 2.6h1.9v8.7h-1.9zM1.4 13.1h13.2v1.5H1.4z" />
+    </svg>
+  );
+}
+
 type InterestMapProps = {
   books: Book[];
   interests: GenreInterestMap;
@@ -2760,7 +2775,7 @@ export default function App() {
             >
               {showArchive
                 ? <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M10 2L4 8l6 6V2z"/></svg>
-                : <svg className="archive-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor"><path d="M1 2h14v3H1zm1 4h12v8H2zm4 2v1h4V8z"/></svg>}
+                : <ArchiveShelfIcon className="archive-icon" />}
             </button>
             </div>
           </div>
@@ -3454,16 +3469,7 @@ export default function App() {
                 aria-label="Add to archive as read"
                 title="Add to archive as read"
               >
-                <svg
-                  className="archive-icon"
-                  viewBox="0 0 16 16"
-                  width="16"
-                  height="16"
-                  fill="currentColor"
-                  aria-hidden="true"
-                >
-                  <path d="M1 2h14v3H1zm1 4h12v8H2zm4 2v1h4V8z" />
-                </svg>
+                <ArchiveShelfIcon className="archive-icon" />
               </button>
               <button
                 type="submit"
