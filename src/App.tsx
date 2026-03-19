@@ -1436,6 +1436,7 @@ export default function App() {
   const [graphAddGenreRating, setGraphAddGenreRating] = useState<number | null>(null);
   const [graphEditingNode, setGraphEditingNode] = useState<{ tag: string; screenX: number; screenY: number } | null>(null);
   const leftColumnRef = useRef<HTMLElement | null>(null);
+  const entryFormRef = useRef<HTMLFormElement | null>(null);
   const pendingBookRectsRef = useRef<Map<number, DOMRect> | null>(null);
 
   const captureVisibleBookRects = useCallback(() => {
@@ -2194,7 +2195,7 @@ export default function App() {
 
   function toggleEditing(book: Book) {
     if (editingBookId === book.id) {
-      resetDraft();
+      entryFormRef.current?.requestSubmit();
       return;
     }
 
@@ -2516,6 +2517,8 @@ export default function App() {
               visibleRankedBooks.map((book, index) => {
                 const isDeleting = pendingDeleteId === book.id;
                 const isEditingBook = editingBookId === book.id;
+                const editActionDisabled =
+                  isSaving || isDeleting || (isEditingBook && !canSubmit);
                 const rankClass =
                   book.rank === 1
                     ? "rank-gold"
@@ -2583,9 +2586,9 @@ export default function App() {
                           type="button"
                           className="icon-btn"
                           onClick={() => toggleEditing(book)}
-                          disabled={isSaving || isDeleting}
-                          aria-label={isEditingBook ? "Done editing" : "Edit"}
-                          title={isEditingBook ? "Done editing" : "Edit"}
+                          disabled={editActionDisabled}
+                          aria-label={isEditingBook ? "Save changes" : "Edit"}
+                          title={isEditingBook ? "Save changes" : "Edit"}
                         >
                           {isEditingBook ? "\u2713" : "\u270E"}
                         </button>
@@ -2623,6 +2626,8 @@ export default function App() {
                   visibleReadBooks.map((book) => {
                     const isDeleting = pendingDeleteId === book.id;
                     const isEditingBook = editingBookId === book.id;
+                    const editActionDisabled =
+                      isSaving || isDeleting || (isEditingBook && !canSubmit);
                     const archiveReadiness = archiveReadinessFromScore(book.score);
                     const rankClass =
                       book.rank === 1
@@ -2691,9 +2696,9 @@ export default function App() {
                               type="button"
                               className="icon-btn"
                               onClick={() => toggleEditing(book)}
-                              disabled={isSaving || isDeleting}
-                              aria-label={isEditingBook ? "Done editing" : "Edit"}
-                              title={isEditingBook ? "Done editing" : "Edit"}
+                              disabled={editActionDisabled}
+                              aria-label={isEditingBook ? "Save changes" : "Edit"}
+                              title={isEditingBook ? "Save changes" : "Edit"}
                             >
                               {isEditingBook ? "\u2713" : "\u270E"}
                             </button>
@@ -2941,7 +2946,7 @@ export default function App() {
             </div>
           ) : null}
 
-          <form className="entry-form" onSubmit={submitBook}>
+          <form ref={entryFormRef} className="entry-form" onSubmit={submitBook}>
             <label className="field entry-title">
               <span>Title</span>
               <input
