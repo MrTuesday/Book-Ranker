@@ -3,6 +3,10 @@ export const SMOOTHING_FACTOR = 500;
 export const REREAD_DECAY = 0.65;
 export const ARCHIVE_SCORE_FLOOR = 0.2;
 export const ARCHIVE_COOLDOWN_YEARS = 10;
+export const ARCHIVE_NOT_YET_MAX = 1.75;
+export const ARCHIVE_SOON_MAX = 2.75;
+export const ARCHIVE_READY_MAX = 3.5;
+export const ARCHIVE_DUE_MAX = 4.25;
 
 export function bayesianScore(R: number, v: number, C: number, m: number) {
   return (v / (v + m)) * R + (m / (v + m)) * C;
@@ -90,22 +94,37 @@ export function realizeArchiveScore(
   );
 }
 
-export function archiveReadinessFromScore(score: number) {
-  const normalizedScore = Math.max(0, Math.min(5, score));
+export function capArchiveScore(realizedScore: number, fullScore: number) {
+  if (fullScore < ARCHIVE_READY_MAX) {
+    return Math.min(realizedScore, ARCHIVE_NOT_YET_MAX - 0.01);
+  }
 
-  if (normalizedScore < 1.75) {
+  return realizedScore;
+}
+
+export function archiveReadinessFromScores(
+  realizedScore: number,
+  fullScore: number,
+) {
+  if (fullScore < ARCHIVE_READY_MAX) {
+    return { label: "Avoid", tone: "avoid" as const };
+  }
+
+  const normalizedScore = Math.max(0, Math.min(5, realizedScore));
+
+  if (normalizedScore < ARCHIVE_NOT_YET_MAX) {
     return { label: "Not yet", tone: "not-yet" as const };
   }
 
-  if (normalizedScore < 2.75) {
+  if (normalizedScore < ARCHIVE_SOON_MAX) {
     return { label: "Soon", tone: "soon" as const };
   }
 
-  if (normalizedScore < 3.5) {
+  if (normalizedScore < ARCHIVE_READY_MAX) {
     return { label: "Ready", tone: "ready" as const };
   }
 
-  if (normalizedScore < 4.25) {
+  if (normalizedScore < ARCHIVE_DUE_MAX) {
     return { label: "Due", tone: "due" as const };
   }
 

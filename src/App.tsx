@@ -31,7 +31,8 @@ import {
   renameAuthorInBooks,
 } from "./lib/books-api";
 import {
-  archiveReadinessFromScore,
+  archiveReadinessFromScores,
+  capArchiveScore,
   GLOBAL_MEAN,
   SMOOTHING_FACTOR,
   bayesianScore,
@@ -69,6 +70,7 @@ type BookDraft = {
 type RankedBook = Book & {
   score: number;
   rank: number;
+  archiveLabel?: string;
 };
 
 type SuggestionField = "author" | "genre";
@@ -1641,7 +1643,7 @@ export default function App() {
         const R = book.starRating ?? GLOBAL_MEAN;
         const v = book.ratingCount ?? 0;
         const bScore = bayesianScore(R, v, GLOBAL_MEAN, SMOOTHING_FACTOR);
-        const score = scoreBook(
+        const fullScore = scoreBook(
           bScore,
           authorPref,
           genrePref,
@@ -1649,13 +1651,17 @@ export default function App() {
           book.progress,
           book.readCount ?? 0,
         );
+        const realizedScore = realizeArchiveScore(
+          fullScore,
+          book.lastReadYear,
+          book.archivedAtYear,
+        );
+        const score = capArchiveScore(realizedScore, fullScore);
+        const archiveReadiness = archiveReadinessFromScores(score, fullScore);
         return {
           ...book,
-          score: realizeArchiveScore(
-            score,
-            book.lastReadYear,
-            book.archivedAtYear,
-          ),
+          score,
+          archiveLabel: archiveReadiness.label,
           rank: 0,
         };
       })
@@ -2643,7 +2649,6 @@ export default function App() {
                     const isEditingBook = editingBookId === book.id;
                     const editActionDisabled =
                       isSaving || isDeleting || (isEditingBook && !canSubmit);
-                    const archiveReadiness = archiveReadinessFromScore(book.score);
                     const rankClass =
                       book.rank === 1
                         ? "rank-gold"
@@ -2661,7 +2666,7 @@ export default function App() {
                         title={book.title}
                         authors={book.authors}
                         score={book.score}
-                        scoreOverride={archiveReadiness.label}
+                        scoreOverride={book.archiveLabel ?? "Not yet"}
                         rankClass={rankClass}
                         className={`is-read${isEditingBook ? " is-editing" : ""}`}
                         progressBar={
