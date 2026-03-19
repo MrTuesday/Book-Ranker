@@ -2563,7 +2563,7 @@ export default function App() {
         ) : (
             <section className="board archive-list">
               <header className="list-header">
-                <h2>Recommended rereads</h2>
+                <h2>Books to revisit</h2>
               </header>
               <div className="ranking-list">
                 {readBooks.length === 0 ? (
