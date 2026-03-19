@@ -31,10 +31,12 @@ import {
   renameAuthorInBooks,
 } from "./lib/books-api";
 import {
+  archiveReadinessFromScore,
   GLOBAL_MEAN,
   SMOOTHING_FACTOR,
   bayesianScore,
   averageTagPreference,
+  realizeArchiveScore,
   scoreBook,
 } from "./lib/scoring";
 import {
@@ -60,6 +62,7 @@ type BookDraft = {
   genreScores: Record<string, string>;
   progress: string;
   myRating: number | null;
+  lastReadYear: string;
   markAsRead: boolean;
 };
 
@@ -84,6 +87,7 @@ type DraftTextField =
   | "progress";
 
 const MAX_SUGGESTIONS = 6;
+const MIN_YEAR_OPTION = 1900;
 
 function createDraft(): BookDraft {
   return {
@@ -103,6 +107,7 @@ function createDraft(): BookDraft {
     genreScores: {},
     progress: "",
     myRating: null,
+    lastReadYear: "",
     markAsRead: false,
   };
 }
@@ -1393,6 +1398,7 @@ const InterestMap = memo(
 );
 
 export default function App() {
+  const currentYear = new Date().getFullYear();
   const [books, setBooks] = useState<Book[]>([]);
   const [draft, setDraft] = useState<BookDraft>(createDraft());
   const [editingBookId, setEditingBookId] = useState<number | null>(null);
@@ -1619,15 +1625,20 @@ export default function App() {
         const R = book.starRating ?? GLOBAL_MEAN;
         const v = book.ratingCount ?? 0;
         const bScore = bayesianScore(R, v, GLOBAL_MEAN, SMOOTHING_FACTOR);
+        const score = scoreBook(
+          bScore,
+          authorPref,
+          genrePref,
+          book.myRating,
+          book.progress,
+          book.readCount ?? 0,
+        );
         return {
           ...book,
-          score: scoreBook(
-            bScore,
-            authorPref,
-            genrePref,
-            book.myRating,
-            book.progress,
-            book.readCount ?? 0,
+          score: realizeArchiveScore(
+            score,
+            book.lastReadYear,
+            book.archivedAtYear,
           ),
           rank: 0,
         };
@@ -1663,6 +1674,15 @@ export default function App() {
   const hasSelectedNodeFilter = selectedInterestPath.length > 0;
 
   const isEditing = editingBookId !== null;
+  const editingBook = useMemo(
+    () => books.find((book) => book.id === editingBookId) ?? null,
+    [books, editingBookId],
+  );
+  const yearOptions = useMemo(() => {
+    const totalYears = currentYear - MIN_YEAR_OPTION + 1;
+    return Array.from({ length: totalYears }, (_, index) => currentYear - index);
+  }, [currentYear]);
+  const archiveFallbackYear = editingBook?.archivedAtYear ?? currentYear;
 
   const knownGenres = useMemo(() => {
     const set = new Set<string>();
@@ -1750,6 +1770,9 @@ export default function App() {
     : undefined;
   const parsedDraftCount = draft.ratingCount.trim()
     ? Number(draft.ratingCount)
+    : undefined;
+  const parsedDraftLastReadYear = draft.lastReadYear.trim()
+    ? Number(draft.lastReadYear)
     : undefined;
   const canSubmit =
     !isLoading &&
@@ -2163,9 +2186,19 @@ export default function App() {
       genreScores: buildDraftScores(book.genres, genreInterests),
       progress: book.progress != null ? String(book.progress) : "",
       myRating: book.myRating ?? null,
+      lastReadYear: book.lastReadYear != null ? String(book.lastReadYear) : "",
       markAsRead: book.read ?? false,
     });
     setErrorMessage(null);
+  }
+
+  function toggleEditing(book: Book) {
+    if (editingBookId === book.id) {
+      resetDraft();
+      return;
+    }
+
+    startEditing(book);
   }
 
   async function submitBook(event: FormEvent<HTMLFormElement>) {
@@ -2182,6 +2215,7 @@ export default function App() {
       const parsedProgress = draft.progress.trim()
         ? Number(draft.progress)
         : undefined;
+      const shouldPersistArchiveMeta = draft.markAsRead || editingBook?.read === true;
       const payload = {
         title: draft.title.trim(),
         authors: draft.authors,
@@ -2192,6 +2226,12 @@ export default function App() {
         myRating: draft.myRating ?? undefined,
         readCount: draft.readCount,
         ...(draft.markAsRead ? { read: true as const } : {}),
+        ...(shouldPersistArchiveMeta && editingBook?.archivedAtYear != null
+          ? { archivedAtYear: editingBook.archivedAtYear }
+          : {}),
+        ...(shouldPersistArchiveMeta && parsedDraftLastReadYear != null
+          ? { lastReadYear: parsedDraftLastReadYear }
+          : {}),
       };
 
       let nextInterests = genreInterests;
@@ -2325,6 +2365,12 @@ export default function App() {
       const nextBooks = await updateBookRecord(id, {
         ...book,
         read,
+        ...(read
+          ? {
+              archivedAtYear: currentYear,
+              lastReadYear: undefined,
+            }
+          : {}),
       });
       applyBooksUpdate(nextBooks);
     } catch (error) {
@@ -2469,6 +2515,7 @@ export default function App() {
             ) : (
               visibleRankedBooks.map((book, index) => {
                 const isDeleting = pendingDeleteId === book.id;
+                const isEditingBook = editingBookId === book.id;
                 const rankClass =
                   book.rank === 1
                     ? "rank-gold"
@@ -2487,7 +2534,7 @@ export default function App() {
                     authors={book.authors}
                     score={book.score}
                     rankClass={rankClass}
-                    className={`${editingBookId === book.id ? "is-editing" : ""}${book.rank === 1 ? " is-leader" : ""}`}
+                    className={`${isEditingBook ? "is-editing" : ""}${book.rank === 1 ? " is-leader" : ""}`}
                     animationDelay={`${index * 60}ms`}
                     progressBar={
                       <ProgressBar
@@ -2535,12 +2582,12 @@ export default function App() {
                         <button
                           type="button"
                           className="icon-btn"
-                          onClick={() => startEditing(book)}
+                          onClick={() => toggleEditing(book)}
                           disabled={isSaving || isDeleting}
-                          aria-label="Edit"
-                          title="Edit"
+                          aria-label={isEditingBook ? "Done editing" : "Edit"}
+                          title={isEditingBook ? "Done editing" : "Edit"}
                         >
-                          {"\u270E"}
+                          {isEditingBook ? "\u2713" : "\u270E"}
                         </button>
                         <button
                           type="button"
@@ -2575,6 +2622,8 @@ export default function App() {
                 ) : (
                   visibleReadBooks.map((book) => {
                     const isDeleting = pendingDeleteId === book.id;
+                    const isEditingBook = editingBookId === book.id;
+                    const archiveReadiness = archiveReadinessFromScore(book.score);
                     const rankClass =
                       book.rank === 1
                         ? "rank-gold"
@@ -2592,8 +2641,9 @@ export default function App() {
                         title={book.title}
                         authors={book.authors}
                         score={book.score}
+                        scoreOverride={archiveReadiness.label}
                         rankClass={rankClass}
-                        className="is-read"
+                        className={`is-read${isEditingBook ? " is-editing" : ""}`}
                         progressBar={
                           <ProgressBar
                             value={book.progress ?? 0}
@@ -2640,12 +2690,12 @@ export default function App() {
                             <button
                               type="button"
                               className="icon-btn"
-                              onClick={() => startEditing(book)}
+                              onClick={() => toggleEditing(book)}
                               disabled={isSaving || isDeleting}
-                              aria-label="Edit"
-                              title="Edit"
+                              aria-label={isEditingBook ? "Done editing" : "Edit"}
+                              title={isEditingBook ? "Done editing" : "Edit"}
                             >
-                              {"\u270E"}
+                              {isEditingBook ? "\u2713" : "\u270E"}
                             </button>
                             <button
                               type="button"
@@ -2723,6 +2773,11 @@ export default function App() {
             >
               {graphEditMode ? "\u2715" : "\u270E"}
             </button>
+            {!graphEditMode ? (
+              <span className="graph-edit-hint">
+                Select nodes to generate a list
+              </span>
+            ) : null}
             {graphEditMode ? (
               <div className="tag-entry-group graph-tag-entry">
                 <div className="tag-entry-row">
@@ -2827,14 +2882,19 @@ export default function App() {
 
         {/* ── Right column: reading list builder + add book ── */}
         <aside className="right-column">
+          {isLoadingRecs ? (
+            <div
+              className="right-column-loader"
+              aria-label="Building reading list"
+              title="Building reading list"
+            >
+              <span className="right-column-loader-spinner" aria-hidden="true" />
+            </div>
+          ) : null}
           {recError ? (
             <p className="panel-error">{recError}</p>
           ) : null}
-          {isLoadingRecs ? (
-            <div className="right-column-status">
-              <p>Building reading list...</p>
-            </div>
-          ) : recommendations && recommendations.candidates.length > 0 ? (
+          {recommendations && recommendations.candidates.length > 0 ? (
             <>
               <div className="right-column-head">
                 <select
@@ -2867,11 +2927,7 @@ export default function App() {
             <div className="right-column-status">
               <p>No new books found for these genres.</p>
             </div>
-          ) : (
-            <div className="right-column-empty">
-              <p>Select nodes to generate a list</p>
-            </div>
-          )}
+          ) : null}
           <section className="panel control-panel">
 
           {isLoading || errorMessage ? (
@@ -3298,6 +3354,26 @@ export default function App() {
                 }
               />
             </div>
+
+            <label className="field entry-last-read-year">
+              <span>Year last read</span>
+              <select
+                value={draft.lastReadYear}
+                onChange={(event) =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    lastReadYear: event.target.value,
+                  }))
+                }
+              >
+                <option value="">{`Archive year (${archiveFallbackYear})`}</option>
+                {yearOptions.map((year) => (
+                  <option key={year} value={year}>
+                    {year}
+                  </option>
+                ))}
+              </select>
+            </label>
 
             <div className="field entry-my-rating">
               <span>My rating</span>

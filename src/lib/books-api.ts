@@ -9,6 +9,8 @@ export type Book = {
   progress?: number;
   read?: boolean;
   readCount?: number;
+  lastReadYear?: number;
+  archivedAtYear?: number;
 };
 
 type LegacyBook = Partial<Book> & {
@@ -102,6 +104,8 @@ const seededBooks: Book[] = [
     progress: 100,
     read: true,
     readCount: 1,
+    lastReadYear: 2023,
+    archivedAtYear: 2023,
   },
   {
     id: 9,
@@ -114,6 +118,8 @@ const seededBooks: Book[] = [
     progress: 100,
     read: true,
     readCount: 2,
+    lastReadYear: 2022,
+    archivedAtYear: 2022,
   },
   {
     id: 10,
@@ -126,6 +132,8 @@ const seededBooks: Book[] = [
     progress: 100,
     read: true,
     readCount: 1,
+    lastReadYear: 2021,
+    archivedAtYear: 2021,
   },
   {
     id: 11,
@@ -138,6 +146,8 @@ const seededBooks: Book[] = [
     progress: 100,
     read: true,
     readCount: 2,
+    lastReadYear: 2024,
+    archivedAtYear: 2024,
   },
   {
     id: 12,
@@ -150,6 +160,8 @@ const seededBooks: Book[] = [
     progress: 100,
     read: true,
     readCount: 1,
+    lastReadYear: 2020,
+    archivedAtYear: 2020,
   },
 ];
 
@@ -216,6 +228,20 @@ function normalizeReadCount(
   return 1;
 }
 
+function normalizeYear(value: unknown) {
+  const currentYear = new Date().getFullYear();
+  const parsed =
+    value != null && Number.isFinite(Number(value))
+      ? Math.floor(Number(value))
+      : undefined;
+
+  if (parsed == null || parsed < 1000 || parsed > currentYear) {
+    return undefined;
+  }
+
+  return parsed;
+}
+
 function normalizeBook(value: unknown): Book | null {
   const book = value as LegacyBook | null;
   const title = typeof book?.title === "string" ? book.title.trim() : "";
@@ -248,6 +274,12 @@ function normalizeBook(value: unknown): Book | null {
       ? Math.max(0, Math.floor(Number(rawReadCount)))
       : undefined;
   const readCount = normalizeReadCount(read, progress, parsedReadCount);
+  const lastReadYear = normalizeYear(
+    (book as Record<string, unknown>)?.lastReadYear,
+  );
+  const archivedAtYear = normalizeYear(
+    (book as Record<string, unknown>)?.archivedAtYear,
+  );
   const authors = normalizeTagList(book?.authors ?? book?.author);
   const genres = normalizeTagList(book?.genres ?? book?.genre);
 
@@ -272,6 +304,8 @@ function normalizeBook(value: unknown): Book | null {
     ...(progress != null ? { progress } : {}),
     ...(read != null ? { read } : {}),
     ...(readCount != null ? { readCount } : {}),
+    ...(lastReadYear != null ? { lastReadYear } : {}),
+    ...(archivedAtYear != null ? { archivedAtYear } : {}),
   };
 }
 
@@ -331,6 +365,12 @@ function parsePayload(
       ? Math.max(0, Math.floor(Number(rawReadCount)))
       : undefined;
   const readCount = normalizeReadCount(read, progress, parsedReadCount);
+  const lastReadYear = normalizeYear(
+    (value as Record<string, unknown>)?.lastReadYear,
+  );
+  const archivedAtYear = normalizeYear(
+    (value as Record<string, unknown>)?.archivedAtYear,
+  );
 
   const authors = normalizeTagList(value?.authors ?? value?.author);
   const genres = normalizeTagList(value?.genres ?? value?.genre);
@@ -345,12 +385,37 @@ function parsePayload(
     ...(progress != null ? { progress } : {}),
     ...(read != null ? { read } : {}),
     ...(readCount != null ? { readCount } : {}),
+    ...(lastReadYear != null ? { lastReadYear } : {}),
+    ...(read
+      ? { archivedAtYear: archivedAtYear ?? new Date().getFullYear() }
+      : archivedAtYear != null
+        ? { archivedAtYear }
+        : {}),
   };
 }
 
 function seedBooks(storage: Storage) {
   storage.setItem(STORAGE_KEY, JSON.stringify(seededBooks));
   return cloneBooks(seededBooks);
+}
+
+function withArchiveYearDefaults(books: Book[]) {
+  const currentYear = new Date().getFullYear();
+  let hasChanges = false;
+
+  const nextBooks = books.map((book) => {
+    if (!book.read || book.archivedAtYear != null) {
+      return book;
+    }
+
+    hasChanges = true;
+    return {
+      ...book,
+      archivedAtYear: book.lastReadYear ?? currentYear,
+    };
+  });
+
+  return hasChanges ? cloneBooks(nextBooks) : books;
 }
 
 function readBooks() {
@@ -374,7 +439,13 @@ function readBooks() {
         .filter((book): book is Book => book !== null);
 
       if (books.length === parsed.length) {
-        return books;
+        const hydratedBooks = withArchiveYearDefaults(books);
+
+        if (hydratedBooks !== books) {
+          storage.setItem(STORAGE_KEY, JSON.stringify(hydratedBooks));
+        }
+
+        return hydratedBooks;
       }
     }
   } catch {
