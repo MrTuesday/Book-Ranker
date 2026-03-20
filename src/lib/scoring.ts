@@ -3,6 +3,9 @@ import type { Book } from "./books-api";
 export const GLOBAL_MEAN = 3.8;
 export const SMOOTHING_FACTOR = 500;
 export const MIN_SMOOTHING_FACTOR = 100;
+export const BAYESIAN_SIGNAL_WEIGHT = 0.5;
+export const AUTHOR_SIGNAL_WEIGHT = 0.25;
+export const GENRE_SIGNAL_WEIGHT = 0.25;
 export const REREAD_DECAY = 0.65;
 export const ARCHIVE_SCORE_FLOOR = 0.2;
 export const ARCHIVE_COOLDOWN_YEARS = 10;
@@ -16,6 +19,11 @@ export const ARCHIVE_AVOID_MAX =
 export function bayesianScore(R: number, v: number, C: number, m: number) {
   return (v / (v + m)) * R + (m / (v + m)) * C;
 }
+
+export type BayesianPrior = {
+  mean: number;
+  smoothingFactor: number;
+};
 
 function normalizeTags(tags: string[]) {
   return Array.from(
@@ -38,15 +46,19 @@ function clampSmoothingFactor(value: number) {
 }
 
 /**
- * Derive a smoothing factor for each saved book from the average rating counts
- * of books that share at least one genre/topic tag. Archived books remain in
- * the pool so niche clusters can establish their own local baseline.
+ * Derive a Bayesian prior for each saved book from the books that share at
+ * least one genre/topic tag. Archived books remain in the pool so niche
+ * clusters can establish their own local baseline.
  */
-export function buildTagSmoothingFactorMap(
-  books: Pick<Book, "id" | "genres" | "ratingCount">[],
-  fallback = SMOOTHING_FACTOR,
+export function buildTagBayesianPriorMap(
+  books: Pick<Book, "id" | "genres" | "ratingCount" | "starRating">[],
+  meanFallback = GLOBAL_MEAN,
+  smoothingFallback = SMOOTHING_FACTOR,
 ) {
-  const tagIndex = new Map<string, Pick<Book, "id" | "ratingCount">[]>();
+  const tagIndex = new Map<
+    string,
+    Pick<Book, "id" | "ratingCount" | "starRating">[]
+  >();
   const normalizedBooks = books.map((book) => {
     const tags = normalizeTags(book.genres);
 
@@ -66,20 +78,35 @@ export function buildTagSmoothingFactorMap(
     };
   });
 
-  const globalAverage = average(
+  const globalMean = average(
+    books.flatMap((book) =>
+      book.starRating != null ? [book.starRating] : [],
+    ),
+  );
+  const defaultMean = globalMean ?? meanFallback;
+  const globalSmoothingAverage = average(
     books.flatMap((book) =>
       book.ratingCount != null && book.ratingCount >= 0 ? [book.ratingCount] : [],
     ),
   );
-  const defaultFactor = clampSmoothingFactor(globalAverage ?? fallback);
+  const defaultSmoothingFactor = clampSmoothingFactor(
+    globalSmoothingAverage ?? smoothingFallback,
+  );
 
   return new Map(
     normalizedBooks.map(({ id, tags }) => {
       if (tags.length === 0) {
-        return [id, defaultFactor] as const;
+        return [
+          id,
+          {
+            mean: defaultMean,
+            smoothingFactor: defaultSmoothingFactor,
+          },
+        ] as const;
       }
 
       const matchedBookIds = new Set<number>();
+      const matchedRatings: number[] = [];
       const matchedCounts: number[] = [];
 
       for (const tag of tags) {
@@ -90,6 +117,10 @@ export function buildTagSmoothingFactorMap(
 
           matchedBookIds.add(book.id);
 
+          if (book.starRating != null) {
+            matchedRatings.push(book.starRating);
+          }
+
           if (book.ratingCount != null && book.ratingCount >= 0) {
             matchedCounts.push(book.ratingCount);
           }
@@ -98,7 +129,12 @@ export function buildTagSmoothingFactorMap(
 
       return [
         id,
-        clampSmoothingFactor(average(matchedCounts) ?? defaultFactor),
+        {
+          mean: average(matchedRatings) ?? defaultMean,
+          smoothingFactor: clampSmoothingFactor(
+            average(matchedCounts) ?? defaultSmoothingFactor,
+          ),
+        },
       ] as const;
     }),
   );
@@ -107,6 +143,21 @@ export function buildTagSmoothingFactorMap(
 export function compositeScore(bayesian: number, ...inputs: number[]) {
   const values = [bayesian, ...inputs];
   return values.reduce((a, b) => a + b, 0) / values.length;
+}
+
+export function predictiveScore(
+  bayesian: number,
+  authorPref: number,
+  genrePref: number,
+) {
+  const weightedTotal =
+    bayesian * BAYESIAN_SIGNAL_WEIGHT +
+    authorPref * AUTHOR_SIGNAL_WEIGHT +
+    genrePref * GENRE_SIGNAL_WEIGHT;
+  const totalWeight =
+    BAYESIAN_SIGNAL_WEIGHT + AUTHOR_SIGNAL_WEIGHT + GENRE_SIGNAL_WEIGHT;
+
+  return weightedTotal / totalWeight;
 }
 
 export function averageTagPreference(
@@ -249,7 +300,7 @@ export function scoreBook(
   progress?: number,
   readCount = 0,
 ) {
-  const predictive = compositeScore(bayesian, authorPref, genrePref);
+  const predictive = predictiveScore(bayesian, authorPref, genrePref);
 
   if (myRating == null) {
     return predictive;
