@@ -1131,6 +1131,7 @@ select:focus {
 
 .ranking-row.is-toggleable:hover {
     border-color: rgba(180, 83, 9, 0.22);
+    border-width: 2px;
 }
 
 .ranking-row:focus-within,
@@ -1139,10 +1140,12 @@ select:focus {
 .ranking-row:has(.read-count-stepper-btn:active),
 .ranking-row:has(.reading-progress:active) {
     border-color: rgba(180, 83, 9, 0.34);
+    border-width: 2px;
 }
 
 .ranking-row.is-editing {
     border-color: rgba(180, 83, 9, 0.26);
+    border-width: 2px;
 }
 
 .ranking-row.is-added {
