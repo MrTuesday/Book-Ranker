@@ -1,0 +1,322 @@
+import { createSeedState } from "./seed-state.js";
+
+function cloneBooks(books) {
+  return books.map((book) => ({
+    ...book,
+    authors: [...book.authors],
+    genres: [...book.genres],
+  }));
+}
+
+export function cloneState(state) {
+  return {
+    books: cloneBooks(state.books),
+    genreInterests: { ...state.genreInterests },
+    authorExperiences: { ...state.authorExperiences },
+    meta: { ...state.meta },
+  };
+}
+
+function normalizeTagList(value) {
+  const rawValues = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? [value]
+      : [];
+  const seen = new Set();
+
+  for (const rawValue of rawValues) {
+    if (typeof rawValue !== "string") {
+      continue;
+    }
+
+    const trimmed = rawValue.trim();
+
+    if (trimmed) {
+      seen.add(trimmed);
+    }
+  }
+
+  return Array.from(seen);
+}
+
+function normalizeYear(value) {
+  const currentYear = new Date().getFullYear();
+  const parsed =
+    value != null && Number.isFinite(Number(value))
+      ? Math.floor(Number(value))
+      : undefined;
+
+  if (parsed == null || parsed < 1000 || parsed > currentYear) {
+    return undefined;
+  }
+
+  return parsed;
+}
+
+function normalizeReadCount(read, progress, readCount, lastReadYear) {
+  if (lastReadYear != null) {
+    return Math.max(1, readCount ?? 0);
+  }
+
+  if (!read) {
+    return readCount;
+  }
+
+  if (readCount != null && readCount > 0) {
+    return readCount;
+  }
+
+  if (progress != null && progress < 100) {
+    return 0;
+  }
+
+  return 1;
+}
+
+export function normalizeBook(value) {
+  const book = value ?? null;
+  const title = typeof book?.title === "string" ? book.title.trim() : "";
+  const rawStarRating = book?.starRating;
+  const starRating =
+    rawStarRating != null && Number.isFinite(Number(rawStarRating))
+      ? Number(rawStarRating)
+      : undefined;
+  const rawRatingCount = book?.ratingCount;
+  const ratingCount =
+    rawRatingCount != null && Number.isFinite(Number(rawRatingCount))
+      ? Number(rawRatingCount)
+      : undefined;
+  const id = Number(book?.id);
+  const rawMyRating = book?.myRating;
+  const myRating =
+    rawMyRating != null && Number.isFinite(Number(rawMyRating))
+      ? Number(rawMyRating)
+      : undefined;
+  const rawProgress = book?.progress;
+  const progress =
+    rawProgress != null && Number.isFinite(Number(rawProgress))
+      ? Math.max(0, Math.min(100, Number(rawProgress)))
+      : undefined;
+  const read = book?.read === true ? true : undefined;
+  const rawReadCount = book?.readCount;
+  const parsedReadCount =
+    rawReadCount != null && Number.isFinite(Number(rawReadCount))
+      ? Math.max(0, Math.floor(Number(rawReadCount)))
+      : undefined;
+  const lastReadYear = normalizeYear(book?.lastReadYear);
+  const readCount = normalizeReadCount(
+    read,
+    progress,
+    parsedReadCount,
+    lastReadYear,
+  );
+  const archivedAtYear = normalizeYear(book?.archivedAtYear);
+  const authors = normalizeTagList(book?.authors ?? book?.author);
+  const genres = normalizeTagList(book?.genres ?? book?.genre);
+
+  if (
+    !title ||
+    !Number.isFinite(id) ||
+    (starRating != null && (starRating < 0 || starRating > 5)) ||
+    (ratingCount != null && ratingCount < 0) ||
+    (myRating != null && (myRating < 1 || myRating > 5))
+  ) {
+    return null;
+  }
+
+  return {
+    id,
+    title,
+    authors,
+    genres,
+    ...(starRating != null ? { starRating } : {}),
+    ...(ratingCount != null ? { ratingCount } : {}),
+    ...(myRating != null ? { myRating } : {}),
+    ...(progress != null ? { progress } : {}),
+    ...(read != null ? { read } : {}),
+    ...(readCount != null ? { readCount } : {}),
+    ...(lastReadYear != null ? { lastReadYear } : {}),
+    ...(archivedAtYear != null ? { archivedAtYear } : {}),
+  };
+}
+
+export function parseBookPayload(value) {
+  const title = typeof value?.title === "string" ? value.title.trim() : "";
+
+  if (!title) {
+    throw new Error("Title is required.");
+  }
+
+  const rawStarRating = value?.starRating;
+  const starRating =
+    rawStarRating != null && Number.isFinite(Number(rawStarRating))
+      ? Number(rawStarRating)
+      : undefined;
+  const rawRatingCount = value?.ratingCount;
+  const ratingCount =
+    rawRatingCount != null && Number.isFinite(Number(rawRatingCount))
+      ? Number(rawRatingCount)
+      : undefined;
+
+  if (starRating != null && (starRating < 0 || starRating > 5)) {
+    throw new Error("Star rating must be a number between 0 and 5.");
+  }
+
+  if (ratingCount != null && ratingCount < 0) {
+    throw new Error("Ratings must be a non-negative number.");
+  }
+
+  const rawMyRating = value?.myRating;
+  const myRating =
+    rawMyRating != null && Number.isFinite(Number(rawMyRating))
+      ? Number(rawMyRating)
+      : undefined;
+
+  if (myRating != null && (myRating < 1 || myRating > 5)) {
+    throw new Error("Personal rating must be between 1 and 5.");
+  }
+
+  const rawProgress = value?.progress;
+  const progress =
+    rawProgress != null && Number.isFinite(Number(rawProgress))
+      ? Math.max(0, Math.min(100, Number(rawProgress)))
+      : undefined;
+
+  const read = value?.read === true ? true : undefined;
+  const rawReadCount = value?.readCount;
+  const parsedReadCount =
+    rawReadCount != null && Number.isFinite(Number(rawReadCount))
+      ? Math.max(0, Math.floor(Number(rawReadCount)))
+      : undefined;
+  const lastReadYear = normalizeYear(value?.lastReadYear);
+  const readCount = normalizeReadCount(
+    read,
+    progress,
+    parsedReadCount,
+    lastReadYear,
+  );
+  const archivedAtYear = normalizeYear(value?.archivedAtYear);
+
+  const authors = normalizeTagList(value?.authors ?? value?.author);
+  const genres = normalizeTagList(value?.genres ?? value?.genre);
+
+  return {
+    title,
+    authors,
+    genres,
+    ...(starRating != null ? { starRating } : {}),
+    ...(ratingCount != null ? { ratingCount } : {}),
+    ...(myRating != null ? { myRating } : {}),
+    ...(progress != null ? { progress } : {}),
+    ...(read != null ? { read } : {}),
+    ...(readCount != null ? { readCount } : {}),
+    ...(lastReadYear != null ? { lastReadYear } : {}),
+    ...(read
+      ? {
+          archivedAtYear:
+            lastReadYear ?? archivedAtYear ?? new Date().getFullYear(),
+        }
+      : archivedAtYear != null
+        ? { archivedAtYear }
+        : {}),
+  };
+}
+
+function normalizeScoreMap(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  const result = {};
+
+  for (const [key, rawValue] of Object.entries(value)) {
+    if (!key.trim() || !Number.isFinite(Number(rawValue))) {
+      continue;
+    }
+
+    result[key.trim()] = Math.max(0, Math.min(5, Number(rawValue)));
+  }
+
+  return result;
+}
+
+export function normalizeLibraryState(value) {
+  const seedState = createSeedState();
+
+  if (!value || typeof value !== "object") {
+    return seedState;
+  }
+
+  const hasBookList = Array.isArray(value.books);
+  const rawBooks = hasBookList ? value.books : [];
+  const books = rawBooks
+    .map(normalizeBook)
+    .filter((book) => book !== null);
+
+  return {
+    books: hasBookList ? books : seedState.books,
+    genreInterests: normalizeScoreMap(value.genreInterests),
+    authorExperiences: normalizeScoreMap(value.authorExperiences),
+    meta: {
+      seeded: value.meta?.seeded === true,
+      migratedLocalState: value.meta?.migratedLocalState === true,
+      updatedAt:
+        typeof value.meta?.updatedAt === "string"
+          ? value.meta.updatedAt
+          : new Date().toISOString(),
+    },
+  };
+}
+
+export function normalizeImportedState(value) {
+  if (!value || typeof value !== "object") {
+    throw new Error("Library import payload is required.");
+  }
+
+  const rawBooks = Array.isArray(value.books) ? value.books : [];
+  const books = rawBooks
+    .map(normalizeBook)
+    .filter((book) => book !== null);
+
+  if (books.length === 0) {
+    throw new Error("Library import payload must include at least one book.");
+  }
+
+  return {
+    books,
+    genreInterests: normalizeScoreMap(value.genreInterests),
+    authorExperiences: normalizeScoreMap(value.authorExperiences),
+  };
+}
+
+export function replaceTag(tags, oldValue, newValue) {
+  const oldTag = oldValue.trim();
+  const nextTag = newValue.trim();
+
+  if (!oldTag) {
+    return [...tags];
+  }
+
+  const replaced = tags.flatMap((tag) => {
+    if (tag !== oldTag) {
+      return [tag];
+    }
+
+    return nextTag ? [nextTag] : [];
+  });
+
+  return normalizeTagList(replaced);
+}
+
+export function markStateUpdated(state, overrides = {}) {
+  return {
+    ...state,
+    meta: {
+      ...state.meta,
+      seeded: false,
+      updatedAt: new Date().toISOString(),
+      ...overrides,
+    },
+  };
+}

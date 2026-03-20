@@ -5,3 +5,6 @@ dist
 vite.config.js
 vite.config.d.ts
 .vercel
+.env
+data/*.json
+!data/.gitkeep

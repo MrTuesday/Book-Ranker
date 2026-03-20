@@ -3,6 +3,7 @@ import type { Book } from "./books-api";
 export const GLOBAL_MEAN = 3.8;
 export const SMOOTHING_FACTOR = 500;
 export const MIN_SMOOTHING_FACTOR = 100;
+export const MAX_SMOOTHING_FACTOR = 1000;
 export const BAYESIAN_SIGNAL_WEIGHT = 0.5;
 export const AUTHOR_SIGNAL_WEIGHT = 0.25;
 export const GENRE_SIGNAL_WEIGHT = 0.25;
@@ -17,7 +18,8 @@ export const ARCHIVE_AVOID_MAX =
   ARCHIVE_DUE_MAX * ARCHIVE_SCORE_FLOOR - 0.01;
 
 export function bayesianScore(R: number, v: number, C: number, m: number) {
-  return (v / (v + m)) * R + (m / (v + m)) * C;
+  const clampedM = clampSmoothingFactor(m);
+  return (v / (v + clampedM)) * R + (clampedM / (v + clampedM)) * C;
 }
 
 function normalizeTags(tags: string[]) {
@@ -37,15 +39,17 @@ function average(values: number[]) {
 }
 
 function clampSmoothingFactor(value: number) {
-  return Math.max(MIN_SMOOTHING_FACTOR, value);
+  return Math.min(MAX_SMOOTHING_FACTOR, Math.max(MIN_SMOOTHING_FACTOR, value));
 }
 
 /**
  * Derive a smoothing factor for each saved book from the books that share at
  * least one genre/topic tag. Archived books remain in the pool so niche
  * clusters can establish their own local baseline while the Bayesian mean
- * stays anchored to the global default. Each book uses the lowest-average tag
- * neighborhood so the most niche aspect of the book drives the smoothing.
+ * stays anchored to the global default. Dynamic smoothing is capped to avoid
+ * large genre clusters making the list reshuffle too aggressively. Each book
+ * uses the lowest-average tag neighborhood so the most niche aspect of the
+ * book drives the smoothing.
  */
 export function buildTagSmoothingFactorMap(
   books: Pick<Book, "id" | "genres" | "ratingCount">[],

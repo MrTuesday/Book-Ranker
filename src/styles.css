@@ -1125,6 +1125,24 @@ select:focus {
         box-shadow 180ms ease;
 }
 
+@keyframes rankingRowReveal {
+    0% {
+        box-shadow: 0 0 0 0 rgba(180, 83, 9, 0);
+        border-color: var(--line);
+        background: rgba(255, 255, 255, 0.72);
+    }
+    18% {
+        box-shadow: 0 0 0 4px rgba(180, 83, 9, 0.2);
+        border-color: rgba(180, 83, 9, 0.5);
+        background: rgba(255, 247, 237, 0.94);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(180, 83, 9, 0);
+        border-color: rgba(180, 83, 9, 0.18);
+        background: rgba(255, 251, 245, 0.84);
+    }
+}
+
 .ranking-row.is-toggleable {
     cursor: pointer;
 }
@@ -1152,6 +1170,11 @@ select:focus {
 .ranking-row.is-leader {
     border-color: rgba(180, 83, 9, 0.18);
     background: rgba(255, 251, 245, 0.82);
+}
+
+.ranking-row.is-recently-added {
+    animation: rankingRowReveal 2.4s ease;
+    scroll-margin-block: 32px;
 }
 
 .rank-badge {

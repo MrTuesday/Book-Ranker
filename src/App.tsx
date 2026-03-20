@@ -18,11 +18,10 @@ import {
   deleteBookRecord,
   deleteGenreInterest,
   fetchBooks,
+  fetchLibraryState,
   type Book,
   type GenreInterestMap,
   type AuthorExperienceMap,
-  readGenreInterests,
-  readAuthorExperiences,
   updateBookRecord,
   writeGenreInterest,
   writeAuthorExperience,
@@ -224,7 +223,7 @@ function messageFromError(error: unknown) {
     return error.message;
   }
 
-  return "Something went wrong while saving your books in this browser.";
+  return "Something went wrong while saving your library.";
 }
 
 function shortenLabel(value: string, maxLength = 18) {
@@ -1422,6 +1421,7 @@ export default function App() {
   const [draft, setDraft] = useState<BookDraft>(createDraft());
   const [editingBookId, setEditingBookId] = useState<number | null>(null);
   const [scrollToForm, setScrollToForm] = useState(false);
+  const [highlightedBookId, setHighlightedBookId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
@@ -1457,6 +1457,8 @@ export default function App() {
   const leftColumnRef = useRef<HTMLElement | null>(null);
   const entryFormRef = useRef<HTMLFormElement | null>(null);
   const pendingBookRectsRef = useRef<Map<number, DOMRect> | null>(null);
+  const pendingBookRevealIdRef = useRef<number | null>(null);
+  const highlightClearTimeoutRef = useRef<number | null>(null);
 
   const captureVisibleBookRects = useCallback(() => {
     const rects = new Map<number, DOMRect>();
@@ -1482,6 +1484,24 @@ export default function App() {
     },
     [captureVisibleBookRects],
   );
+
+  const queueBookReveal = useCallback((bookId: number | null) => {
+    if (bookId == null || !Number.isFinite(bookId)) {
+      return;
+    }
+
+    pendingBookRevealIdRef.current = bookId;
+    setHighlightedBookId(bookId);
+
+    if (highlightClearTimeoutRef.current != null) {
+      window.clearTimeout(highlightClearTimeoutRef.current);
+    }
+
+    highlightClearTimeoutRef.current = window.setTimeout(() => {
+      setHighlightedBookId((current) => (current === bookId ? null : current));
+      highlightClearTimeoutRef.current = null;
+    }, 2400);
+  }, []);
 
   useLayoutEffect(() => {
     const previousRects = pendingBookRectsRef.current;
@@ -1557,6 +1577,44 @@ export default function App() {
   }, [books, showArchive]);
 
   useEffect(() => {
+    const bookId = pendingBookRevealIdRef.current;
+
+    if (bookId == null) {
+      return;
+    }
+
+    const card = leftColumnRef.current?.querySelector<HTMLElement>(
+      `.ranking-row[data-book-id="${bookId}"]`,
+    );
+
+    pendingBookRevealIdRef.current = null;
+
+    if (!card) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      card.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+        inline: "nearest",
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [books, showArchive, selectedInterestPath]);
+
+  useEffect(() => {
+    return () => {
+      if (highlightClearTimeoutRef.current != null) {
+        window.clearTimeout(highlightClearTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     let isActive = true;
 
     async function loadSavedBooks() {
@@ -1564,13 +1622,11 @@ export default function App() {
       setErrorMessage(null);
 
       try {
-        const savedBooks = await fetchBooks();
-        const savedGenreInterests = readGenreInterests();
-        const savedAuthorExperiences = readAuthorExperiences();
+        const savedLibrary = await fetchLibraryState();
         if (isActive) {
-          setBooks(savedBooks);
-          setGenreInterests(savedGenreInterests);
-          setAuthorExperiences(savedAuthorExperiences);
+          setBooks(savedLibrary.books);
+          setGenreInterests(savedLibrary.genreInterests);
+          setAuthorExperiences(savedLibrary.authorExperiences);
         }
       } catch (error) {
         if (isActive) {
@@ -2343,7 +2399,7 @@ export default function App() {
       for (const genre of draft.genres) {
         const rawInterest = draft.genreScores[genre]?.trim();
         if (rawInterest && Number.isFinite(Number(rawInterest))) {
-          nextInterests = writeGenreInterest(genre, Number(rawInterest));
+          nextInterests = await writeGenreInterest(genre, Number(rawInterest));
         }
       }
       setGenreInterests(nextInterests);
@@ -2352,7 +2408,7 @@ export default function App() {
       for (const author of draft.authors) {
         const rawExperience = draft.authorScores[author]?.trim();
         if (rawExperience && Number.isFinite(Number(rawExperience))) {
-          nextExps = writeAuthorExperience(author, Number(rawExperience));
+          nextExps = await writeAuthorExperience(author, Number(rawExperience));
         }
       }
       setAuthorExperiences(nextExps);
@@ -2360,7 +2416,12 @@ export default function App() {
       const nextBooks = isEditing
         ? await updateBookRecord(editingBookId, payload)
         : await createBookRecord(payload);
+      const createdBookId = isEditing
+        ? null
+        : nextBooks.find((book) => !books.some((existing) => existing.id === book.id))
+            ?.id ?? null;
 
+      queueBookReveal(createdBookId);
       applyBooksUpdate(nextBooks);
       resetDraft();
     } catch (error) {
@@ -2383,7 +2444,7 @@ export default function App() {
     try {
       if (field === "author") {
         const nextBooks = await renameAuthorInBooks(tag, "");
-        const nextExps = deleteAuthorExperience(tag);
+        const nextExps = await deleteAuthorExperience(tag);
 
         applyBooksUpdate(nextBooks);
         setAuthorExperiences(nextExps);
@@ -2402,7 +2463,7 @@ export default function App() {
         }));
       } else {
         const nextBooks = await renameGenreInBooks(tag, "");
-        const nextInterests = deleteGenreInterest(tag);
+        const nextInterests = await deleteGenreInterest(tag);
 
         applyBooksUpdate(nextBooks);
         setGenreInterests(nextInterests);
@@ -2442,6 +2503,56 @@ export default function App() {
       setErrorMessage(messageFromError(error));
     } finally {
       setPendingDeleteId(null);
+    }
+  }
+
+  async function addGraphGenreInterest() {
+    const nextGenre = graphAddGenreInput.trim();
+
+    if (!nextGenre) {
+      return;
+    }
+
+    setErrorMessage(null);
+
+    try {
+      const nextInterests = await writeGenreInterest(
+        nextGenre,
+        graphAddGenreRating ?? 3,
+      );
+      setGenreInterests(nextInterests);
+      setGraphAddGenreInput("");
+      setGraphAddGenreRating(null);
+    } catch (error) {
+      setErrorMessage(messageFromError(error));
+    }
+  }
+
+  async function renameGraphGenre(oldName: string, newName: string) {
+    setErrorMessage(null);
+
+    try {
+      const nextBooks = await renameGenreInBooks(oldName, newName);
+      const nextInterests = await renameGenreInterest(oldName, newName);
+
+      applyBooksUpdate(nextBooks);
+      setGenreInterests(nextInterests);
+      setGraphEditingNode((current) =>
+        current && current.tag === oldName ? { ...current, tag: newName } : current,
+      );
+    } catch (error) {
+      setErrorMessage(messageFromError(error));
+    }
+  }
+
+  async function updateGraphGenreInterest(tag: string, level: number | null) {
+    setErrorMessage(null);
+
+    try {
+      const nextInterests = await writeGenreInterest(tag, level ?? 3);
+      setGenreInterests(nextInterests);
+    } catch (error) {
+      setErrorMessage(messageFromError(error));
     }
   }
 
@@ -2558,7 +2669,7 @@ export default function App() {
       cancelled = true;
       clearTimeout(debounce);
     };
-  }, [selectedInterestPath]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedInterestPath, books, genreInterests, authorExperiences]);
 
 
 
@@ -2647,7 +2758,13 @@ export default function App() {
                     authors={book.authors}
                     score={book.score}
                     rankClass={rankClass}
-                    className={`${isEditingBook ? "is-editing" : ""}${book.rank === 1 ? " is-leader" : ""}`}
+                    className={[
+                      isEditingBook ? "is-editing" : "",
+                      book.rank === 1 ? "is-leader" : "",
+                      highlightedBookId === book.id ? "is-recently-added" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
                     animationDelay={`${index * 60}ms`}
                     isActive={isEditingBook}
                     onToggle={() => toggleCardEditing(book)}
@@ -2759,7 +2876,13 @@ export default function App() {
                         score={book.score}
                         scoreOverride={book.archiveLabel ?? "Not yet"}
                         rankClass={rankClass}
-                        className={`is-read${isEditingBook ? " is-editing" : ""}`}
+                        className={[
+                          "is-read",
+                          isEditingBook ? "is-editing" : "",
+                          highlightedBookId === book.id ? "is-recently-added" : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
                         isActive={isEditingBook}
                         onToggle={() => toggleCardEditing(book)}
                         progressBar={
@@ -2906,13 +3029,7 @@ export default function App() {
                     onChange={(e) => setGraphAddGenreInput(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && graphAddGenreInput.trim()) {
-                        const next = writeGenreInterest(
-                          graphAddGenreInput.trim(),
-                          graphAddGenreRating ?? 3,
-                        );
-                        setGenreInterests(next);
-                        setGraphAddGenreInput("");
-                        setGraphAddGenreRating(null);
+                        void addGraphGenreInterest();
                       }
                     }}
                   />
@@ -2922,13 +3039,7 @@ export default function App() {
                     disabled={!graphAddGenreInput.trim()}
                     onClick={() => {
                       if (graphAddGenreInput.trim()) {
-                        const next = writeGenreInterest(
-                          graphAddGenreInput.trim(),
-                          graphAddGenreRating ?? 3,
-                        );
-                        setGenreInterests(next);
-                        setGraphAddGenreInput("");
-                        setGraphAddGenreRating(null);
+                        void addGraphGenreInterest();
                       }
                     }}
                     aria-label="Add genre"
@@ -2965,12 +3076,7 @@ export default function App() {
                   const newName = e.currentTarget.value.trim();
                   const oldName = graphEditingNode.tag;
                   if (newName && newName !== oldName) {
-                    renameGenreInBooks(oldName, newName).then((nextBooks) => {
-                      applyBooksUpdate(nextBooks);
-                    });
-                    const nextInterests = renameGenreInterest(oldName, newName);
-                    setGenreInterests(nextInterests);
-                    setGraphEditingNode({ ...graphEditingNode, tag: newName });
+                    void renameGraphGenre(oldName, newName);
                   }
                 }}
                 onKeyDown={(e) => {
@@ -2980,8 +3086,7 @@ export default function App() {
               <RatingButtons
                 value={genreInterests[graphEditingNode.tag] ?? null}
                 onChange={(level) => {
-                  const next = writeGenreInterest(graphEditingNode.tag, level ?? 3);
-                  setGenreInterests(next);
+                  void updateGraphGenreInterest(graphEditingNode.tag, level);
                 }}
               />
               <button
