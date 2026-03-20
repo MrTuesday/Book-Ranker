@@ -44,7 +44,8 @@ function clampSmoothingFactor(value: number) {
  * Derive a smoothing factor for each saved book from the books that share at
  * least one genre/topic tag. Archived books remain in the pool so niche
  * clusters can establish their own local baseline while the Bayesian mean
- * stays anchored to the global default.
+ * stays anchored to the global default. Books matching multiple relevant tags
+ * contribute once per matching tag, so deeper overlap carries more weight.
  */
 export function buildTagSmoothingFactorMap(
   books: Pick<Book, "id" | "genres" | "ratingCount">[],
@@ -85,17 +86,10 @@ export function buildTagSmoothingFactorMap(
         return [id, defaultSmoothingFactor] as const;
       }
 
-      const matchedBookIds = new Set<number>();
       const matchedCounts: number[] = [];
 
       for (const tag of tags) {
         for (const book of tagIndex.get(tag) ?? []) {
-          if (matchedBookIds.has(book.id)) {
-            continue;
-          }
-
-          matchedBookIds.add(book.id);
-
           if (book.ratingCount != null && book.ratingCount >= 0) {
             matchedCounts.push(book.ratingCount);
           }
