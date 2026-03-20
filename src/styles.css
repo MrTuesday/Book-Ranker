@@ -1130,8 +1130,7 @@ select:focus {
 }
 
 .ranking-row.is-toggleable:hover {
-    border-color: rgba(180, 83, 9, 0.22);
-    border-width: 2px;
+    box-shadow: 0 0 0 2px rgba(180, 83, 9, 0.18);
 }
 
 .ranking-row:focus-within,
@@ -1139,13 +1138,11 @@ select:focus {
 .ranking-row:has(.my-rating-star:active),
 .ranking-row:has(.read-count-stepper-btn:active),
 .ranking-row:has(.reading-progress:active) {
-    border-color: rgba(180, 83, 9, 0.34);
-    border-width: 2px;
+    box-shadow: 0 0 0 2px rgba(180, 83, 9, 0.28);
 }
 
 .ranking-row.is-editing {
-    border-color: rgba(180, 83, 9, 0.26);
-    border-width: 2px;
+    box-shadow: 0 0 0 2px rgba(180, 83, 9, 0.22);
 }
 
 .ranking-row.is-added {
