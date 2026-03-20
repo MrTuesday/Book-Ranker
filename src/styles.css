@@ -1125,6 +1125,16 @@ select:focus {
         box-shadow 180ms ease;
 }
 
+.ranking-row.is-toggleable {
+    cursor: pointer;
+}
+
+.ranking-row.is-toggleable:hover {
+    border-color: rgba(180, 83, 9, 0.22);
+    background: rgba(255, 250, 243, 0.92);
+    box-shadow: 0 10px 24px -22px rgba(120, 53, 15, 0.45);
+}
+
 .ranking-row:focus-within,
 .ranking-row:has(.icon-btn:active),
 .ranking-row:has(.my-rating-star:active),

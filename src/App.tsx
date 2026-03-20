@@ -2239,6 +2239,15 @@ export default function App() {
     startEditing(book);
   }
 
+  function toggleCardEditing(book: Book) {
+    if (editingBookId === book.id) {
+      resetDraft();
+      return;
+    }
+
+    startEditing(book);
+  }
+
   async function submitBook(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -2576,6 +2585,7 @@ export default function App() {
                     rankClass={rankClass}
                     className={`${isEditingBook ? "is-editing" : ""}${book.rank === 1 ? " is-leader" : ""}`}
                     animationDelay={`${index * 60}ms`}
+                    onToggle={() => toggleCardEditing(book)}
                     progressBar={
                       <ProgressBar
                         value={book.progress ?? 0}
@@ -2685,6 +2695,7 @@ export default function App() {
                         scoreOverride={book.archiveLabel ?? "Not yet"}
                         rankClass={rankClass}
                         className={`is-read${isEditingBook ? " is-editing" : ""}`}
+                        onToggle={() => toggleCardEditing(book)}
                         progressBar={
                           <ProgressBar
                             value={book.progress ?? 0}
