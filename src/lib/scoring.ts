@@ -1,5 +1,8 @@
+import type { Book } from "./books-api";
+
 export const GLOBAL_MEAN = 3.8;
 export const SMOOTHING_FACTOR = 500;
+export const MIN_SMOOTHING_FACTOR = 100;
 export const REREAD_DECAY = 0.65;
 export const ARCHIVE_SCORE_FLOOR = 0.2;
 export const ARCHIVE_COOLDOWN_YEARS = 10;
@@ -12,6 +15,93 @@ export const ARCHIVE_AVOID_MAX =
 
 export function bayesianScore(R: number, v: number, C: number, m: number) {
   return (v / (v + m)) * R + (m / (v + m)) * C;
+}
+
+function normalizeTags(tags: string[]) {
+  return Array.from(
+    new Set(
+      tags.map((tag) => tag.trim()).filter((tag) => tag.length > 0),
+    ),
+  );
+}
+
+function average(values: number[]) {
+  if (values.length === 0) {
+    return undefined;
+  }
+
+  return values.reduce((total, value) => total + value, 0) / values.length;
+}
+
+function clampSmoothingFactor(value: number) {
+  return Math.max(MIN_SMOOTHING_FACTOR, value);
+}
+
+/**
+ * Derive a smoothing factor for each saved book from the average rating counts
+ * of books that share at least one genre/topic tag. Archived books remain in
+ * the pool so niche clusters can establish their own local baseline.
+ */
+export function buildTagSmoothingFactorMap(
+  books: Pick<Book, "id" | "genres" | "ratingCount">[],
+  fallback = SMOOTHING_FACTOR,
+) {
+  const tagIndex = new Map<string, Pick<Book, "id" | "ratingCount">[]>();
+  const normalizedBooks = books.map((book) => {
+    const tags = normalizeTags(book.genres);
+
+    for (const tag of tags) {
+      const matches = tagIndex.get(tag);
+
+      if (matches) {
+        matches.push(book);
+      } else {
+        tagIndex.set(tag, [book]);
+      }
+    }
+
+    return {
+      id: book.id,
+      tags,
+    };
+  });
+
+  const globalAverage = average(
+    books.flatMap((book) =>
+      book.ratingCount != null && book.ratingCount >= 0 ? [book.ratingCount] : [],
+    ),
+  );
+  const defaultFactor = clampSmoothingFactor(globalAverage ?? fallback);
+
+  return new Map(
+    normalizedBooks.map(({ id, tags }) => {
+      if (tags.length === 0) {
+        return [id, defaultFactor] as const;
+      }
+
+      const matchedBookIds = new Set<number>();
+      const matchedCounts: number[] = [];
+
+      for (const tag of tags) {
+        for (const book of tagIndex.get(tag) ?? []) {
+          if (matchedBookIds.has(book.id)) {
+            continue;
+          }
+
+          matchedBookIds.add(book.id);
+
+          if (book.ratingCount != null && book.ratingCount >= 0) {
+            matchedCounts.push(book.ratingCount);
+          }
+        }
+      }
+
+      return [
+        id,
+        clampSmoothingFactor(average(matchedCounts) ?? defaultFactor),
+      ] as const;
+    }),
+  );
 }
 
 export function compositeScore(bayesian: number, ...inputs: number[]) {

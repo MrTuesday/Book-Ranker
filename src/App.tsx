@@ -32,6 +32,7 @@ import {
 } from "./lib/books-api";
 import {
   archiveReadinessFromScores,
+  buildTagSmoothingFactorMap,
   capArchiveScore,
   GLOBAL_MEAN,
   SMOOTHING_FACTOR,
@@ -1600,6 +1601,11 @@ export default function App() {
     });
   }, []);
 
+  const smoothingFactors = useMemo(
+    () => buildTagSmoothingFactorMap(books),
+    [books],
+  );
+
   const rankedBooks = useMemo<RankedBook[]>(() => {
     return books
       .filter((book) => !book.read)
@@ -1608,7 +1614,12 @@ export default function App() {
         const genrePref = averageTagPreference(book.genres, genreInterests);
         const R = book.starRating ?? GLOBAL_MEAN;
         const v = book.ratingCount ?? 0;
-        const bScore = bayesianScore(R, v, GLOBAL_MEAN, SMOOTHING_FACTOR);
+        const bScore = bayesianScore(
+          R,
+          v,
+          GLOBAL_MEAN,
+          smoothingFactors.get(book.id) ?? SMOOTHING_FACTOR,
+        );
         return {
           ...book,
           score: scoreBook(
@@ -1632,7 +1643,7 @@ export default function App() {
         return (b.ratingCount ?? 0) - (a.ratingCount ?? 0);
       })
       .map((book, index) => ({ ...book, rank: index + 1 }));
-  }, [books, genreInterests, authorExperiences]);
+  }, [books, genreInterests, authorExperiences, smoothingFactors]);
 
   const readBooks = useMemo<RankedBook[]>(() => {
     return books
@@ -1642,7 +1653,12 @@ export default function App() {
         const genrePref = averageTagPreference(book.genres, genreInterests);
         const R = book.starRating ?? GLOBAL_MEAN;
         const v = book.ratingCount ?? 0;
-        const bScore = bayesianScore(R, v, GLOBAL_MEAN, SMOOTHING_FACTOR);
+        const bScore = bayesianScore(
+          R,
+          v,
+          GLOBAL_MEAN,
+          smoothingFactors.get(book.id) ?? SMOOTHING_FACTOR,
+        );
         const fullScore = scoreBook(
           bScore,
           authorPref,
@@ -1675,7 +1691,7 @@ export default function App() {
         return (b.ratingCount ?? 0) - (a.ratingCount ?? 0);
       })
       .map((book, index) => ({ ...book, rank: index + 1 }));
-  }, [books, genreInterests, authorExperiences]);
+  }, [books, genreInterests, authorExperiences, smoothingFactors]);
 
   const visibleRankedBooks = useMemo(
     () =>
