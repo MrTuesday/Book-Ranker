@@ -212,7 +212,12 @@ function normalizeReadCount(
   read: boolean | undefined,
   progress: number | undefined,
   readCount: number | undefined,
+  lastReadYear: number | undefined,
 ) {
+  if (lastReadYear != null) {
+    return Math.max(1, readCount ?? 0);
+  }
+
   if (!read) {
     return readCount;
   }
@@ -273,9 +278,14 @@ function normalizeBook(value: unknown): Book | null {
     rawReadCount != null && Number.isFinite(Number(rawReadCount))
       ? Math.max(0, Math.floor(Number(rawReadCount)))
       : undefined;
-  const readCount = normalizeReadCount(read, progress, parsedReadCount);
   const lastReadYear = normalizeYear(
     (book as Record<string, unknown>)?.lastReadYear,
+  );
+  const readCount = normalizeReadCount(
+    read,
+    progress,
+    parsedReadCount,
+    lastReadYear,
   );
   const archivedAtYear = normalizeYear(
     (book as Record<string, unknown>)?.archivedAtYear,
@@ -364,9 +374,14 @@ function parsePayload(
     rawReadCount != null && Number.isFinite(Number(rawReadCount))
       ? Math.max(0, Math.floor(Number(rawReadCount)))
       : undefined;
-  const readCount = normalizeReadCount(read, progress, parsedReadCount);
   const lastReadYear = normalizeYear(
     (value as Record<string, unknown>)?.lastReadYear,
+  );
+  const readCount = normalizeReadCount(
+    read,
+    progress,
+    parsedReadCount,
+    lastReadYear,
   );
   const archivedAtYear = normalizeYear(
     (value as Record<string, unknown>)?.archivedAtYear,
@@ -387,7 +402,10 @@ function parsePayload(
     ...(readCount != null ? { readCount } : {}),
     ...(lastReadYear != null ? { lastReadYear } : {}),
     ...(read
-      ? { archivedAtYear: archivedAtYear ?? new Date().getFullYear() }
+      ? {
+          archivedAtYear:
+            lastReadYear ?? archivedAtYear ?? new Date().getFullYear(),
+        }
       : archivedAtYear != null
         ? { archivedAtYear }
         : {}),

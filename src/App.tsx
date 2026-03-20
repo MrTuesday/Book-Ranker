@@ -1747,15 +1747,11 @@ export default function App() {
   const hasSelectedNodeFilter = selectedInterestPath.length > 0;
 
   const isEditing = editingBookId !== null;
-  const editingBook = useMemo(
-    () => books.find((book) => book.id === editingBookId) ?? null,
-    [books, editingBookId],
-  );
+  const currentYearLabel = String(currentYear);
   const yearOptions = useMemo(() => {
     const totalYears = currentYear - MIN_YEAR_OPTION + 1;
     return Array.from({ length: totalYears }, (_, index) => currentYear - index);
   }, [currentYear]);
-  const archiveFallbackYear = editingBook?.archivedAtYear ?? currentYear;
 
   const knownGenres = useMemo(() => {
     const set = new Set<string>();
@@ -1969,6 +1965,31 @@ export default function App() {
 
       return next;
     });
+  }
+
+  function effectiveLastReadYear(book: Book) {
+    return book.lastReadYear ?? book.archivedAtYear;
+  }
+
+  function setDraftReadCount(nextReadCount: number) {
+    setDraft((prev) => {
+      const readCount = Math.max(0, Math.floor(nextReadCount));
+      return {
+        ...prev,
+        readCount,
+        lastReadYear:
+          readCount > 0 ? prev.lastReadYear.trim() || currentYearLabel : "",
+      };
+    });
+  }
+
+  function setDraftLastReadYear(nextLastReadYear: string) {
+    const lastReadYear = nextLastReadYear.trim();
+    setDraft((prev) => ({
+      ...prev,
+      lastReadYear,
+      readCount: lastReadYear ? Math.max(1, prev.readCount) : 0,
+    }));
   }
 
   function handleSuggestionFieldBlur(
@@ -2239,6 +2260,7 @@ export default function App() {
   }
 
   function startEditing(book: Book) {
+    const lastReadYear = effectiveLastReadYear(book);
     setEditingBookId(book.id);
     setScrollToForm(true);
     setActiveTagActionMenu(null);
@@ -2259,7 +2281,12 @@ export default function App() {
       genreScores: buildDraftScores(book.genres, genreInterests),
       progress: book.progress != null ? String(book.progress) : "",
       myRating: book.myRating ?? null,
-      lastReadYear: book.lastReadYear != null ? String(book.lastReadYear) : "",
+      lastReadYear:
+        lastReadYear != null
+          ? String(lastReadYear)
+          : (book.readCount ?? 0) > 0
+            ? currentYearLabel
+            : "",
       markAsRead: book.read ?? false,
     });
     setErrorMessage(null);
@@ -2297,7 +2324,6 @@ export default function App() {
       const parsedProgress = draft.progress.trim()
         ? Number(draft.progress)
         : undefined;
-      const shouldPersistArchiveMeta = draft.markAsRead || editingBook?.read === true;
       const payload = {
         title: draft.title.trim(),
         authors: draft.authors,
@@ -2308,10 +2334,7 @@ export default function App() {
         myRating: draft.myRating ?? undefined,
         readCount: draft.readCount,
         ...(draft.markAsRead ? { read: true as const } : {}),
-        ...(shouldPersistArchiveMeta && editingBook?.archivedAtYear != null
-          ? { archivedAtYear: editingBook.archivedAtYear }
-          : {}),
-        ...(shouldPersistArchiveMeta && parsedDraftLastReadYear != null
+        ...(parsedDraftLastReadYear != null
           ? { lastReadYear: parsedDraftLastReadYear }
           : {}),
       };
@@ -2449,8 +2472,8 @@ export default function App() {
         read,
         ...(read
           ? {
-              archivedAtYear: currentYear,
-              lastReadYear: undefined,
+              archivedAtYear: undefined,
+              lastReadYear: currentYear,
             }
           : {}),
       });
@@ -2466,9 +2489,15 @@ export default function App() {
 
     try {
       const nextValue = Math.max(0, Math.floor(value));
+      const nextLastReadYear =
+        nextValue > 0
+          ? effectiveLastReadYear(book) ?? currentYear
+          : undefined;
       const updated = await updateBookRecord(bookId, {
         ...book,
         readCount: nextValue,
+        archivedAtYear: undefined,
+        lastReadYear: nextLastReadYear,
       });
       applyBooksUpdate(updated);
     } catch {
@@ -3429,18 +3458,8 @@ export default function App() {
               <span>Times read before</span>
               <ReadCountStepper
                 value={draft.readCount}
-                onIncrement={() =>
-                  setDraft((prev) => ({
-                    ...prev,
-                    readCount: prev.readCount + 1,
-                  }))
-                }
-                onDecrement={() =>
-                  setDraft((prev) => ({
-                    ...prev,
-                    readCount: Math.max(0, prev.readCount - 1),
-                  }))
-                }
+                onIncrement={() => setDraftReadCount(draft.readCount + 1)}
+                onDecrement={() => setDraftReadCount(draft.readCount - 1)}
               />
             </div>
 
@@ -3448,14 +3467,9 @@ export default function App() {
               <span>Year last read</span>
               <select
                 value={draft.lastReadYear}
-                onChange={(event) =>
-                  setDraft((prev) => ({
-                    ...prev,
-                    lastReadYear: event.target.value,
-                  }))
-                }
+                onChange={(event) => setDraftLastReadYear(event.target.value)}
               >
-                <option value="">{`Archive year (${archiveFallbackYear})`}</option>
+                <option value="">-</option>
                 {yearOptions.map((year) => (
                   <option key={year} value={year}>
                     {year}
