@@ -32,7 +32,7 @@ import {
 } from "./lib/books-api";
 import {
   archiveReadinessFromScores,
-  buildTagBayesianPriorMap,
+  buildTagSmoothingFactorMap,
   capArchiveScore,
   GLOBAL_MEAN,
   SMOOTHING_FACTOR,
@@ -1601,8 +1601,8 @@ export default function App() {
     });
   }, []);
 
-  const bayesianPriors = useMemo(
-    () => buildTagBayesianPriorMap(books),
+  const smoothingFactors = useMemo(
+    () => buildTagSmoothingFactorMap(books),
     [books],
   );
 
@@ -1614,12 +1614,11 @@ export default function App() {
         const genrePref = averageTagPreference(book.genres, genreInterests);
         const R = book.starRating ?? GLOBAL_MEAN;
         const v = book.ratingCount ?? 0;
-        const prior = bayesianPriors.get(book.id);
         const bScore = bayesianScore(
           R,
           v,
-          prior?.mean ?? GLOBAL_MEAN,
-          prior?.smoothingFactor ?? SMOOTHING_FACTOR,
+          GLOBAL_MEAN,
+          smoothingFactors.get(book.id) ?? SMOOTHING_FACTOR,
         );
         return {
           ...book,
@@ -1644,7 +1643,7 @@ export default function App() {
         return (b.ratingCount ?? 0) - (a.ratingCount ?? 0);
       })
       .map((book, index) => ({ ...book, rank: index + 1 }));
-  }, [books, genreInterests, authorExperiences, bayesianPriors]);
+  }, [books, genreInterests, authorExperiences, smoothingFactors]);
 
   const readBooks = useMemo<RankedBook[]>(() => {
     return books
@@ -1654,12 +1653,11 @@ export default function App() {
         const genrePref = averageTagPreference(book.genres, genreInterests);
         const R = book.starRating ?? GLOBAL_MEAN;
         const v = book.ratingCount ?? 0;
-        const prior = bayesianPriors.get(book.id);
         const bScore = bayesianScore(
           R,
           v,
-          prior?.mean ?? GLOBAL_MEAN,
-          prior?.smoothingFactor ?? SMOOTHING_FACTOR,
+          GLOBAL_MEAN,
+          smoothingFactors.get(book.id) ?? SMOOTHING_FACTOR,
         );
         const fullScore = scoreBook(
           bScore,
@@ -1693,7 +1691,7 @@ export default function App() {
         return (b.ratingCount ?? 0) - (a.ratingCount ?? 0);
       })
       .map((book, index) => ({ ...book, rank: index + 1 }));
-  }, [books, genreInterests, authorExperiences, bayesianPriors]);
+  }, [books, genreInterests, authorExperiences, smoothingFactors]);
 
   const visibleRankedBooks = useMemo(
     () =>

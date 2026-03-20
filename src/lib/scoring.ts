@@ -20,11 +20,6 @@ export function bayesianScore(R: number, v: number, C: number, m: number) {
   return (v / (v + m)) * R + (m / (v + m)) * C;
 }
 
-export type BayesianPrior = {
-  mean: number;
-  smoothingFactor: number;
-};
-
 function normalizeTags(tags: string[]) {
   return Array.from(
     new Set(
@@ -46,19 +41,16 @@ function clampSmoothingFactor(value: number) {
 }
 
 /**
- * Derive a Bayesian prior for each saved book from the books that share at
+ * Derive a smoothing factor for each saved book from the books that share at
  * least one genre/topic tag. Archived books remain in the pool so niche
- * clusters can establish their own local baseline.
+ * clusters can establish their own local baseline while the Bayesian mean
+ * stays anchored to the global default.
  */
-export function buildTagBayesianPriorMap(
-  books: Pick<Book, "id" | "genres" | "ratingCount" | "starRating">[],
-  meanFallback = GLOBAL_MEAN,
-  smoothingFallback = SMOOTHING_FACTOR,
+export function buildTagSmoothingFactorMap(
+  books: Pick<Book, "id" | "genres" | "ratingCount">[],
+  fallback = SMOOTHING_FACTOR,
 ) {
-  const tagIndex = new Map<
-    string,
-    Pick<Book, "id" | "ratingCount" | "starRating">[]
-  >();
+  const tagIndex = new Map<string, Pick<Book, "id" | "ratingCount">[]>();
   const normalizedBooks = books.map((book) => {
     const tags = normalizeTags(book.genres);
 
@@ -78,35 +70,22 @@ export function buildTagBayesianPriorMap(
     };
   });
 
-  const globalMean = average(
-    books.flatMap((book) =>
-      book.starRating != null ? [book.starRating] : [],
-    ),
-  );
-  const defaultMean = globalMean ?? meanFallback;
   const globalSmoothingAverage = average(
     books.flatMap((book) =>
       book.ratingCount != null && book.ratingCount >= 0 ? [book.ratingCount] : [],
     ),
   );
   const defaultSmoothingFactor = clampSmoothingFactor(
-    globalSmoothingAverage ?? smoothingFallback,
+    globalSmoothingAverage ?? fallback,
   );
 
   return new Map(
     normalizedBooks.map(({ id, tags }) => {
       if (tags.length === 0) {
-        return [
-          id,
-          {
-            mean: defaultMean,
-            smoothingFactor: defaultSmoothingFactor,
-          },
-        ] as const;
+        return [id, defaultSmoothingFactor] as const;
       }
 
       const matchedBookIds = new Set<number>();
-      const matchedRatings: number[] = [];
       const matchedCounts: number[] = [];
 
       for (const tag of tags) {
@@ -117,10 +96,6 @@ export function buildTagBayesianPriorMap(
 
           matchedBookIds.add(book.id);
 
-          if (book.starRating != null) {
-            matchedRatings.push(book.starRating);
-          }
-
           if (book.ratingCount != null && book.ratingCount >= 0) {
             matchedCounts.push(book.ratingCount);
           }
@@ -129,12 +104,7 @@ export function buildTagBayesianPriorMap(
 
       return [
         id,
-        {
-          mean: average(matchedRatings) ?? defaultMean,
-          smoothingFactor: clampSmoothingFactor(
-            average(matchedCounts) ?? defaultSmoothingFactor,
-          ),
-        },
+        clampSmoothingFactor(average(matchedCounts) ?? defaultSmoothingFactor),
       ] as const;
     }),
   );
