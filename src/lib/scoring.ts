@@ -110,17 +110,120 @@ export function compositeScore(bayesian: number, ...inputs: number[]) {
   return values.reduce((a, b) => a + b, 0) / values.length;
 }
 
+export type SignalWeights = {
+  bayesian: number;
+  author: number;
+  genre: number;
+};
+
+export type PredictiveWeightSample = {
+  bayesian: number;
+  author: number;
+  genre: number;
+  target: number;
+};
+
+const DEFAULT_SIGNAL_WEIGHTS: SignalWeights = {
+  bayesian: BAYESIAN_SIGNAL_WEIGHT,
+  author: AUTHOR_SIGNAL_WEIGHT,
+  genre: GENRE_SIGNAL_WEIGHT,
+};
+
+const MIN_ADAPTIVE_WEIGHT_SAMPLES = 3;
+const WEIGHT_SEARCH_STEP = 0.05;
+const ADAPTIVE_WEIGHT_PRIOR_SAMPLES = 12;
+
+function blendSignalWeights(
+  defaults: SignalWeights,
+  learned: SignalWeights,
+  blend: number,
+) {
+  return {
+    bayesian:
+      defaults.bayesian + (learned.bayesian - defaults.bayesian) * blend,
+    author: defaults.author + (learned.author - defaults.author) * blend,
+    genre: defaults.genre + (learned.genre - defaults.genre) * blend,
+  };
+}
+
+function weightDistance(left: SignalWeights, right: SignalWeights) {
+  return (
+    (left.bayesian - right.bayesian) ** 2 +
+    (left.author - right.author) ** 2 +
+    (left.genre - right.genre) ** 2
+  );
+}
+
+export function learnSignalWeights(
+  samples: PredictiveWeightSample[],
+  defaults = DEFAULT_SIGNAL_WEIGHTS,
+) {
+  if (samples.length < MIN_ADAPTIVE_WEIGHT_SAMPLES) {
+    return defaults;
+  }
+
+  let bestWeights = defaults;
+  let bestLoss = Number.POSITIVE_INFINITY;
+  let bestDistance = 0;
+  const steps = Math.round(1 / WEIGHT_SEARCH_STEP);
+
+  for (let bayesianStep = 0; bayesianStep <= steps; bayesianStep += 1) {
+    const bayesian = bayesianStep * WEIGHT_SEARCH_STEP;
+
+    for (
+      let authorStep = 0;
+      authorStep <= steps - bayesianStep;
+      authorStep += 1
+    ) {
+      const author = authorStep * WEIGHT_SEARCH_STEP;
+      const genre = 1 - bayesian - author;
+
+      if (genre < 0) {
+        continue;
+      }
+
+      const candidate = { bayesian, author, genre };
+      const loss =
+        samples.reduce((total, sample) => {
+          const prediction = predictiveScore(
+            sample.bayesian,
+            sample.author,
+            sample.genre,
+            candidate,
+          );
+          const error = prediction - sample.target;
+
+          return total + error ** 2;
+        }, 0) / samples.length;
+      const distance = weightDistance(candidate, defaults);
+
+      if (
+        loss < bestLoss ||
+        (Math.abs(loss - bestLoss) < 1e-9 && distance < bestDistance)
+      ) {
+        bestWeights = candidate;
+        bestLoss = loss;
+        bestDistance = distance;
+      }
+    }
+  }
+
+  const learnedWeight = samples.length / (samples.length + ADAPTIVE_WEIGHT_PRIOR_SAMPLES);
+
+  return blendSignalWeights(defaults, bestWeights, learnedWeight);
+}
+
 export function predictiveScore(
   bayesian: number,
   authorPref: number,
   genrePref: number,
+  weights = DEFAULT_SIGNAL_WEIGHTS,
 ) {
   const weightedTotal =
-    bayesian * BAYESIAN_SIGNAL_WEIGHT +
-    authorPref * AUTHOR_SIGNAL_WEIGHT +
-    genrePref * GENRE_SIGNAL_WEIGHT;
-  const totalWeight =
-    BAYESIAN_SIGNAL_WEIGHT + AUTHOR_SIGNAL_WEIGHT + GENRE_SIGNAL_WEIGHT;
+    bayesian * weights.bayesian +
+    authorPref * weights.author +
+    genrePref * weights.genre;
+  const totalWeight = weights.bayesian + weights.author + weights.genre;
 
   return weightedTotal / totalWeight;
 }
@@ -264,8 +367,14 @@ export function scoreBook(
   myRating?: number,
   progress?: number,
   readCount = 0,
+  signalWeights = DEFAULT_SIGNAL_WEIGHTS,
 ) {
-  const predictive = predictiveScore(bayesian, authorPref, genrePref);
+  const predictive = predictiveScore(
+    bayesian,
+    authorPref,
+    genrePref,
+    signalWeights,
+  );
 
   if (myRating == null) {
     return predictive;

@@ -35,6 +35,7 @@ import {
   buildTagSmoothingFactorMap,
   capArchiveScore,
   GLOBAL_MEAN,
+  learnSignalWeights,
   SMOOTHING_FACTOR,
   bayesianScore,
   averageTagPreference,
@@ -1606,6 +1607,38 @@ export default function App() {
     [books],
   );
 
+  const signalWeights = useMemo(
+    () =>
+      learnSignalWeights(
+        books.flatMap((book) => {
+          if (book.myRating == null) {
+            return [];
+          }
+
+          const authorPref = averageTagPreference(book.authors, authorExperiences);
+          const genrePref = averageTagPreference(book.genres, genreInterests);
+          const R = book.starRating ?? GLOBAL_MEAN;
+          const v = book.ratingCount ?? 0;
+          const bScore = bayesianScore(
+            R,
+            v,
+            GLOBAL_MEAN,
+            smoothingFactors.get(book.id) ?? SMOOTHING_FACTOR,
+          );
+
+          return [
+            {
+              bayesian: bScore,
+              author: authorPref,
+              genre: genrePref,
+              target: book.myRating,
+            },
+          ];
+        }),
+      ),
+    [books, authorExperiences, genreInterests, smoothingFactors],
+  );
+
   const rankedBooks = useMemo<RankedBook[]>(() => {
     return books
       .filter((book) => !book.read)
@@ -1629,6 +1662,7 @@ export default function App() {
             book.myRating,
             book.progress,
             book.readCount ?? 0,
+            signalWeights,
           ),
           rank: 0,
         };
@@ -1643,7 +1677,7 @@ export default function App() {
         return (b.ratingCount ?? 0) - (a.ratingCount ?? 0);
       })
       .map((book, index) => ({ ...book, rank: index + 1 }));
-  }, [books, genreInterests, authorExperiences, smoothingFactors]);
+  }, [books, genreInterests, authorExperiences, smoothingFactors, signalWeights]);
 
   const readBooks = useMemo<RankedBook[]>(() => {
     return books
@@ -1666,6 +1700,7 @@ export default function App() {
           book.myRating,
           book.progress,
           book.readCount ?? 0,
+          signalWeights,
         );
         const realizedScore = realizeArchiveScore(
           fullScore,
@@ -1691,7 +1726,7 @@ export default function App() {
         return (b.ratingCount ?? 0) - (a.ratingCount ?? 0);
       })
       .map((book, index) => ({ ...book, rank: index + 1 }));
-  }, [books, genreInterests, authorExperiences, smoothingFactors]);
+  }, [books, genreInterests, authorExperiences, smoothingFactors, signalWeights]);
 
   const visibleRankedBooks = useMemo(
     () =>
