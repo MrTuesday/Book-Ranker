@@ -40,19 +40,36 @@ const GENRE_INTEREST_KEY = "book-ranker.genre-interests.v1";
 const AUTHOR_EXP_KEY = "book-ranker.author-experiences.v1";
 const BACKEND_MIGRATION_KEY = "book-ranker.backend-migrated.v1";
 
-async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    headers: {
-      ...(init.body ? { "Content-Type": "application/json" } : {}),
-      ...init.headers,
-    },
-  });
+class BackendUnavailableError extends Error {
+  constructor(message = "Backend is unavailable.") {
+    super(message);
+    this.name = "BackendUnavailableError";
+  }
+}
 
-  const payload =
-    response.headers.get("content-type")?.includes("application/json")
-      ? ((await response.json()) as { message?: string })
-      : null;
+async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+  let response: Response;
+
+  try {
+    response = await fetch(path, {
+      ...init,
+      headers: {
+        ...(init.body ? { "Content-Type": "application/json" } : {}),
+        ...init.headers,
+      },
+    });
+  } catch {
+    throw new BackendUnavailableError();
+  }
+
+  const isJsonResponse =
+    response.headers.get("content-type")?.includes("application/json") ?? false;
+
+  if (!isJsonResponse) {
+    throw new BackendUnavailableError();
+  }
+
+  const payload = (await response.json()) as { message?: string };
 
   if (!response.ok) {
     throw new Error(
@@ -73,6 +90,16 @@ function getStorage() {
   } catch {
     return null;
   }
+}
+
+function requireStorage() {
+  const storage = getStorage();
+
+  if (!storage) {
+    throw new Error("Browser storage is unavailable.");
+  }
+
+  return storage;
 }
 
 function normalizeTagList(value: unknown) {
@@ -227,6 +254,141 @@ function normalizeScoreMap(value: unknown) {
   return result;
 }
 
+function cloneBooks(books: Book[]) {
+  return books.map((book) => ({
+    ...book,
+    authors: [...book.authors],
+    genres: [...book.genres],
+  }));
+}
+
+function localLibraryState(
+  overrides: Partial<Omit<LibraryState, "meta">> = {},
+): LibraryState {
+  return {
+    books: cloneBooks(overrides.books ?? []),
+    genreInterests: { ...(overrides.genreInterests ?? {}) },
+    authorExperiences: { ...(overrides.authorExperiences ?? {}) },
+    meta: {
+      seeded: false,
+      migratedLocalState: false,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+}
+
+function parseBookPayload(
+  value: BookPayload &
+    Partial<{
+      author: string;
+      genre: string;
+    }>,
+) {
+  const title = typeof value?.title === "string" ? value.title.trim() : "";
+
+  if (!title) {
+    throw new Error("Title is required.");
+  }
+
+  const rawStarRating = value?.starRating;
+  const starRating =
+    rawStarRating != null && Number.isFinite(Number(rawStarRating))
+      ? Number(rawStarRating)
+      : undefined;
+  const rawRatingCount = value?.ratingCount;
+  const ratingCount =
+    rawRatingCount != null && Number.isFinite(Number(rawRatingCount))
+      ? Number(rawRatingCount)
+      : undefined;
+
+  if (starRating != null && (starRating < 0 || starRating > 5)) {
+    throw new Error("Star rating must be a number between 0 and 5.");
+  }
+
+  if (ratingCount != null && ratingCount < 0) {
+    throw new Error("Ratings must be a non-negative number.");
+  }
+
+  const rawMyRating = value?.myRating;
+  const myRating =
+    rawMyRating != null && Number.isFinite(Number(rawMyRating))
+      ? Number(rawMyRating)
+      : undefined;
+
+  if (myRating != null && (myRating < 1 || myRating > 5)) {
+    throw new Error("Personal rating must be between 1 and 5.");
+  }
+
+  const rawProgress = (value as Record<string, unknown>)?.progress;
+  const progress =
+    rawProgress != null && Number.isFinite(Number(rawProgress))
+      ? Math.max(0, Math.min(100, Number(rawProgress)))
+      : undefined;
+
+  const rawRead = (value as Record<string, unknown>)?.read;
+  const read = rawRead === true ? true : undefined;
+  const rawReadCount = (value as Record<string, unknown>)?.readCount;
+  const parsedReadCount =
+    rawReadCount != null && Number.isFinite(Number(rawReadCount))
+      ? Math.max(0, Math.floor(Number(rawReadCount)))
+      : undefined;
+  const lastReadYear = normalizeYear(
+    (value as Record<string, unknown>)?.lastReadYear,
+  );
+  const readCount = normalizeReadCount(
+    read,
+    progress,
+    parsedReadCount,
+    lastReadYear,
+  );
+  const archivedAtYear = normalizeYear(
+    (value as Record<string, unknown>)?.archivedAtYear,
+  );
+
+  const authors = normalizeTagList(value?.authors ?? value?.author);
+  const genres = normalizeTagList(value?.genres ?? value?.genre);
+
+  return {
+    title,
+    authors,
+    genres,
+    ...(starRating != null ? { starRating } : {}),
+    ...(ratingCount != null ? { ratingCount } : {}),
+    ...(myRating != null ? { myRating } : {}),
+    ...(progress != null ? { progress } : {}),
+    ...(read != null ? { read } : {}),
+    ...(readCount != null ? { readCount } : {}),
+    ...(lastReadYear != null ? { lastReadYear } : {}),
+    ...(read
+      ? {
+          archivedAtYear:
+            lastReadYear ?? archivedAtYear ?? new Date().getFullYear(),
+        }
+      : archivedAtYear != null
+        ? { archivedAtYear }
+        : {}),
+  };
+}
+
+function replaceTag(tags: string[], oldValue: string, newValue: string) {
+  const oldTag = oldValue.trim();
+  const nextTag = newValue.trim();
+
+  if (!oldTag) {
+    return [...tags];
+  }
+
+  const replaced = tags.flatMap((tag) => {
+    if (tag !== oldTag) {
+      return [tag];
+    }
+
+    return nextTag ? [nextTag] : [];
+  });
+
+  return normalizeTagList(replaced);
+}
+
 function readLegacyState(): Omit<LibraryState, "meta"> | null {
   const storage = getStorage();
 
@@ -287,6 +449,41 @@ function sameLibraryData(
   );
 }
 
+function readLocalLibraryState(): LibraryState {
+  const legacyState = readLegacyState();
+
+  if (!legacyState) {
+    return localLibraryState();
+  }
+
+  return localLibraryState(legacyState);
+}
+
+function writeLocalBooks(books: Book[]) {
+  const storage = requireStorage();
+  const nextBooks = cloneBooks(books);
+  storage.setItem(STORAGE_KEY, JSON.stringify(nextBooks));
+  return nextBooks;
+}
+
+function readLocalBooks() {
+  return readLocalLibraryState().books;
+}
+
+function writeLocalMap(storageKey: string, nextMap: Record<string, number>) {
+  const storage = requireStorage();
+  storage.setItem(storageKey, JSON.stringify(nextMap));
+  return { ...nextMap };
+}
+
+function readLocalGenreInterests() {
+  return readLocalLibraryState().genreInterests;
+}
+
+function readLocalAuthorExperiences() {
+  return readLocalLibraryState().authorExperiences;
+}
+
 async function migrateLegacyStateIfNeeded(libraryState: LibraryState) {
   const storage = getStorage();
 
@@ -325,8 +522,16 @@ async function migrateLegacyStateIfNeeded(libraryState: LibraryState) {
 }
 
 export async function fetchLibraryState() {
-  const libraryState = await requestJson<LibraryState>("/api/library");
-  return migrateLegacyStateIfNeeded(libraryState);
+  try {
+    const libraryState = await requestJson<LibraryState>("/api/library");
+    return migrateLegacyStateIfNeeded(libraryState);
+  } catch (error) {
+    if (error instanceof BackendUnavailableError) {
+      return readLocalLibraryState();
+    }
+
+    throw error;
+  }
 }
 
 export async function fetchBooks() {
@@ -335,23 +540,82 @@ export async function fetchBooks() {
 }
 
 export async function createBookRecord(payload: BookPayload) {
-  return requestJson<Book[]>("/api/books", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  try {
+    return await requestJson<Book[]>("/api/books", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    if (!(error instanceof BackendUnavailableError)) {
+      throw error;
+    }
+
+    const nextBook = parseBookPayload(payload);
+    const books = readLocalBooks();
+    const nextId = books.reduce((maxId, book) => Math.max(maxId, book.id), 0) + 1;
+
+    return writeLocalBooks([
+      ...books,
+      {
+        id: nextId,
+        ...nextBook,
+      },
+    ]);
+  }
 }
 
 export async function updateBookRecord(id: number, payload: BookPayload) {
-  return requestJson<Book[]>(`/api/books/${id}`, {
-    method: "PUT",
-    body: JSON.stringify(payload),
-  });
+  try {
+    return await requestJson<Book[]>(`/api/books/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    if (!(error instanceof BackendUnavailableError)) {
+      throw error;
+    }
+
+    if (!Number.isFinite(id)) {
+      throw new Error("Book id is required.");
+    }
+
+    const nextBook = parseBookPayload(payload);
+    const books = readLocalBooks();
+    const hasMatch = books.some((book) => book.id === id);
+
+    if (!hasMatch) {
+      throw new Error("Book not found.");
+    }
+
+    return writeLocalBooks(
+      books.map((book) => (book.id === id ? { id: book.id, ...nextBook } : book)),
+    );
+  }
 }
 
 export async function deleteBookRecord(id: number) {
-  return requestJson<Book[]>(`/api/books/${id}`, {
-    method: "DELETE",
-  });
+  try {
+    return await requestJson<Book[]>(`/api/books/${id}`, {
+      method: "DELETE",
+    });
+  } catch (error) {
+    if (!(error instanceof BackendUnavailableError)) {
+      throw error;
+    }
+
+    if (!Number.isFinite(id)) {
+      throw new Error("Book id is required.");
+    }
+
+    const books = readLocalBooks();
+    const nextBooks = books.filter((book) => book.id !== id);
+
+    if (nextBooks.length === books.length) {
+      throw new Error("Book not found.");
+    }
+
+    return writeLocalBooks(nextBooks);
+  }
 }
 
 export async function readGenreInterests() {
@@ -360,36 +624,95 @@ export async function readGenreInterests() {
 }
 
 export async function writeGenreInterest(genre: string, interest: number) {
-  return requestJson<GenreInterestMap>(
-    `/api/genre-interests/${encodeURIComponent(genre)}`,
-    {
-      method: "PUT",
-      body: JSON.stringify({ interest }),
-    },
-  );
+  try {
+    return await requestJson<GenreInterestMap>(
+      `/api/genre-interests/${encodeURIComponent(genre)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ interest }),
+      },
+    );
+  } catch (error) {
+    if (!(error instanceof BackendUnavailableError)) {
+      throw error;
+    }
+
+    const nextGenre = genre.trim();
+
+    if (!nextGenre) {
+      throw new Error("Genre is required.");
+    }
+
+    const map = readLocalGenreInterests();
+    map[nextGenre] = Math.max(0, Math.min(5, Number(interest)));
+    return writeLocalMap(GENRE_INTEREST_KEY, map);
+  }
 }
 
 export async function deleteGenreInterest(genre: string) {
-  return requestJson<GenreInterestMap>(
-    `/api/genre-interests/${encodeURIComponent(genre)}`,
-    {
-      method: "DELETE",
-    },
-  );
+  try {
+    return await requestJson<GenreInterestMap>(
+      `/api/genre-interests/${encodeURIComponent(genre)}`,
+      {
+        method: "DELETE",
+      },
+    );
+  } catch (error) {
+    if (!(error instanceof BackendUnavailableError)) {
+      throw error;
+    }
+
+    const map = readLocalGenreInterests();
+    delete map[genre.trim()];
+    return writeLocalMap(GENRE_INTEREST_KEY, map);
+  }
 }
 
 export async function renameGenreInterest(oldGenre: string, newGenre: string) {
-  return requestJson<GenreInterestMap>("/api/genre-interests/rename", {
-    method: "POST",
-    body: JSON.stringify({ oldGenre, newGenre }),
-  });
+  try {
+    return await requestJson<GenreInterestMap>("/api/genre-interests/rename", {
+      method: "POST",
+      body: JSON.stringify({ oldGenre, newGenre }),
+    });
+  } catch (error) {
+    if (!(error instanceof BackendUnavailableError)) {
+      throw error;
+    }
+
+    const map = readLocalGenreInterests();
+    const oldValue = oldGenre.trim();
+    const nextValue = newGenre.trim();
+
+    if (oldValue in map) {
+      if (nextValue) {
+        map[nextValue] = map[oldValue];
+      }
+      delete map[oldValue];
+    }
+
+    return writeLocalMap(GENRE_INTEREST_KEY, map);
+  }
 }
 
 export async function renameGenreInBooks(oldGenre: string, newGenre: string) {
-  return requestJson<Book[]>("/api/books/genres/rename", {
-    method: "POST",
-    body: JSON.stringify({ oldGenre, newGenre }),
-  });
+  try {
+    return await requestJson<Book[]>("/api/books/genres/rename", {
+      method: "POST",
+      body: JSON.stringify({ oldGenre, newGenre }),
+    });
+  } catch (error) {
+    if (!(error instanceof BackendUnavailableError)) {
+      throw error;
+    }
+
+    const books = readLocalBooks();
+    return writeLocalBooks(
+      books.map((book) => ({
+        ...book,
+        genres: replaceTag(book.genres, oldGenre, newGenre),
+      })),
+    );
+  }
 }
 
 export async function readAuthorExperiences() {
@@ -398,37 +721,96 @@ export async function readAuthorExperiences() {
 }
 
 export async function writeAuthorExperience(author: string, experience: number) {
-  return requestJson<AuthorExperienceMap>(
-    `/api/author-experiences/${encodeURIComponent(author)}`,
-    {
-      method: "PUT",
-      body: JSON.stringify({ experience }),
-    },
-  );
+  try {
+    return await requestJson<AuthorExperienceMap>(
+      `/api/author-experiences/${encodeURIComponent(author)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ experience }),
+      },
+    );
+  } catch (error) {
+    if (!(error instanceof BackendUnavailableError)) {
+      throw error;
+    }
+
+    const nextAuthor = author.trim();
+
+    if (!nextAuthor) {
+      throw new Error("Author is required.");
+    }
+
+    const map = readLocalAuthorExperiences();
+    map[nextAuthor] = Math.max(0, Math.min(5, Number(experience)));
+    return writeLocalMap(AUTHOR_EXP_KEY, map);
+  }
 }
 
 export async function deleteAuthorExperience(author: string) {
-  return requestJson<AuthorExperienceMap>(
-    `/api/author-experiences/${encodeURIComponent(author)}`,
-    {
-      method: "DELETE",
-    },
-  );
+  try {
+    return await requestJson<AuthorExperienceMap>(
+      `/api/author-experiences/${encodeURIComponent(author)}`,
+      {
+        method: "DELETE",
+      },
+    );
+  } catch (error) {
+    if (!(error instanceof BackendUnavailableError)) {
+      throw error;
+    }
+
+    const map = readLocalAuthorExperiences();
+    delete map[author.trim()];
+    return writeLocalMap(AUTHOR_EXP_KEY, map);
+  }
 }
 
 export async function renameAuthorExperience(
   oldAuthor: string,
   newAuthor: string,
 ) {
-  return requestJson<AuthorExperienceMap>("/api/author-experiences/rename", {
-    method: "POST",
-    body: JSON.stringify({ oldAuthor, newAuthor }),
-  });
+  try {
+    return await requestJson<AuthorExperienceMap>("/api/author-experiences/rename", {
+      method: "POST",
+      body: JSON.stringify({ oldAuthor, newAuthor }),
+    });
+  } catch (error) {
+    if (!(error instanceof BackendUnavailableError)) {
+      throw error;
+    }
+
+    const map = readLocalAuthorExperiences();
+    const oldValue = oldAuthor.trim();
+    const nextValue = newAuthor.trim();
+
+    if (oldValue in map) {
+      if (nextValue) {
+        map[nextValue] = map[oldValue];
+      }
+      delete map[oldValue];
+    }
+
+    return writeLocalMap(AUTHOR_EXP_KEY, map);
+  }
 }
 
 export async function renameAuthorInBooks(oldAuthor: string, newAuthor: string) {
-  return requestJson<Book[]>("/api/books/authors/rename", {
-    method: "POST",
-    body: JSON.stringify({ oldAuthor, newAuthor }),
-  });
+  try {
+    return await requestJson<Book[]>("/api/books/authors/rename", {
+      method: "POST",
+      body: JSON.stringify({ oldAuthor, newAuthor }),
+    });
+  } catch (error) {
+    if (!(error instanceof BackendUnavailableError)) {
+      throw error;
+    }
+
+    const books = readLocalBooks();
+    return writeLocalBooks(
+      books.map((book) => ({
+        ...book,
+        authors: replaceTag(book.authors, oldAuthor, newAuthor),
+      })),
+    );
+  }
 }

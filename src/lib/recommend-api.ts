@@ -33,13 +33,24 @@ export type PathRecommendationResponse = {
 export async function requestPathRecommendation(
   payload: PathRecommendationRequest,
 ): Promise<PathRecommendationResponse> {
-  const response = await fetch("/api/recommendations/path", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
+  let response: Response;
+
+  try {
+    response = await fetch("/api/recommendations/path", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    throw new Error("Recommendations are unavailable until the backend is deployed.");
+  }
+
+  if (!response.headers.get("content-type")?.includes("application/json")) {
+    throw new Error("Recommendations are unavailable until the backend is deployed.");
+  }
+
   const body = (await response.json()) as { message?: string };
 
   if (!response.ok) {
