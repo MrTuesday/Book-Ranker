@@ -2585,6 +2585,7 @@ export default function App() {
                     rankClass={rankClass}
                     className={`${isEditingBook ? "is-editing" : ""}${book.rank === 1 ? " is-leader" : ""}`}
                     animationDelay={`${index * 60}ms`}
+                    isActive={isEditingBook}
                     onToggle={() => toggleCardEditing(book)}
                     progressBar={
                       <ProgressBar
@@ -2695,6 +2696,7 @@ export default function App() {
                         scoreOverride={book.archiveLabel ?? "Not yet"}
                         rankClass={rankClass}
                         className={`is-read${isEditingBook ? " is-editing" : ""}`}
+                        isActive={isEditingBook}
                         onToggle={() => toggleCardEditing(book)}
                         progressBar={
                           <ProgressBar

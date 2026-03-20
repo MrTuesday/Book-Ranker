@@ -32,6 +32,8 @@ export type BookCardProps = {
   actions?: ReactNode;
   /** Toggle the surrounding editor when clicking the card surface */
   onToggle?: () => void;
+  /** Whether this card is currently selected for editing */
+  isActive?: boolean;
 };
 
 const CARD_CONTROL_SELECTOR = [
@@ -65,6 +67,7 @@ export function BookCard({
   stars,
   actions,
   onToggle,
+  isActive = false,
 }: BookCardProps) {
   const cardStyle = animationDelay ? { animationDelay } : undefined;
 
@@ -74,6 +77,10 @@ export function BookCard({
     }
 
     onToggle();
+
+    if (isActive) {
+      event.currentTarget.blur();
+    }
   }
 
   function handleKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
@@ -87,6 +94,10 @@ export function BookCard({
 
     event.preventDefault();
     onToggle();
+
+    if (isActive) {
+      event.currentTarget.blur();
+    }
   }
 
   return (
