@@ -330,6 +330,49 @@ function removeTagFromScores(scores: Record<string, string>, tag: string) {
   return nextScores;
 }
 
+function buildPredictiveBook(book: Book): Book {
+  const rating = book.myRating;
+  const averageRating = book.starRating;
+  const ratingsCount = book.ratingCount;
+
+  if (
+    rating == null ||
+    averageRating == null ||
+    ratingsCount == null ||
+    !Number.isFinite(averageRating) ||
+    !Number.isFinite(ratingsCount) ||
+    ratingsCount <= 0
+  ) {
+    return book;
+  }
+
+  const predictiveCount = Math.max(0, ratingsCount - 1);
+
+  if (predictiveCount === 0) {
+    const nextBook: Book = {
+      ...book,
+      authors: [...book.authors],
+      genres: [...book.genres],
+      moods: [...book.moods],
+    };
+    delete nextBook.starRating;
+    delete nextBook.ratingCount;
+    return nextBook;
+  }
+
+  const predictiveAverage =
+    (averageRating * ratingsCount - rating) / predictiveCount;
+
+  return {
+    ...book,
+    authors: [...book.authors],
+    genres: [...book.genres],
+    moods: [...book.moods],
+    starRating: Number(predictiveAverage.toFixed(2)),
+    ratingCount: predictiveCount,
+  };
+}
+
 
 function reorderTags(tags: string[], draggedTag: string, targetTag: string) {
   if (draggedTag === targetTag) {
@@ -2421,21 +2464,33 @@ export default function App() {
     );
   }, [selectedInterestPath]);
 
+  const predictiveBooks = useMemo(
+    () => books.map(buildPredictiveBook),
+    [books],
+  );
+
+  const predictiveBooksById = useMemo(
+    () => new Map(predictiveBooks.map((book) => [book.id, book] as const)),
+    [predictiveBooks],
+  );
+
   const smoothingFactors = useMemo(
-    () => buildTagSmoothingFactorMap(books, genreInterests),
-    [books, genreInterests],
+    () => buildTagSmoothingFactorMap(predictiveBooks, genreInterests),
+    [predictiveBooks, genreInterests],
   );
 
   const signalWeights = useMemo(
     () =>
       learnSignalWeights(
-        books.flatMap((book) => {
-          if (book.myRating == null) {
+        books.flatMap((displayBook) => {
+          const book = predictiveBooksById.get(displayBook.id) ?? displayBook;
+
+          if (displayBook.myRating == null) {
             return [];
           }
 
-          const authorPref = averageTagPreference(book.authors, authorExperiences);
-          const genrePref = averageTagPreference(book.genres, genreInterests, {
+          const authorPref = averageTagPreference(displayBook.authors, authorExperiences);
+          const genrePref = averageTagPreference(displayBook.genres, genreInterests, {
             excludeMissing: true,
           });
           const R = book.starRating ?? GLOBAL_MEAN;
@@ -2452,24 +2507,25 @@ export default function App() {
               bayesian: bScore,
               author: authorPref,
               genre: genrePref,
-              target: book.myRating,
+              target: displayBook.myRating,
             },
           ];
         }),
       ),
-    [books, authorExperiences, genreInterests, smoothingFactors],
+    [books, predictiveBooksById, authorExperiences, genreInterests, smoothingFactors],
   );
 
   const rankedBooks = useMemo<RankedBook[]>(() => {
     return books
       .filter((book) => !book.read)
       .map((book) => {
+        const predictiveBook = predictiveBooksById.get(book.id) ?? book;
         const authorPref = averageTagPreference(book.authors, authorExperiences);
         const genrePref = averageTagPreference(book.genres, genreInterests, {
           excludeMissing: true,
         });
-        const R = book.starRating ?? GLOBAL_MEAN;
-        const v = book.ratingCount ?? 0;
+        const R = predictiveBook.starRating ?? GLOBAL_MEAN;
+        const v = predictiveBook.ratingCount ?? 0;
         const bScore = bayesianScore(
           R,
           v,
@@ -2478,6 +2534,8 @@ export default function App() {
         );
         return {
           ...book,
+          predictiveStarRating: predictiveBook.starRating ?? 0,
+          predictiveRatingCount: predictiveBook.ratingCount ?? 0,
           score: scoreBook(
             bScore,
             authorPref,
@@ -2494,24 +2552,28 @@ export default function App() {
         if (b.score !== a.score) {
           return b.score - a.score;
         }
-        if ((b.starRating ?? 0) !== (a.starRating ?? 0)) {
-          return (b.starRating ?? 0) - (a.starRating ?? 0);
+        if (b.predictiveStarRating !== a.predictiveStarRating) {
+          return b.predictiveStarRating - a.predictiveStarRating;
         }
-        return (b.ratingCount ?? 0) - (a.ratingCount ?? 0);
+        return b.predictiveRatingCount - a.predictiveRatingCount;
       })
-      .map((book, index) => ({ ...book, rank: index + 1 }));
-  }, [books, genreInterests, authorExperiences, smoothingFactors, signalWeights]);
+      .map(({ predictiveStarRating: _predictiveStarRating, predictiveRatingCount: _predictiveRatingCount, ...book }, index) => ({
+        ...book,
+        rank: index + 1,
+      }));
+  }, [books, predictiveBooksById, genreInterests, authorExperiences, smoothingFactors, signalWeights]);
 
   const readBooks = useMemo<RankedBook[]>(() => {
     return books
       .filter((book) => book.read)
       .map((book) => {
+        const predictiveBook = predictiveBooksById.get(book.id) ?? book;
         const authorPref = averageTagPreference(book.authors, authorExperiences);
         const genrePref = averageTagPreference(book.genres, genreInterests, {
           excludeMissing: true,
         });
-        const R = book.starRating ?? GLOBAL_MEAN;
-        const v = book.ratingCount ?? 0;
+        const R = predictiveBook.starRating ?? GLOBAL_MEAN;
+        const v = predictiveBook.ratingCount ?? 0;
         const bScore = bayesianScore(
           R,
           v,
@@ -2536,6 +2598,8 @@ export default function App() {
         const archiveReadiness = archiveReadinessFromScores(score, fullScore);
         return {
           ...book,
+          predictiveStarRating: predictiveBook.starRating ?? 0,
+          predictiveRatingCount: predictiveBook.ratingCount ?? 0,
           score,
           archiveLabel: archiveReadiness.label,
           rank: 0,
@@ -2545,13 +2609,16 @@ export default function App() {
         if (b.score !== a.score) {
           return b.score - a.score;
         }
-        if ((b.starRating ?? 0) !== (a.starRating ?? 0)) {
-          return (b.starRating ?? 0) - (a.starRating ?? 0);
+        if (b.predictiveStarRating !== a.predictiveStarRating) {
+          return b.predictiveStarRating - a.predictiveStarRating;
         }
-        return (b.ratingCount ?? 0) - (a.ratingCount ?? 0);
+        return b.predictiveRatingCount - a.predictiveRatingCount;
       })
-      .map((book, index) => ({ ...book, rank: index + 1 }));
-  }, [books, genreInterests, authorExperiences, smoothingFactors, signalWeights]);
+      .map(({ predictiveStarRating: _predictiveStarRating, predictiveRatingCount: _predictiveRatingCount, ...book }, index) => ({
+        ...book,
+        rank: index + 1,
+      }));
+  }, [books, predictiveBooksById, genreInterests, authorExperiences, smoothingFactors, signalWeights]);
 
   const visibleRankedBooks = useMemo(
     () =>
@@ -3702,7 +3769,7 @@ export default function App() {
         const result = requestPathRecommendation({
           selectedTags: selectedInterestPath,
           profile: {
-            books,
+            books: predictiveBooks,
             genreInterests,
             authorExperiences,
           },
@@ -3723,7 +3790,7 @@ export default function App() {
       cancelled = true;
       clearTimeout(debounce);
     };
-  }, [selectedInterestPath, books, genreInterests, authorExperiences]);
+  }, [selectedInterestPath, predictiveBooks, genreInterests, authorExperiences]);
 
 
 
