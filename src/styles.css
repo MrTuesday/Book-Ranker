@@ -849,10 +849,15 @@ h3 {
 
 .series-number-input {
     width: 32px;
+    max-width: 32px;
     min-width: 32px;
     flex: 0 0 32px;
-    padding: 4px 0;
+    height: 32px;
+    min-height: 32px;
+    padding: 0;
     text-align: center;
+    border-radius: 8px;
+    aspect-ratio: 1 / 1;
 }
 
 .draft-tag-list {
