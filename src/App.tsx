@@ -360,6 +360,82 @@ function matchesSelectedGenres(
   return selectedGenres.every((genre) => genreSet.has(genre));
 }
 
+type LabelAnchor = "middle" | "start" | "end";
+type LabelOrientation = "left" | "right" | "top" | "bottom";
+type LabelBox = {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+};
+
+function estimateInterestLabelWidth(label: string) {
+  return Math.max(44, label.length * 7.2 + 10);
+}
+
+function buildInterestLabelBox(
+  x: number,
+  y: number,
+  anchor: LabelAnchor,
+  width: number,
+): LabelBox {
+  const left =
+    anchor === "start" ? x : anchor === "end" ? x - width : x - width / 2;
+
+  return {
+    left: left - 4,
+    right: left + width + 4,
+    top: y - 15,
+    bottom: y + 5,
+  };
+}
+
+function interestLabelBoxesOverlap(left: LabelBox, right: LabelBox) {
+  return (
+    left.left < right.right &&
+    left.right > right.left &&
+    left.top < right.bottom &&
+    left.bottom > right.top
+  );
+}
+
+function interestLabelIntersectsNode(
+  box: LabelBox,
+  node: { x: number; y: number; radius: number },
+) {
+  const closestX = Math.max(box.left, Math.min(node.x, box.right));
+  const closestY = Math.max(box.top, Math.min(node.y, box.bottom));
+  const dx = node.x - closestX;
+  const dy = node.y - closestY;
+  const clearance = node.radius + 5;
+
+  return dx * dx + dy * dy < clearance * clearance;
+}
+
+function interestLabelFitsChart(
+  box: LabelBox,
+  width: number,
+  height: number,
+) {
+  return (
+    box.left >= 12 &&
+    box.right <= width - 12 &&
+    box.top >= 12 &&
+    box.bottom <= height - 12
+  );
+}
+
+function preferredInterestLabelOrientation(
+  dx: number,
+  dy: number,
+): LabelOrientation {
+  if (Math.abs(dx) > Math.abs(dy) + 18) {
+    return dx < 0 ? "left" : "right";
+  }
+
+  return dy < 0 ? "top" : "bottom";
+}
+
 function ProgressBar({
   value,
   onChange,
@@ -1069,12 +1145,13 @@ function InterestMapView({
     !compact && simRef.current.length > 0
       ? simRef.current
       : initialLayout.nodes;
+  const selectedPathSet = new Set(selectedPath);
 
-  // Compute labels from current positions
+  // Compute animated positions from the settled layout.
   const centerX = initialLayout.width / 2;
   const centerY = initialLayout.height / 2;
   const animationTime = animationTimeRef.current;
-  const renderNodes = currentNodes.map((node, index) => {
+  const animatedNodes = currentNodes.map((node, index) => {
     const isDragged = dragRef.current?.nodeIndex === index;
     const swaySeed = hashTag(node.tag);
     const swayX =
@@ -1086,34 +1163,179 @@ function InterestMapView({
         ? 0
         : Math.cos(animationTime * 0.44 + ((swaySeed >> 8) & 0xff) * 0.029) *
           1.35;
-    const displayX = node.x + swayX;
-    const displayY = node.y + swayY;
-    const dx = displayX - centerX;
-    const dy = displayY - centerY;
-    let labelX = displayX;
-    let labelY = displayY + 4;
-    let labelAnchor: "middle" | "start" | "end" = "middle";
-
-    if (Math.abs(dx) > Math.abs(dy) + 18) {
-      if (dx < 0) {
-        labelX = displayX - node.radius - 10;
-        labelAnchor = "end";
-      } else {
-        labelX = displayX + node.radius + 10;
-        labelAnchor = "start";
-      }
-    } else {
-      labelY = displayY + (dy < 0 ? -(node.radius + 10) : node.radius + 14);
-    }
 
     return {
       ...node,
       index,
-      x: displayX,
-      y: displayY,
-      labelX,
-      labelY,
-      labelAnchor,
+      x: node.x + swayX,
+      y: node.y + swayY,
+    };
+  });
+  const labelPlacements = new Map<
+    string,
+    { labelX: number; labelY: number; labelAnchor: LabelAnchor }
+  >();
+
+  if (!compact) {
+    const placedBoxes: LabelBox[] = [];
+    const orderedNodes = [...animatedNodes].sort(
+      (left, right) =>
+        Number(selectedPathSet.has(right.tag)) -
+          Number(selectedPathSet.has(left.tag)) ||
+        right.count - left.count ||
+        right.interest - left.interest ||
+        left.tag.localeCompare(right.tag),
+    );
+
+    for (const node of orderedNodes) {
+      const labelText = editMode ? `\u270E ${shortenLabel(node.tag)}` : shortenLabel(node.tag);
+      const labelWidth = estimateInterestLabelWidth(labelText);
+      const preferred = preferredInterestLabelOrientation(
+        node.x - centerX,
+        node.y - centerY,
+      );
+      const orientations: LabelOrientation[] =
+        preferred === "left"
+          ? ["left", "right", "top", "bottom"]
+          : preferred === "right"
+            ? ["right", "left", "top", "bottom"]
+            : preferred === "top"
+              ? ["top", "bottom", "right", "left"]
+              : ["bottom", "top", "right", "left"];
+      let chosen:
+        | {
+            labelX: number;
+            labelY: number;
+            labelAnchor: LabelAnchor;
+            box: LabelBox;
+          }
+        | null = null;
+
+      for (const orientation of orientations) {
+        const offsets =
+          orientation === "left" || orientation === "right"
+            ? [0, -18, 18, -36, 36, -54, 54, -72, 72, -90, 90, -108, 108]
+            : [0, -28, 28, -56, 56, -84, 84, -112, 112, -140, 140];
+
+        for (const offset of offsets) {
+          const labelX =
+            orientation === "left"
+              ? node.x - node.radius - 10
+              : orientation === "right"
+                ? node.x + node.radius + 10
+                : node.x + offset;
+          const labelY =
+            orientation === "top"
+              ? node.y - node.radius - 10
+              : orientation === "bottom"
+                ? node.y + node.radius + 14
+                : node.y + 4 + offset;
+          const labelAnchor =
+            orientation === "left"
+              ? "end"
+              : orientation === "right"
+                ? "start"
+                : "middle";
+          const box = buildInterestLabelBox(
+            labelX,
+            labelY,
+            labelAnchor,
+            labelWidth,
+          );
+
+          if (!interestLabelFitsChart(box, initialLayout.width, initialLayout.height)) {
+            continue;
+          }
+
+          if (placedBoxes.some((placedBox) => interestLabelBoxesOverlap(box, placedBox))) {
+            continue;
+          }
+
+          if (
+            animatedNodes.some(
+              (other) =>
+                other.tag !== node.tag &&
+                interestLabelIntersectsNode(box, other),
+            )
+          ) {
+            continue;
+          }
+
+          chosen = { labelX, labelY, labelAnchor, box };
+          break;
+        }
+
+        if (chosen) {
+          break;
+        }
+      }
+
+      if (!chosen) {
+        const fallbackLabelTextWidth = labelWidth;
+        let fallbackY = Math.max(
+          22,
+          Math.min(initialLayout.height - 18, node.y + node.radius + 14),
+        );
+        const fallbackX = Math.max(
+          fallbackLabelTextWidth / 2 + 12,
+          Math.min(
+            initialLayout.width - fallbackLabelTextWidth / 2 - 12,
+            node.x,
+          ),
+        );
+        let fallbackBox = buildInterestLabelBox(
+          fallbackX,
+          fallbackY,
+          "middle",
+          fallbackLabelTextWidth,
+        );
+
+        while (
+          placedBoxes.some((placedBox) =>
+            interestLabelBoxesOverlap(fallbackBox, placedBox),
+          ) &&
+          fallbackY < initialLayout.height - 18
+        ) {
+          fallbackY += 20;
+          fallbackBox = buildInterestLabelBox(
+            fallbackX,
+            fallbackY,
+            "middle",
+            fallbackLabelTextWidth,
+          );
+        }
+
+        chosen = {
+          labelX: fallbackX,
+          labelY: fallbackY,
+          labelAnchor: "middle",
+          box: fallbackBox,
+        };
+      }
+
+      labelPlacements.set(node.tag, {
+        labelX: chosen.labelX,
+        labelY: chosen.labelY,
+        labelAnchor: chosen.labelAnchor,
+      });
+      placedBoxes.push(chosen.box);
+    }
+  }
+
+  const renderNodes = animatedNodes.map((node) => {
+    const labelText = editMode ? `\u270E ${shortenLabel(node.tag)}` : shortenLabel(node.tag);
+    const placement = labelPlacements.get(node.tag) ?? {
+      labelX: node.x,
+      labelY: node.y + node.radius + 14,
+      labelAnchor: "middle" as const,
+    };
+
+    return {
+      ...node,
+      labelText,
+      labelX: placement.labelX,
+      labelY: placement.labelY,
+      labelAnchor: placement.labelAnchor,
     };
   });
   const nodeMap = new Map(
@@ -1125,7 +1347,6 @@ function InterestMapView({
     data.nodes.length === 1 ? "1 interest" : `${data.nodes.length} interests`;
   const connectionLabel =
     data.links.length === 1 ? "1 link" : `${data.links.length} links`;
-  const selectedPathSet = new Set(selectedPath);
   const highlightedLinks = data.links.filter(
     (link) => selectedPathSet.has(link.source) && selectedPathSet.has(link.target),
   );
@@ -1354,7 +1575,7 @@ function InterestMapView({
                   y={node.labelY}
                   textAnchor={node.labelAnchor}
                 >
-                  {editMode ? `\u270E ${shortenLabel(node.tag)}` : shortenLabel(node.tag)}
+                  {node.labelText}
                 </text>
               ) : null}
             </g>
