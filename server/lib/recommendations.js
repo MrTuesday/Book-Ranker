@@ -146,9 +146,9 @@ export async function fetchPathRecommendations(client, payload) {
       ? profile.authorExperiences
       : {};
 
-  if (selectedTags.length < 2) {
+  if (selectedTags.length < 1) {
     throw new Error(
-      "Choose at least two interests before asking for a recommendation.",
+      "Choose at least one interest before asking for a recommendation.",
     );
   }
 

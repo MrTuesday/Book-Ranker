@@ -2630,7 +2630,7 @@ export default function App() {
     await setReadCount(bookId, (book.readCount ?? 0) - 1);
   }
 
-  // Auto-build reading list when 2+ nodes are selected
+  // Auto-build reading list when at least one node is selected
   useEffect(() => {
     if (selectedInterestPath.length < 1) {
       setRecommendations(null);

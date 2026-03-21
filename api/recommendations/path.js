@@ -43,8 +43,7 @@ export default async function handler(request, response) {
 
     if (
       error instanceof Error &&
-      error.message ===
-        "Choose at least two interests before asking for a recommendation."
+      error.message.startsWith("Choose at least ")
     ) {
       response.status(400).json({ message: error.message });
       return;
