@@ -138,9 +138,11 @@ function normalizeTitledTag(value: string) {
     return "";
   }
 
-  return trimmed
-    .toLocaleLowerCase()
-    .replace(/(^|[\s/-])\p{L}/gu, (match) => match.toLocaleUpperCase());
+  return trimmed.replace(
+    /(^|[\s/-])(\p{L})/gu,
+    (_match, boundary: string, letter: string) =>
+      `${boundary}${letter.toLocaleUpperCase()}`,
+  );
 }
 
 export function normalizeGenreTag(value: string) {
