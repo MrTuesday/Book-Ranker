@@ -1233,64 +1233,76 @@ function InterestMapView({
           }
         | null = null;
 
+      function candidateForOrientation(
+        orientation: LabelOrientation,
+      ): {
+        labelX: number;
+        labelY: number;
+        labelAnchor: LabelAnchor;
+        box: LabelBox;
+        footprint: LabelBox;
+      } {
+        const labelX =
+          orientation === "left"
+            ? node.x - node.radius - 10
+            : orientation === "right"
+              ? node.x + node.radius + 10
+              : node.x;
+        const labelY =
+          orientation === "top"
+            ? node.y - node.radius - 10
+            : orientation === "bottom"
+              ? node.y + node.radius + 14
+              : node.y + 4;
+        const labelAnchor: LabelAnchor =
+          orientation === "left"
+            ? "end"
+            : orientation === "right"
+              ? "start"
+              : "middle";
+        const box = buildInterestLabelBox(
+          labelX,
+          labelY,
+          labelAnchor,
+          labelWidth,
+        );
+        const footprint = mergeInterestBoxes(box, buildInterestNodeBox(node));
+
+        return {
+          labelX,
+          labelY,
+          labelAnchor,
+          box,
+          footprint,
+        };
+      }
+
       for (const orientation of orientations) {
-        const offsets =
-          orientation === "left" || orientation === "right"
-            ? [0, -18, 18, -36, 36, -54, 54, -72, 72, -90, 90, -108, 108]
-            : [0, -28, 28, -56, 56, -84, 84, -112, 112, -140, 140];
+        const candidate = candidateForOrientation(orientation);
 
-        for (const offset of offsets) {
-          const labelX =
-            orientation === "left"
-              ? node.x - node.radius - 10
-              : orientation === "right"
-                ? node.x + node.radius + 10
-                : node.x + offset;
-          const labelY =
-            orientation === "top"
-              ? node.y - node.radius - 10
-              : orientation === "bottom"
-                ? node.y + node.radius + 14
-                : node.y + 4 + offset;
-          const labelAnchor =
-            orientation === "left"
-              ? "end"
-              : orientation === "right"
-                ? "start"
-                : "middle";
-          const box = buildInterestLabelBox(
-            labelX,
-            labelY,
-            labelAnchor,
-            labelWidth,
-          );
-          const footprint = mergeInterestBoxes(box, buildInterestNodeBox(node));
-
-          if (!interestLabelFitsChart(box, initialLayout.width, initialLayout.height)) {
-            continue;
-          }
-
-          if (
-            placedFootprints.some((placedFootprint) =>
-              interestLabelBoxesOverlap(footprint, placedFootprint),
-            )
-          ) {
-            continue;
-          }
-
-          if (
-            animatedNodes.some(
-              (other) =>
-                other.tag !== node.tag &&
-                interestLabelIntersectsNode(box, other),
-            )
-          ) {
-            continue;
-          }
-
-          chosen = { labelX, labelY, labelAnchor, box, footprint };
-          break;
+        if (!interestLabelFitsChart(candidate.box, initialLayout.width, initialLayout.height)) {
+          continue;
         }
+
+        if (
+          placedFootprints.some((placedFootprint) =>
+            interestLabelBoxesOverlap(candidate.footprint, placedFootprint),
+          )
+        ) {
+          continue;
+        }
+
+        if (
+          animatedNodes.some(
+            (other) =>
+              other.tag !== node.tag &&
+              interestLabelIntersectsNode(candidate.box, other),
+          )
+        ) {
+          continue;
+        }
+
+        chosen = candidate;
 
         if (chosen) {
           break;
@@ -1298,55 +1310,20 @@ function InterestMapView({
       }
 
       if (!chosen) {
-        const fallbackLabelTextWidth = labelWidth;
-        let fallbackY = Math.max(
-          22,
-          Math.min(initialLayout.height - 18, node.y + node.radius + 14),
-        );
-        const fallbackX = Math.max(
-          fallbackLabelTextWidth / 2 + 12,
-          Math.min(
-            initialLayout.width - fallbackLabelTextWidth / 2 - 12,
-            node.x,
-          ),
-        );
-        let fallbackBox = buildInterestLabelBox(
-          fallbackX,
-          fallbackY,
-          "middle",
-          fallbackLabelTextWidth,
-        );
-        let fallbackFootprint = mergeInterestBoxes(
-          fallbackBox,
-          buildInterestNodeBox(node),
-        );
+        const firstFittingOrientation =
+          orientations.find((orientation) =>
+            interestLabelFitsChart(
+              candidateForOrientation(orientation).box,
+              initialLayout.width,
+              initialLayout.height,
+            ),
+          ) ?? preferred;
 
-        while (
-          placedFootprints.some((placedFootprint) =>
-            interestLabelBoxesOverlap(fallbackFootprint, placedFootprint),
-          ) &&
-          fallbackY < initialLayout.height - 18
-        ) {
-          fallbackY += 20;
-          fallbackBox = buildInterestLabelBox(
-            fallbackX,
-            fallbackY,
-            "middle",
-            fallbackLabelTextWidth,
-          );
-          fallbackFootprint = mergeInterestBoxes(
-            fallbackBox,
-            buildInterestNodeBox(node),
-          );
-        }
+        chosen = candidateForOrientation(firstFittingOrientation);
+      }
 
-        chosen = {
-          labelX: fallbackX,
-          labelY: fallbackY,
-          labelAnchor: "middle",
-          box: fallbackBox,
-          footprint: fallbackFootprint,
-        };
+      if (!chosen) {
+        continue;
       }
 
       labelPlacements.set(node.tag, {
