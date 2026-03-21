@@ -12,9 +12,6 @@ const IGNORED_GOODREADS_LABELS = new Set([
   "audiobooks",
   "book club",
   "book clubs",
-  "informative",
-  "slow paced",
-  "slow-paced",
 ]);
 
 const textCache = new Map();
