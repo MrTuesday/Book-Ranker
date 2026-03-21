@@ -2121,6 +2121,7 @@ export default function App() {
   const [graphAddGenreRating, setGraphAddGenreRating] = useState<number | null>(null);
   const [graphEditingNode, setGraphEditingNode] = useState<{ tag: string; screenX: number; screenY: number } | null>(null);
   const leftColumnRef = useRef<HTMLElement | null>(null);
+  const rightColumnRef = useRef<HTMLElement | null>(null);
   const entryFormRef = useRef<HTMLFormElement | null>(null);
   const pendingBookRectsRef = useRef<Map<number, DOMRect> | null>(null);
   const highlightClearTimeoutRef = useRef<number | null>(null);
@@ -2620,6 +2621,29 @@ export default function App() {
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [isEditing, resetDraft]);
+
+  useEffect(() => {
+    if (editingBookId == null && selectedRecommendationId == null) {
+      return;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target;
+
+      if (!(target instanceof Node)) {
+        return;
+      }
+
+      if (rightColumnRef.current?.contains(target)) {
+        return;
+      }
+
+      resetDraft();
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [editingBookId, selectedRecommendationId, resetDraft]);
 
   useEffect(() => {
     if (!activeTagActionMenu) {
@@ -4093,7 +4117,7 @@ export default function App() {
           ) : null}
 
         {/* ── Right column: reading list builder + add book ── */}
-        <aside className="right-column">
+        <aside ref={rightColumnRef} className="right-column">
           {isLoadingRecs ? (
             <div
               className="right-column-loader"
