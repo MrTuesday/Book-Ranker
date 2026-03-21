@@ -734,13 +734,6 @@ h3 {
     color: rgba(23, 20, 17, 0.88);
 }
 
-.interest-map-control-readout {
-    min-width: 66px;
-    font-size: 0.75rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-}
-
 .interest-map-node.is-selectable:focus-visible {
     outline: none;
 }

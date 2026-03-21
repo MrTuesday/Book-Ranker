@@ -1741,7 +1741,6 @@ function InterestMapView({
     width: initialLayout.width,
     height: initialLayout.height,
   };
-  const currentZoom = initialLayout.width / activeViewport.width;
   const isInteracting = dragRef.current != null || panRef.current != null;
   const selectedPathSet = new Set(selectedPath);
   const centerX = initialLayout.width / 2;
@@ -1862,22 +1861,6 @@ function InterestMapView({
               title="Zoom out"
             >
               -
-            </button>
-            <button
-              type="button"
-              className="interest-map-control-btn interest-map-control-readout"
-              onClick={() =>
-                setViewport({
-                  x: 0,
-                  y: 0,
-                  width: initialLayout.width,
-                  height: initialLayout.height,
-                })
-              }
-              aria-label="Reset graph zoom and pan"
-              title="Reset view"
-            >
-              {Math.round(currentZoom * 100)}%
             </button>
             <button
               type="button"
