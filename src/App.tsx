@@ -2891,6 +2891,24 @@ export default function App() {
         next.starRating = "";
         next.ratingCount = "";
       }
+      if (field === "progress") {
+        const progressValue = clamped.trim()
+          ? Math.max(0, Math.min(100, Number(clamped)))
+          : undefined;
+
+        if (
+          progressValue != null &&
+          Number.isFinite(progressValue) &&
+          progressValue >= 100
+        ) {
+          next.progress = "100";
+          next.readCount = Math.max(1, current.readCount);
+          next.lastReadYear = current.lastReadYear.trim() || currentYearLabel;
+        } else {
+          next.readCount = 0;
+          next.lastReadYear = "";
+        }
+      }
       if (field === "series" && !clamped.trim()) {
         next.seriesNumber = "";
       }
@@ -3024,6 +3042,12 @@ export default function App() {
       return {
         ...prev,
         readCount,
+        progress:
+          readCount > 0
+            ? "100"
+            : prev.progress.trim() === "100"
+              ? ""
+              : prev.progress,
         lastReadYear:
           readCount > 0 ? prev.lastReadYear.trim() || currentYearLabel : "",
       };
@@ -3035,6 +3059,12 @@ export default function App() {
     setDraft((prev) => ({
       ...prev,
       lastReadYear,
+      progress:
+        lastReadYear
+          ? "100"
+          : prev.progress.trim() === "100"
+            ? ""
+            : prev.progress,
       readCount: lastReadYear ? Math.max(1, prev.readCount) : 0,
     }));
   }
@@ -3764,11 +3794,17 @@ export default function App() {
         nextValue > 0
           ? effectiveLastReadYear(book) ?? currentYear
           : undefined;
+      const {
+        archivedAtYear: _archivedAtYear,
+        lastReadYear: _lastReadYear,
+        progress: _progress,
+        ...baseBook
+      } = book;
       const updated = await updateBookRecord(bookId, {
-        ...book,
+        ...baseBook,
+        ...(nextValue > 0 ? { progress: 100 } : {}),
         readCount: nextValue,
-        archivedAtYear: undefined,
-        lastReadYear: nextLastReadYear,
+        ...(nextLastReadYear != null ? { lastReadYear: nextLastReadYear } : {}),
       });
       revealSavedBook(updated.find((nextBook) => nextBook.id === bookId) ?? null);
       applyBooksUpdate(updated);
@@ -3856,9 +3892,27 @@ export default function App() {
     const book = books.find((b) => b.id === bookId);
     if (!book) return;
     try {
+      const nextProgress =
+        value != null ? Math.max(0, Math.min(100, value)) : undefined;
+      const nextReadCount =
+        nextProgress != null && nextProgress >= 100
+          ? Math.max(1, book.readCount ?? 0)
+          : 0;
+      const nextLastReadYear =
+        nextProgress != null && nextProgress >= 100
+          ? effectiveLastReadYear(book) ?? currentYear
+          : undefined;
+      const {
+        lastReadYear: _lastReadYear,
+        readCount: _readCount,
+        progress: _progress,
+        ...baseBook
+      } = book;
       const updated = await updateBookRecord(bookId, {
-        ...book,
-        progress: value,
+        ...baseBook,
+        ...(nextProgress != null ? { progress: nextProgress } : {}),
+        readCount: nextReadCount,
+        ...(nextLastReadYear != null ? { lastReadYear: nextLastReadYear } : {}),
       });
       revealSavedBook(updated.find((nextBook) => nextBook.id === bookId) ?? null);
       applyBooksUpdate(updated);
