@@ -937,6 +937,7 @@ function InterestMapView({
     moved: boolean;
   } | null>(null);
   const wasDraggedRef = useRef(false);
+  const animationTimeRef = useRef(0);
   const svgRef = useRef<SVGSVGElement>(null);
   const [, setTick] = useState(0);
   const setEditingNode = onEditingNodeChange ?? (() => {});
@@ -957,6 +958,31 @@ function InterestMapView({
     simRef.current = initialLayout.nodes.map((n) => ({ ...n }));
     setTick((t) => t + 1);
   }, [initialLayout]);
+
+  // Lightweight ambient motion around the settled layout.
+  useEffect(() => {
+    if (compact || !initialLayout || simRef.current.length === 0) {
+      return;
+    }
+
+    let frameId = 0;
+    let lastTickAt = 0;
+
+    function step(now: number) {
+      if (now - lastTickAt >= 32) {
+        animationTimeRef.current = now / 1000;
+        setTick((t) => t + 1);
+        lastTickAt = now;
+      }
+
+      frameId = window.requestAnimationFrame(step);
+    }
+
+    frameId = window.requestAnimationFrame(step);
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [compact, initialLayout]);
 
   // Drag handlers
   function handleNodePointerDown(
@@ -1043,34 +1069,56 @@ function InterestMapView({
     !compact && simRef.current.length > 0
       ? simRef.current
       : initialLayout.nodes;
-  const nodeMap = new Map(
-    currentNodes.map((node) => [node.tag, node] as const),
-  );
 
   // Compute labels from current positions
   const centerX = initialLayout.width / 2;
   const centerY = initialLayout.height / 2;
+  const animationTime = animationTimeRef.current;
   const renderNodes = currentNodes.map((node, index) => {
-    const dx = node.x - centerX;
-    const dy = node.y - centerY;
-    let labelX = node.x;
-    let labelY = node.y + 4;
+    const isDragged = dragRef.current?.nodeIndex === index;
+    const swaySeed = hashTag(node.tag);
+    const swayX =
+      compact || isDragged
+        ? 0
+        : Math.sin(animationTime * 0.52 + (swaySeed & 0xff) * 0.031) * 1.9;
+    const swayY =
+      compact || isDragged
+        ? 0
+        : Math.cos(animationTime * 0.44 + ((swaySeed >> 8) & 0xff) * 0.029) *
+          1.35;
+    const displayX = node.x + swayX;
+    const displayY = node.y + swayY;
+    const dx = displayX - centerX;
+    const dy = displayY - centerY;
+    let labelX = displayX;
+    let labelY = displayY + 4;
     let labelAnchor: "middle" | "start" | "end" = "middle";
 
     if (Math.abs(dx) > Math.abs(dy) + 18) {
       if (dx < 0) {
-        labelX = node.x - node.radius - 10;
+        labelX = displayX - node.radius - 10;
         labelAnchor = "end";
       } else {
-        labelX = node.x + node.radius + 10;
+        labelX = displayX + node.radius + 10;
         labelAnchor = "start";
       }
     } else {
-      labelY = node.y + (dy < 0 ? -(node.radius + 10) : node.radius + 14);
+      labelY = displayY + (dy < 0 ? -(node.radius + 10) : node.radius + 14);
     }
 
-    return { ...node, index, labelX, labelY, labelAnchor };
+    return {
+      ...node,
+      index,
+      x: displayX,
+      y: displayY,
+      labelX,
+      labelY,
+      labelAnchor,
+    };
   });
+  const nodeMap = new Map(
+    renderNodes.map((node) => [node.tag, node] as const),
+  );
 
   const hasLinks = data.links.length > 0;
   const interestLabel =
