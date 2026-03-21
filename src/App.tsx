@@ -102,6 +102,8 @@ const MIN_YEAR_OPTION = 1900;
 const MIN_INTEREST_MAP_ZOOM = 0.75;
 const MAX_INTEREST_MAP_ZOOM = 2.5;
 const INTEREST_MAP_BUTTON_ZOOM_FACTOR = 1.2;
+const INTEREST_MAP_WHEEL_ZOOM_SENSITIVITY = 0.003;
+const INTEREST_MAP_PINCH_ZOOM_SENSITIVITY = 1.35;
 
 function createDraft(): BookDraft {
   return {
@@ -1560,7 +1562,7 @@ function InterestMapView({
               initialLayout.width,
               initialLayout.height,
               (initialLayout.width / current.width) *
-                Math.exp(-event.deltaY * 0.0015),
+                Math.exp(-event.deltaY * INTEREST_MAP_WHEEL_ZOOM_SENSITIVITY),
               { x: anchor.x, y: anchor.y },
             )
           : current,
@@ -1668,7 +1670,9 @@ function InterestMapView({
           gesture.startViewport,
           layout.width,
           layout.height,
-          startZoom * gestureEvent.scale,
+          startZoom *
+            (1 +
+              (gestureEvent.scale - 1) * INTEREST_MAP_PINCH_ZOOM_SENSITIVITY),
           gesture.anchor,
         ),
       );
