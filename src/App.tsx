@@ -4226,7 +4226,7 @@ export default function App() {
                   >
                     <input
                       type="text"
-                      placeholder="The Remains of the Day"
+                      placeholder="The Power Broker"
                       value={draft.title}
                       autoComplete="off"
                       aria-expanded={showTitleSuggestions}
@@ -4272,7 +4272,7 @@ export default function App() {
                 <div className="tag-entry-row">
                   <input
                     type="text"
-                    placeholder="Subtitle"
+                    placeholder="Robert Moses and the Fall of New York"
                     value={draft.subtitle}
                     onChange={(event) =>
                       updateDraft("subtitle", event.target.value)
