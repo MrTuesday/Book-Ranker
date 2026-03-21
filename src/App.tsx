@@ -234,6 +234,21 @@ function zoomInterestMapViewport(
   };
 }
 
+function clientPointWithinElement(
+  element: HTMLElement,
+  clientX: number,
+  clientY: number,
+) {
+  const rect = element.getBoundingClientRect();
+
+  return (
+    clientX >= rect.left &&
+    clientX <= rect.right &&
+    clientY >= rect.top &&
+    clientY <= rect.bottom
+  );
+}
+
 type DraftAutofillSource = Pick<
   CatalogSearchResult,
   | "id"
@@ -1519,7 +1534,12 @@ function InterestMapView({
     document.addEventListener("pointerup", onDocUp);
   }
 
-  function handleInterestMapWheel(event: React.WheelEvent<HTMLDivElement>) {
+  function handleInterestMapWheel(
+    event: Pick<
+      WheelEvent,
+      "preventDefault" | "ctrlKey" | "clientX" | "clientY" | "deltaX" | "deltaY"
+    >,
+  ) {
     if (compact || !svgRef.current || !initialLayout || !viewportRef.current) {
       return;
     }
@@ -1581,10 +1601,38 @@ function InterestMapView({
       clientY: number;
       scale: number;
       preventDefault(): void;
+      target: EventTarget | null;
     };
+
+    function isGraphGestureTarget(event: {
+      clientX: number;
+      clientY: number;
+      target?: EventTarget | null;
+    }) {
+      const target = event.target;
+
+      if (target instanceof Node && plotElement.contains(target)) {
+        return true;
+      }
+
+      return clientPointWithinElement(plotElement, event.clientX, event.clientY);
+    }
+
+    function handleNativeWheel(event: WheelEvent) {
+      if (!isGraphGestureTarget(event)) {
+        return;
+      }
+
+      handleInterestMapWheel(event);
+    }
 
     function handleGestureStart(event: Event) {
       const gestureEvent = event as WebkitGestureEvent;
+
+      if (!isGraphGestureTarget(gestureEvent)) {
+        return;
+      }
+
       const anchor = clientPointToSvg(gestureEvent.clientX, gestureEvent.clientY);
 
       if (!anchor) {
@@ -1608,7 +1656,7 @@ function InterestMapView({
       const gestureEvent = event as WebkitGestureEvent;
       const gesture = gestureRef.current;
 
-      if (!gesture) {
+      if (!gesture || !isGraphGestureTarget(gestureEvent)) {
         return;
       }
 
@@ -1627,24 +1675,36 @@ function InterestMapView({
     }
 
     function handleGestureEnd(event: Event) {
+      if (!gestureRef.current) {
+        return;
+      }
+
       (event as WebkitGestureEvent).preventDefault();
       gestureRef.current = null;
     }
 
-    plotElement.addEventListener("gesturestart", handleGestureStart, {
+    document.addEventListener("wheel", handleNativeWheel, {
       passive: false,
+      capture: true,
     });
-    plotElement.addEventListener("gesturechange", handleGestureChange, {
+    document.addEventListener("gesturestart", handleGestureStart, {
       passive: false,
+      capture: true,
     });
-    plotElement.addEventListener("gestureend", handleGestureEnd, {
+    document.addEventListener("gesturechange", handleGestureChange, {
       passive: false,
+      capture: true,
+    });
+    document.addEventListener("gestureend", handleGestureEnd, {
+      passive: false,
+      capture: true,
     });
 
     return () => {
-      plotElement.removeEventListener("gesturestart", handleGestureStart);
-      plotElement.removeEventListener("gesturechange", handleGestureChange);
-      plotElement.removeEventListener("gestureend", handleGestureEnd);
+      document.removeEventListener("wheel", handleNativeWheel, true);
+      document.removeEventListener("gesturestart", handleGestureStart, true);
+      document.removeEventListener("gesturechange", handleGestureChange, true);
+      document.removeEventListener("gestureend", handleGestureEnd, true);
     };
   }, [compact, initialLayout]);
 
@@ -1774,7 +1834,6 @@ function InterestMapView({
       <div
         ref={plotRef}
         className="interest-map-plot"
-        onWheel={!compact ? handleInterestMapWheel : undefined}
       >
         {!compact ? (
           <div className="interest-map-controls">
