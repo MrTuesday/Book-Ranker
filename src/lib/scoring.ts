@@ -1,8 +1,7 @@
 import type { Book } from "./books-api";
 
 export const GLOBAL_MEAN = 3;
-export const SMOOTHING_FACTOR = 500;
-export const MAX_SMOOTHING_FACTOR = 1000;
+export const SMOOTHING_FACTOR = 20;
 export const BAYESIAN_SIGNAL_WEIGHT = 0.5;
 export const AUTHOR_SIGNAL_WEIGHT = 0.25;
 export const GENRE_SIGNAL_WEIGHT = 0.25;
@@ -17,101 +16,25 @@ export const ARCHIVE_AVOID_MAX =
   ARCHIVE_DUE_MAX * ARCHIVE_SCORE_FLOOR - 0.01;
 
 export function bayesianScore(R: number, v: number, C: number, m: number) {
-  const clampedM = clampSmoothingFactor(m);
-  const denominator = v + clampedM;
+  const smoothingFactor = Math.max(0, m);
+  const denominator = v + smoothingFactor;
 
   if (denominator <= 0) {
     return C;
   }
 
-  return (v / denominator) * R + (clampedM / denominator) * C;
-}
-
-function normalizeTags(tags: string[]) {
-  return Array.from(
-    new Set(
-      tags.map((tag) => tag.trim()).filter((tag) => tag.length > 0),
-    ),
-  );
-}
-
-function average(values: number[]) {
-  if (values.length === 0) {
-    return undefined;
-  }
-
-  return values.reduce((total, value) => total + value, 0) / values.length;
-}
-
-function clampSmoothingFactor(value: number) {
-  return Math.min(MAX_SMOOTHING_FACTOR, Math.max(0, value));
+  return (v / denominator) * R + (smoothingFactor / denominator) * C;
 }
 
 /**
- * Derive a smoothing factor for each saved book from the books that share at
- * least one genre/topic tag. Archived books remain in the pool so niche
- * clusters can establish their own local baseline while the Bayesian mean
- * stays anchored to the global default. Dynamic smoothing is capped on the
- * high end to avoid large genre clusters making the list reshuffle too
- * aggressively. Each book uses the lowest-average tag neighborhood so the
- * most niche aspect of the book drives the smoothing.
+ * Use a fixed smoothing factor for every saved book.
  */
 export function buildTagSmoothingFactorMap(
   books: Pick<Book, "id" | "genres" | "ratingCount">[],
   fallback = SMOOTHING_FACTOR,
 ) {
-  const tagIndex = new Map<string, Pick<Book, "id" | "ratingCount">[]>();
-  const normalizedBooks = books.map((book) => {
-    const tags = normalizeTags(book.genres);
-
-    for (const tag of tags) {
-      const matches = tagIndex.get(tag);
-
-      if (matches) {
-        matches.push(book);
-      } else {
-        tagIndex.set(tag, [book]);
-      }
-    }
-
-    return {
-      id: book.id,
-      tags,
-    };
-  });
-
-  const globalSmoothingAverage = average(
-    books.flatMap((book) =>
-      book.ratingCount != null && book.ratingCount >= 0 ? [book.ratingCount] : [],
-    ),
-  );
-  const defaultSmoothingFactor = clampSmoothingFactor(
-    globalSmoothingAverage ?? fallback,
-  );
-
-  return new Map(
-    normalizedBooks.map(({ id, tags }) => {
-      if (tags.length === 0) {
-        return [id, defaultSmoothingFactor] as const;
-      }
-
-      const tagAverages = tags.flatMap((tag) => {
-        const counts = (tagIndex.get(tag) ?? []).flatMap((book) =>
-          book.ratingCount != null && book.ratingCount >= 0 ? [book.ratingCount] : [],
-        );
-        const tagAverage = average(counts);
-
-        return tagAverage != null ? [tagAverage] : [];
-      });
-
-      return [
-        id,
-        clampSmoothingFactor(
-          Math.min(...tagAverages, defaultSmoothingFactor),
-        ),
-      ] as const;
-    }),
-  );
+  const smoothingFactor = Math.max(0, fallback);
+  return new Map(books.map((book) => [book.id, smoothingFactor] as const));
 }
 
 export function compositeScore(bayesian: number, ...inputs: number[]) {
