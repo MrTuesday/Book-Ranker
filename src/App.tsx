@@ -1108,6 +1108,12 @@ function InterestMapView({
   const wasDraggedRef = useRef(false);
   const animationTimeRef = useRef(0);
   const svgRef = useRef<SVGSVGElement>(null);
+  const plotRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<InterestMapViewport | null>(null);
+  const gestureRef = useRef<{
+    startViewport: InterestMapViewport;
+    anchor: { x: number; y: number };
+  } | null>(null);
   const [viewport, setViewport] = useState<InterestMapViewport | null>(null);
   const [, setTick] = useState(0);
   const setEditingNode = onEditingNodeChange ?? (() => {});
@@ -1142,6 +1148,26 @@ function InterestMapView({
       height: initialLayout.height,
     });
   }, [initialLayout]);
+
+  useEffect(() => {
+    viewportRef.current = viewport;
+  }, [viewport]);
+
+  function clientPointToSvg(clientX: number, clientY: number) {
+    const svg = svgRef.current;
+
+    if (!svg) {
+      return null;
+    }
+
+    const ctm = svg.getScreenCTM();
+
+    if (!ctm) {
+      return null;
+    }
+
+    return new DOMPoint(clientX, clientY).matrixTransform(ctm.inverse());
+  }
 
   // Bubble physics.
   useEffect(() => {
@@ -1493,34 +1519,134 @@ function InterestMapView({
     document.addEventListener("pointerup", onDocUp);
   }
 
-  function handleSvgWheel(event: React.WheelEvent<SVGSVGElement>) {
-    if (compact || !svgRef.current || !initialLayout || !viewport) {
+  function handleInterestMapWheel(event: React.WheelEvent<HTMLDivElement>) {
+    if (compact || !svgRef.current || !initialLayout || !viewportRef.current) {
       return;
     }
 
     event.preventDefault();
-    const ctm = svgRef.current.getScreenCTM();
 
-    if (!ctm) {
+    if (event.ctrlKey) {
+      const anchor = clientPointToSvg(event.clientX, event.clientY);
+
+      if (!anchor) {
+        return;
+      }
+
+      setViewport((current) =>
+        current
+          ? zoomInterestMapViewport(
+              current,
+              initialLayout.width,
+              initialLayout.height,
+              (initialLayout.width / current.width) *
+                Math.exp(-event.deltaY * 0.0015),
+              { x: anchor.x, y: anchor.y },
+            )
+          : current,
+      );
       return;
     }
 
-    const anchor = new DOMPoint(event.clientX, event.clientY).matrixTransform(
-      ctm.inverse(),
-    );
-    const currentZoom = initialLayout.width / viewport.width;
-    const nextZoom = currentZoom * Math.exp(-event.deltaY * 0.0015);
+    const svgWidth = svgRef.current.clientWidth || svgRef.current.getBoundingClientRect().width;
+    const svgHeight =
+      svgRef.current.clientHeight || svgRef.current.getBoundingClientRect().height;
 
-    setViewport(
-      zoomInterestMapViewport(
-        viewport,
-        initialLayout.width,
-        initialLayout.height,
-        nextZoom,
-        { x: anchor.x, y: anchor.y },
-      ),
+    if (svgWidth <= 0 || svgHeight <= 0) {
+      return;
+    }
+
+    setViewport((current) =>
+      current
+        ? {
+            x: current.x + (event.deltaX * current.width) / svgWidth,
+            y: current.y + (event.deltaY * current.height) / svgHeight,
+            width: current.width,
+            height: current.height,
+          }
+        : current,
     );
   }
+
+  useEffect(() => {
+    if (compact || !initialLayout || !plotRef.current) {
+      return;
+    }
+
+    const layout = initialLayout;
+    const plotElement = plotRef.current;
+
+    type WebkitGestureEvent = Event & {
+      clientX: number;
+      clientY: number;
+      scale: number;
+      preventDefault(): void;
+    };
+
+    function handleGestureStart(event: Event) {
+      const gestureEvent = event as WebkitGestureEvent;
+      const anchor = clientPointToSvg(gestureEvent.clientX, gestureEvent.clientY);
+
+      if (!anchor) {
+        return;
+      }
+
+      gestureEvent.preventDefault();
+      const currentViewport = viewportRef.current;
+
+      if (!currentViewport) {
+        return;
+      }
+
+      gestureRef.current = {
+        startViewport: currentViewport,
+        anchor: { x: anchor.x, y: anchor.y },
+      };
+    }
+
+    function handleGestureChange(event: Event) {
+      const gestureEvent = event as WebkitGestureEvent;
+      const gesture = gestureRef.current;
+
+      if (!gesture) {
+        return;
+      }
+
+      gestureEvent.preventDefault();
+      const startZoom = layout.width / gesture.startViewport.width;
+
+      setViewport(
+        zoomInterestMapViewport(
+          gesture.startViewport,
+          layout.width,
+          layout.height,
+          startZoom * gestureEvent.scale,
+          gesture.anchor,
+        ),
+      );
+    }
+
+    function handleGestureEnd(event: Event) {
+      (event as WebkitGestureEvent).preventDefault();
+      gestureRef.current = null;
+    }
+
+    plotElement.addEventListener("gesturestart", handleGestureStart, {
+      passive: false,
+    });
+    plotElement.addEventListener("gesturechange", handleGestureChange, {
+      passive: false,
+    });
+    plotElement.addEventListener("gestureend", handleGestureEnd, {
+      passive: false,
+    });
+
+    return () => {
+      plotElement.removeEventListener("gesturestart", handleGestureStart);
+      plotElement.removeEventListener("gesturechange", handleGestureChange);
+      plotElement.removeEventListener("gestureend", handleGestureEnd);
+    };
+  }, [compact, initialLayout]);
 
   function handleSvgClick(event: React.MouseEvent) {
     if (wasDraggedRef.current) {
@@ -1645,7 +1771,11 @@ function InterestMapView({
           <span>{hasLinks ? connectionLabel : "No links yet"}</span>
         </div>
       ) : null}
-      <div className="interest-map-plot">
+      <div
+        ref={plotRef}
+        className="interest-map-plot"
+        onWheel={!compact ? handleInterestMapWheel : undefined}
+      >
         {!compact ? (
           <div className="interest-map-controls">
             <button
@@ -1716,7 +1846,6 @@ function InterestMapView({
           viewBox={`${activeViewport.x} ${activeViewport.y} ${activeViewport.width} ${activeViewport.height}`}
           aria-label="Interest graph showing how genre and topic tags connect across your books"
           onPointerDown={!compact ? handleSvgPointerDown : undefined}
-          onWheel={!compact ? handleSvgWheel : undefined}
           onClick={!compact ? handleSvgClick : undefined}
         >
           {data.links.map((link) => {
@@ -1911,7 +2040,7 @@ function InterestMapView({
       {!compact ? (
         <p className="interest-map-note">
           {hasLinks
-            ? "Lines connect interests that appear together on the same book. Drag the background to pan, use the wheel or controls to zoom, and drag nodes to rearrange."
+            ? "Lines connect interests that appear together on the same book. Scroll or drag the background to pan, pinch or use the controls to zoom, and drag nodes to rearrange."
             : "Your current books do not connect any two interests yet."}
         </p>
       ) : null}
