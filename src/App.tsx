@@ -1806,6 +1806,21 @@ export default function App() {
     }, 2400);
   }, []);
 
+  const revealSavedBook = useCallback(
+    (book: Book | null) => {
+      if (!book) {
+        return;
+      }
+
+      setShowArchive(Boolean(book.read));
+      setSelectedInterestPath((current) =>
+        matchesSelectedGenres(book.genres, current) ? current : [],
+      );
+      queueBookReveal(book.id);
+    },
+    [queueBookReveal],
+  );
+
   useLayoutEffect(() => {
     const previousRects = pendingBookRectsRef.current;
 
@@ -1890,13 +1905,12 @@ export default function App() {
       `.ranking-row[data-book-id="${bookId}"]`,
     );
 
-    pendingBookRevealIdRef.current = null;
-
     if (!card) {
       return;
     }
 
     const frameId = window.requestAnimationFrame(() => {
+      pendingBookRevealIdRef.current = null;
       card.scrollIntoView({
         behavior: "smooth",
         block: "center",
@@ -2973,10 +2987,10 @@ export default function App() {
       const nextBooks = isEditing
         ? await updateBookRecord(editingBookId, payload)
         : await createBookRecord(payload);
-      const createdBookId = isEditing
-        ? null
-        : nextBooks.find((book) => !books.some((existing) => existing.id === book.id))
-            ?.id ?? null;
+      const savedBook = isEditing
+        ? nextBooks.find((book) => book.id === editingBookId) ?? null
+        : nextBooks.find((book) => !books.some((existing) => existing.id === book.id)) ??
+          null;
 
       if (!isEditing && sourceCatalogBookId) {
         setAddedRecIds((current) => {
@@ -2986,7 +3000,7 @@ export default function App() {
         });
       }
 
-      queueBookReveal(createdBookId);
+      revealSavedBook(savedBook);
       applyBooksUpdate(nextBooks);
       resetDraft();
     } catch (error) {
@@ -3153,6 +3167,7 @@ export default function App() {
             }
           : {}),
       });
+      revealSavedBook(nextBooks.find((nextBook) => nextBook.id === id) ?? null);
       applyBooksUpdate(nextBooks);
     } catch (error) {
       setErrorMessage(messageFromError(error));
@@ -3175,6 +3190,7 @@ export default function App() {
         archivedAtYear: undefined,
         lastReadYear: nextLastReadYear,
       });
+      revealSavedBook(updated.find((nextBook) => nextBook.id === bookId) ?? null);
       applyBooksUpdate(updated);
     } catch {
       // silently ignore
@@ -3249,6 +3265,7 @@ export default function App() {
         ...book,
         myRating: newRating,
       });
+      revealSavedBook(updated.find((nextBook) => nextBook.id === bookId) ?? null);
       applyBooksUpdate(updated);
     } catch {
       // silently ignore
@@ -3263,6 +3280,7 @@ export default function App() {
         ...book,
         progress: value,
       });
+      revealSavedBook(updated.find((nextBook) => nextBook.id === bookId) ?? null);
       applyBooksUpdate(updated);
     } catch {
       // silently ignore
