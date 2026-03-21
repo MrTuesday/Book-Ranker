@@ -2,9 +2,9 @@ import type { Book } from "./books-api";
 
 export const GLOBAL_MEAN = 3;
 export const SMOOTHING_FACTOR = 20;
-export const BAYESIAN_SIGNAL_WEIGHT = 0.5;
-export const AUTHOR_SIGNAL_WEIGHT = 0.25;
-export const GENRE_SIGNAL_WEIGHT = 0.25;
+export const BAYESIAN_SIGNAL_WEIGHT = 1 / 3;
+export const AUTHOR_SIGNAL_WEIGHT = 1 / 3;
+export const GENRE_SIGNAL_WEIGHT = 1 / 3;
 export const REREAD_DECAY = 0.65;
 export const ARCHIVE_SCORE_FLOOR = 0.2;
 export const ARCHIVE_COOLDOWN_YEARS = 10;
