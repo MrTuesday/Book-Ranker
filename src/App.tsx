@@ -23,7 +23,6 @@ import {
   type GenreInterestMap,
   type AuthorExperienceMap,
   normalizeGenreTag,
-  normalizeMoodTag,
   updateBookRecord,
   writeGenreInterest,
   writeAuthorExperience,
@@ -69,8 +68,6 @@ type BookDraft = {
   genreInput: string;
   genres: string[];
   genreScores: Record<string, string>;
-  moodInput: string;
-  moods: string[];
   progress: string;
   myRating: number | null;
   lastReadYear: string;
@@ -83,7 +80,7 @@ type RankedBook = Book & {
   archiveLabel?: string;
 };
 
-type SuggestionField = "author" | "genre" | "mood";
+type SuggestionField = "author" | "genre";
 type DraftTagDrag = {
   field: SuggestionField;
   tag: string;
@@ -95,7 +92,6 @@ type DraftTextField =
   | "authorInput"
   | "authorExperience"
   | "genreInput"
-  | "moodInput"
   | "genreInterest"
   | "progress";
 
@@ -120,8 +116,6 @@ function createDraft(): BookDraft {
     genreInput: "",
     genres: [],
     genreScores: {},
-    moodInput: "",
-    moods: [],
     progress: "",
     myRating: null,
     lastReadYear: "",
@@ -187,13 +181,6 @@ function buildCatalogGenres(
   );
 }
 
-function buildCatalogMoods(result: Pick<CatalogSearchResult, "moods">) {
-  return uniqueTags(result.moods.map(normalizeMoodTag)).slice(
-    0,
-    MAX_AUTOFILL_TOPICS,
-  );
-}
-
 function currentTranslateY(element: HTMLElement) {
   const transform = window.getComputedStyle(element).transform;
 
@@ -215,7 +202,6 @@ type DraftAutofillSource = Pick<
   | "authors"
   | "genres"
   | "tags"
-  | "moods"
   | "averageRating"
   | "ratingsCount"
 >;
@@ -2202,16 +2188,6 @@ export default function App() {
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [books, authorExperiences]);
 
-  const knownMoods = useMemo(() => {
-    const set = new Set<string>();
-    for (const book of books) {
-      for (const mood of book.moods) {
-        set.add(mood);
-      }
-    }
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [books]);
-
   const authorSuggestions = useMemo(() => {
     return matchingSuggestions(draft.authorInput, draft.authors, knownAuthors);
   }, [draft.authorInput, draft.authors, knownAuthors]);
@@ -2219,10 +2195,6 @@ export default function App() {
   const genreSuggestions = useMemo(() => {
     return matchingSuggestions(draft.genreInput, draft.genres, knownGenres);
   }, [draft.genreInput, draft.genres, knownGenres]);
-
-  const moodSuggestions = useMemo(() => {
-    return matchingSuggestions(draft.moodInput, draft.moods, knownMoods);
-  }, [draft.moodInput, draft.moods, knownMoods]);
 
   const resetDraft = useCallback(() => {
     titleSearchRequestRef.current += 1;
@@ -2538,7 +2510,6 @@ export default function App() {
     options?: { resetDraft?: boolean },
   ) {
     const catalogGenres = buildCatalogGenres(result);
-    const catalogMoods = buildCatalogMoods(result);
 
     setDraft((current) => {
       const baseDraft = options?.resetDraft ? createDraft() : current;
@@ -2546,8 +2517,6 @@ export default function App() {
         result.authors.length > 0 ? uniqueTags(result.authors) : baseDraft.authors;
       const nextGenres =
         catalogGenres.length > 0 ? catalogGenres : baseDraft.genres;
-      const nextMoods =
-        catalogMoods.length > 0 ? catalogMoods : baseDraft.moods;
 
       return {
         ...baseDraft,
@@ -2568,8 +2537,6 @@ export default function App() {
           catalogGenres.length > 0
             ? buildDraftScores(nextGenres, genreInterests)
             : baseDraft.genreScores,
-        moods: nextMoods,
-        moodInput: "",
         starRating:
           result.averageRating != null
             ? formatCatalogRating(result.averageRating)
@@ -2614,15 +2581,6 @@ export default function App() {
   }
 
   function selectSuggestedValue(field: SuggestionField, value: string) {
-    if (field === "mood") {
-      setDraft((current) => ({
-        ...current,
-        moodInput: normalizeMoodTag(value),
-      }));
-      setActiveSuggestionField(null);
-      return;
-    }
-
     setDraft((current) => {
       const isAuthor = field === "author";
       const inputKey = isAuthor ? "authorInput" : "genreInput";
@@ -2648,10 +2606,6 @@ export default function App() {
   }
 
   function getDraftTagScore(field: SuggestionField, tag: string) {
-    if (field === "mood") {
-      return "";
-    }
-
     const scoreMap =
       field === "author" ? draft.authorScores : draft.genreScores;
     const globalScores =
@@ -2670,16 +2624,6 @@ export default function App() {
   }
 
   function startEditingDraftTag(field: SuggestionField, tag: string) {
-    if (field === "mood") {
-      setDraft((current) => ({
-        ...current,
-        moodInput: normalizeMoodTag(tag),
-      }));
-      setActiveSuggestionField(field);
-      setActiveTagActionMenu(null);
-      return;
-    }
-
     setDraft((current) => {
       const isAuthor = field === "author";
       const inputKey = isAuthor ? "authorInput" : "genreInput";
@@ -2705,30 +2649,6 @@ export default function App() {
   }
 
   function addDraftTag(field: SuggestionField, explicitValue?: string) {
-    if (field === "mood") {
-      setDraft((current) => {
-        const rawMood = normalizeMoodTag(explicitValue ?? current.moodInput);
-
-        if (!rawMood) {
-          return current;
-        }
-
-        if (current.moods.includes(rawMood)) {
-          return {
-            ...current,
-            moodInput: "",
-          };
-        }
-
-        return {
-          ...current,
-          moods: uniqueTags([...current.moods, rawMood]),
-          moodInput: "",
-        };
-      });
-      return;
-    }
-
     setDraft((current) => {
       const isAuthor = field === "author";
       const inputKey = isAuthor ? "authorInput" : "genreInput";
@@ -2796,8 +2716,7 @@ export default function App() {
     targetTag: string | null,
   ) {
     setDraft((current) => {
-      const tagsKey =
-        field === "author" ? "authors" : field === "genre" ? "genres" : "moods";
+      const tagsKey = field === "author" ? "authors" : "genres";
       const currentTags = current[tagsKey];
       const nextTags =
         targetTag == null
@@ -2822,13 +2741,6 @@ export default function App() {
           ...current,
           authors: current.authors.filter((author) => author !== tag),
           authorScores: removeTagFromScores(current.authorScores, tag),
-        };
-      }
-
-      if (field === "mood") {
-        return {
-          ...current,
-          moods: current.moods.filter((mood) => mood !== tag),
         };
       }
 
@@ -2953,8 +2865,6 @@ export default function App() {
       genreInput: "",
       genres: [...book.genres],
       genreScores: buildDraftScores(book.genres, genreInterests),
-      moodInput: "",
-      moods: [...book.moods],
       progress: book.progress != null ? String(book.progress) : "",
       myRating: book.myRating ?? null,
       lastReadYear:
@@ -3007,7 +2917,6 @@ export default function App() {
         starRating: parsedDraftRating,
         ratingCount: parsedDraftCount,
         genres: draft.genres,
-        moods: draft.moods,
         progress: parsedProgress,
         myRating: draft.myRating ?? undefined,
         readCount: draft.readCount,
@@ -3346,10 +3255,6 @@ export default function App() {
     activeSuggestionField === "genre" &&
     draft.genreInput.trim().length > 0 &&
     genreSuggestions.length > 0;
-  const showMoodSuggestions =
-    activeSuggestionField === "mood" &&
-    draft.moodInput.trim().length > 0 &&
-    moodSuggestions.length > 0;
 
   return (
     <main className="app-shell">
@@ -4250,150 +4155,6 @@ export default function App() {
               </div>
             </div>
 
-            <div className="field entry-mood">
-              <span>Mood(s)</span>
-              <div className="tag-editor">
-                <div className="tag-entry-group">
-                  <div className="tag-entry-row">
-                    <div
-                      className="suggestion-field"
-                      onFocus={() => setActiveSuggestionField("mood")}
-                      onBlur={(event) =>
-                        handleSuggestionFieldBlur(event, "mood")
-                      }
-                    >
-                      <input
-                        type="text"
-                        placeholder="Reflective"
-                        value={draft.moodInput}
-                        autoComplete="off"
-                        aria-expanded={showMoodSuggestions}
-                        aria-controls="mood-suggestions"
-                        onChange={(event) =>
-                          updateDraft("moodInput", event.target.value)
-                        }
-                        onKeyDown={(event) =>
-                          handleTagInputKeyDown(event, "mood")
-                        }
-                      />
-                      {showMoodSuggestions ? (
-                        <div
-                          id="mood-suggestions"
-                          className="suggestion-popover"
-                          aria-label="Suggested moods"
-                        >
-                          {moodSuggestions.map((mood) => (
-                            <div key={mood} className="suggestion-option">
-                              <button
-                                type="button"
-                                className="suggestion-pick"
-                                onMouseDown={(event) =>
-                                  event.preventDefault()
-                                }
-                                onClick={() =>
-                                  selectSuggestedValue("mood", mood)
-                                }
-                              >
-                                <span className="suggestion-copy">{mood}</span>
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                    <button
-                      type="button"
-                      className="graph-add-btn"
-                      onClick={() => addDraftTag("mood")}
-                      disabled={!draft.moodInput.trim()}
-                      aria-label="Add mood tag"
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-                {draft.moods.length > 0 ? (
-                  <div
-                    className={[
-                      "draft-tag-list",
-                      draftTagDrag?.field === "mood" ? "is-drag-active" : "",
-                      draftTagDropTarget?.field === "mood" &&
-                      draftTagDropTarget.tag === null
-                        ? "is-drop-target-end"
-                        : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                    onDragOver={(event) =>
-                      handleDraftTagListDragOver(event, "mood")
-                    }
-                    onDrop={(event) => handleDraftTagDrop(event, "mood")}
-                  >
-                    {draft.moods.map((mood) => {
-                      const isDragging =
-                        draftTagDrag?.field === "mood" &&
-                        draftTagDrag.tag === mood;
-                      const isDropTarget =
-                        draftTagDropTarget?.field === "mood" &&
-                        draftTagDropTarget.tag === mood;
-
-                      return (
-                        <span
-                          key={mood}
-                          className={[
-                            "genre-tag",
-                            "draft-tag-chip",
-                            isDragging ? "is-dragging" : "",
-                            isDropTarget ? "is-drag-target" : "",
-                          ]
-                            .filter(Boolean)
-                            .join(" ")}
-                          draggable
-                          onDragStart={(event) =>
-                            handleDraftTagDragStart(event, "mood", mood)
-                          }
-                          onDragOver={(event) =>
-                            handleDraftTagDragOver(event, "mood", mood)
-                          }
-                          onDrop={(event) =>
-                            handleDraftTagDrop(event, "mood", mood)
-                          }
-                          onDragEnd={handleDraftTagDragEnd}
-                          onClick={(event) => {
-                            if (
-                              (event.target as HTMLElement).closest(
-                                ".tag-action-shell",
-                              )
-                            ) {
-                              return;
-                            }
-
-                            startEditingDraftTag("mood", mood);
-                          }}
-                          aria-grabbed={isDragging}
-                          title={`Click to edit ${mood}, or drag to reorder`}
-                        >
-                          <span className="genre-tag-name">{mood}</span>
-                          <button
-                            type="button"
-                            className="tag-remove"
-                            onMouseDown={(event) => event.preventDefault()}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              removeDraftTag("mood", mood);
-                            }}
-                            aria-label={`Remove mood ${mood}`}
-                            title={`Remove ${mood}`}
-                          >
-                            x
-                          </button>
-                        </span>
-                      );
-                    })}
-                  </div>
-                ) : null}
-              </div>
-            </div>
 
             <div className="field entry-progress">
               <span>Reading progress</span>

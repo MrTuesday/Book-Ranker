@@ -156,29 +156,6 @@ function sortAutocompleteResults(query, results) {
   });
 }
 
-function inferMoods(title, description, genres) {
-  const haystack = normalizeForMatch([title, description, ...genres].join(" "));
-  const moods = [];
-  const rules = [
-    { mood: "Adventurous", pattern: /\badventure|quest|journey|expedition|trek\b/ },
-    { mood: "Cozy", pattern: /\bcozy|comfort|whimsical|heartwarming|gentle\b/ },
-    { mood: "Dark", pattern: /\bdark|grim|bleak|horror|gothic|violent\b/ },
-    { mood: "Funny", pattern: /\bfunny|humor|humorous|comedy|satire|witty\b/ },
-    { mood: "Hopeful", pattern: /\bhopeful|uplifting|inspiring|optimistic\b/ },
-    { mood: "Mysterious", pattern: /\bmystery|mysterious|suspense|detective|thriller\b/ },
-    { mood: "Reflective", pattern: /\breflective|literary|philosophical|meditative\b/ },
-    { mood: "Romantic", pattern: /\bromance|romantic|love story|relationship\b/ },
-  ];
-
-  for (const rule of rules) {
-    if (rule.pattern.test(haystack)) {
-      moods.push(rule.mood);
-    }
-  }
-
-  return uniqueStrings(moods).slice(0, 4);
-}
-
 function extractScriptJson(html, id) {
   const match = String(html ?? "").match(
     new RegExp(`<script id="${id}" type="application/json">([\\s\\S]*?)<\\/script>`),
@@ -362,9 +339,8 @@ function parseBookPage(baseUrl, html, fallbackResult = {}) {
     (typeof book?.webUrl === "string" && book.webUrl) ||
     (typeof jsonLd?.url === "string" && jsonLd.url) ||
     fallbackResult.infoLink;
-  const moods = inferMoods(title, description, genres);
   const tags = [...genres];
-  const topics = uniqueStrings([...genres, ...tags, ...moods]);
+  const topics = uniqueStrings([...genres, ...tags]);
   const bookId = extractBookId(infoLink);
 
   if (!title) {
@@ -377,7 +353,7 @@ function parseBookPage(baseUrl, html, fallbackResult = {}) {
     authors,
     genres,
     tags,
-    moods,
+    moods: [],
     topics,
     averageRating,
     ratingsCount,

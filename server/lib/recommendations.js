@@ -1,7 +1,7 @@
 const GLOBAL_MEAN = 3.8;
 const SMOOTHING_FACTOR = 500;
-const RECOMMENDATION_SEARCH_FIELDS = "genres,tags,moods,description";
-const RECOMMENDATION_SEARCH_WEIGHTS = "10,6,4,1";
+const RECOMMENDATION_SEARCH_FIELDS = "genres,tags,description";
+const RECOMMENDATION_SEARCH_WEIGHTS = "10,6,1";
 const RECOMMENDATION_SEARCH_SORT =
   "_text_match:desc,users_count:desc,ratings_count:desc";
 const RECOMMENDATION_RESULTS_PER_QUERY = 8;
@@ -134,7 +134,6 @@ function scoreCandidate(candidate, selectedTags, genreInterests, authorExperienc
     authors: candidate.authors,
     genres: candidate.genres,
     tags: candidate.tags,
-    moods: candidate.moods,
     topics: candidate.topics,
     averageRating: candidate.averageRating,
     ratingsCount: candidate.ratingsCount,

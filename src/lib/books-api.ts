@@ -14,7 +14,9 @@ export type Book = {
   archivedAtYear?: number;
 };
 
-export type BookPayload = Omit<Book, "id">;
+export type BookPayload = Omit<Book, "id" | "moods"> & {
+  moods?: string[];
+};
 export type GenreInterestMap = Record<string, number>;
 export type AuthorExperienceMap = Record<string, number>;
 
