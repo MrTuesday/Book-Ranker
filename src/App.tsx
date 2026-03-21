@@ -101,7 +101,6 @@ const TITLE_SUGGESTION_FETCH_LIMIT = 6;
 const MIN_YEAR_OPTION = 1900;
 const MIN_INTEREST_MAP_ZOOM = 0.75;
 const MAX_INTEREST_MAP_ZOOM = 2.5;
-const INTEREST_MAP_BUTTON_ZOOM_FACTOR = 1.2;
 const INTEREST_MAP_WHEEL_ZOOM_SENSITIVITY = 0.003;
 const INTEREST_MAP_PINCH_ZOOM_SENSITIVITY = 1.35;
 
@@ -1838,53 +1837,6 @@ function InterestMapView({
         ref={plotRef}
         className="interest-map-plot"
       >
-        {!compact ? (
-          <div className="interest-map-controls">
-            <button
-              type="button"
-              className="interest-map-control-btn"
-              onClick={() =>
-                setViewport((current) =>
-                  current
-                    ? zoomInterestMapViewport(
-                        current,
-                        initialLayout.width,
-                        initialLayout.height,
-                        initialLayout.width /
-                          current.width /
-                          INTEREST_MAP_BUTTON_ZOOM_FACTOR,
-                      )
-                    : current,
-                )
-              }
-              aria-label="Zoom out graph"
-              title="Zoom out"
-            >
-              -
-            </button>
-            <button
-              type="button"
-              className="interest-map-control-btn"
-              onClick={() =>
-                setViewport((current) =>
-                  current
-                    ? zoomInterestMapViewport(
-                        current,
-                        initialLayout.width,
-                        initialLayout.height,
-                        (initialLayout.width / current.width) *
-                          INTEREST_MAP_BUTTON_ZOOM_FACTOR,
-                      )
-                    : current,
-                )
-              }
-              aria-label="Zoom in graph"
-              title="Zoom in"
-            >
-              +
-            </button>
-          </div>
-        ) : null}
         <svg
           ref={svgRef}
           className={`interest-map-chart${isInteracting ? " is-dragging" : ""}`}

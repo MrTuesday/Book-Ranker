@@ -703,37 +703,6 @@ h3 {
     cursor: grabbing;
 }
 
-.interest-map-controls {
-    position: absolute;
-    top: 16px;
-    right: 16px;
-    z-index: 2;
-    display: flex;
-    gap: 6px;
-    align-items: center;
-}
-
-.interest-map-control-btn {
-    min-width: 34px;
-    height: 34px;
-    padding: 0 10px;
-    border: 1px solid rgba(23, 20, 17, 0.12);
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.9);
-    color: rgba(23, 20, 17, 0.74);
-    font-size: 0.9rem;
-    font-weight: 700;
-    line-height: 1;
-    cursor: pointer;
-    backdrop-filter: blur(8px);
-    box-shadow: 0 10px 22px rgba(23, 20, 17, 0.08);
-}
-
-.interest-map-control-btn:hover {
-    background: rgba(255, 255, 255, 0.98);
-    color: rgba(23, 20, 17, 0.88);
-}
-
 .interest-map-node.is-selectable:focus-visible {
     outline: none;
 }
