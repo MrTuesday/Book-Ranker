@@ -1271,6 +1271,37 @@ select:focus {
     min-width: 0;
 }
 
+.ranking-series {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    color: var(--muted);
+    font-size: 0.64rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    line-height: 1.2;
+    text-transform: uppercase;
+}
+
+.ranking-series-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ranking-series-number {
+    flex-shrink: 0;
+    padding: 2px 6px;
+    border-radius: 999px;
+    border: 1px solid rgba(180, 83, 9, 0.2);
+    background: rgba(180, 83, 9, 0.08);
+    color: var(--accent);
+    font-size: 0.58rem;
+    letter-spacing: 0.08em;
+}
+
 .ranking-topline.has-rank .ranking-info {
     grid-column: 2;
 }

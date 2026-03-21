@@ -12,6 +12,8 @@ export type BookCardProps = {
   itemId?: number;
   rank?: number;
   title: string;
+  series?: string;
+  seriesNumber?: number;
   authors: string[];
   score: number;
   /** Extra CSS classes on the root <article> */
@@ -56,6 +58,8 @@ export function BookCard({
   itemId,
   rank,
   title,
+  series,
+  seriesNumber,
   authors,
   score,
   className,
@@ -70,6 +74,8 @@ export function BookCard({
   isActive = false,
 }: BookCardProps) {
   const cardStyle = animationDelay ? { animationDelay } : undefined;
+  const trimmedSeries = series?.trim() ?? "";
+  const hasSeries = trimmedSeries.length > 0;
 
   function handleClick(event: ReactMouseEvent<HTMLElement>) {
     if (!onToggle || !shouldToggleFromTarget(event.target)) {
@@ -117,6 +123,14 @@ export function BookCard({
             </div>
           ) : null}
           <div className="ranking-info">
+            {hasSeries ? (
+              <p className="ranking-series">
+                <span className="ranking-series-name">{trimmedSeries}</span>
+                {seriesNumber != null ? (
+                  <span className="ranking-series-number">#{seriesNumber}</span>
+                ) : null}
+              </p>
+            ) : null}
             <h3>{title}</h3>
             <p className="ranking-author">
               {authors.join(", ") || "Unknown author"}

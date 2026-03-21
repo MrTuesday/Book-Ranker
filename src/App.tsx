@@ -3918,6 +3918,8 @@ export default function App() {
                     itemId={book.id}
                     rank={book.rank}
                     title={book.title}
+                    series={book.series}
+                    seriesNumber={book.seriesNumber}
                     authors={book.authors}
                     score={book.score}
                     rankClass={rankClass}
@@ -4034,6 +4036,8 @@ export default function App() {
                         itemId={book.id}
                         rank={book.rank}
                         title={book.title}
+                        series={book.series}
+                        seriesNumber={book.seriesNumber}
                         authors={book.authors}
                         score={book.score}
                         scoreOverride={book.archiveLabel ?? "Not yet"}
@@ -4288,6 +4292,8 @@ export default function App() {
                     key={rec.id}
                     rank={i + 1}
                     title={rec.title}
+                    series={rec.series}
+                    seriesNumber={rec.seriesNumber}
                     authors={rec.authors}
                     score={rec.score}
                     className={[
