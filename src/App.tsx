@@ -411,6 +411,19 @@ function mergeInterestBoxes(...boxes: LabelBox[]) {
   };
 }
 
+function padInterestBox(
+  box: LabelBox,
+  paddingX = 12,
+  paddingY = 10,
+): LabelBox {
+  return {
+    left: box.left - paddingX,
+    right: box.right + paddingX,
+    top: box.top - paddingY,
+    bottom: box.bottom + paddingY,
+  };
+}
+
 function interestLabelBoxesOverlap(left: LabelBox, right: LabelBox) {
   return (
     left.left < right.right &&
@@ -1194,7 +1207,7 @@ function InterestMapView({
   });
   const labelPlacements = new Map<
     string,
-    { labelX: number; labelY: number; labelAnchor: LabelAnchor }
+    { orientation: LabelOrientation }
   >();
 
   if (!compact) {
@@ -1225,10 +1238,7 @@ function InterestMapView({
               : ["bottom", "top", "right", "left"];
       let chosen:
         | {
-            labelX: number;
-            labelY: number;
-            labelAnchor: LabelAnchor;
-            box: LabelBox;
+            orientation: LabelOrientation;
             footprint: LabelBox;
           }
         | null = null;
@@ -1266,7 +1276,9 @@ function InterestMapView({
           labelAnchor,
           labelWidth,
         );
-        const footprint = mergeInterestBoxes(box, buildInterestNodeBox(node));
+        const footprint = padInterestBox(
+          mergeInterestBoxes(box, buildInterestNodeBox(node)),
+        );
 
         return {
           labelX,
@@ -1302,7 +1314,10 @@ function InterestMapView({
           continue;
         }
 
-        chosen = candidate;
+        chosen = {
+          orientation,
+          footprint: candidate.footprint,
+        };
 
         if (chosen) {
           break;
@@ -1319,7 +1334,10 @@ function InterestMapView({
             ),
           ) ?? preferred;
 
-        chosen = candidateForOrientation(firstFittingOrientation);
+        chosen = {
+          orientation: firstFittingOrientation,
+          footprint: candidateForOrientation(firstFittingOrientation).footprint,
+        };
       }
 
       if (!chosen) {
@@ -1327,33 +1345,214 @@ function InterestMapView({
       }
 
       labelPlacements.set(node.tag, {
-        labelX: chosen.labelX,
-        labelY: chosen.labelY,
-        labelAnchor: chosen.labelAnchor,
+        orientation: chosen.orientation,
       });
       placedFootprints.push(chosen.footprint);
     }
   }
 
-  const renderNodes = animatedNodes.map((node) => {
-    const labelText = editMode ? `\u270E ${shortenLabel(node.tag)}` : shortenLabel(node.tag);
-    const placement = labelPlacements.get(node.tag) ?? {
-      labelX: node.x,
-      labelY: node.y + node.radius + 14,
-      labelAnchor: "middle" as const,
+  function buildRenderPlacement(
+    node: { x: number; y: number; radius: number },
+    orientation: LabelOrientation,
+    labelWidth: number,
+  ) {
+    const labelX =
+      orientation === "left"
+        ? node.x - node.radius - 10
+        : orientation === "right"
+          ? node.x + node.radius + 10
+          : node.x;
+    const labelY =
+      orientation === "top"
+        ? node.y - node.radius - 10
+        : orientation === "bottom"
+          ? node.y + node.radius + 14
+          : node.y + 4;
+    const labelAnchor: LabelAnchor =
+      orientation === "left"
+        ? "end"
+        : orientation === "right"
+          ? "start"
+          : "middle";
+    const labelBox = buildInterestLabelBox(
+      labelX,
+      labelY,
+      labelAnchor,
+      labelWidth,
+    );
+    const bubbleBox = padInterestBox(
+      mergeInterestBoxes(labelBox, buildInterestNodeBox(node)),
+    );
+
+    return {
+      labelX,
+      labelY,
+      labelAnchor,
+      labelBox,
+      bubbleBox,
     };
+  }
+
+  const bubbleNodes = animatedNodes.map((node) => {
+    const labelText = editMode ? `\u270E ${shortenLabel(node.tag)}` : shortenLabel(node.tag);
+    const labelWidth = estimateInterestLabelWidth(labelText);
+    const orientation =
+      labelPlacements.get(node.tag)?.orientation ??
+      preferredInterestLabelOrientation(node.x - centerX, node.y - centerY);
 
     return {
       ...node,
       labelText,
+      labelWidth,
+      orientation,
+      baseX: node.x,
+      baseY: node.y,
+    };
+  });
+  const relaxedNodes = !compact
+    ? bubbleNodes.map((node) => ({ ...node }))
+    : bubbleNodes;
+
+  if (!compact && relaxedNodes.length > 1) {
+    const draggedIndex = dragRef.current?.nodeIndex ?? -1;
+
+    for (let iteration = 0; iteration < 36; iteration += 1) {
+      let hadOverlap = false;
+
+      for (let leftIndex = 0; leftIndex < relaxedNodes.length; leftIndex += 1) {
+        for (
+          let rightIndex = leftIndex + 1;
+          rightIndex < relaxedNodes.length;
+          rightIndex += 1
+        ) {
+          const left = relaxedNodes[leftIndex];
+          const right = relaxedNodes[rightIndex];
+          const leftPlacement = buildRenderPlacement(
+            left,
+            left.orientation,
+            left.labelWidth,
+          );
+          const rightPlacement = buildRenderPlacement(
+            right,
+            right.orientation,
+            right.labelWidth,
+          );
+
+          if (
+            !interestLabelBoxesOverlap(
+              leftPlacement.bubbleBox,
+              rightPlacement.bubbleBox,
+            )
+          ) {
+            continue;
+          }
+
+          hadOverlap = true;
+          const overlapX = Math.min(
+            leftPlacement.bubbleBox.right - rightPlacement.bubbleBox.left,
+            rightPlacement.bubbleBox.right - leftPlacement.bubbleBox.left,
+          );
+          const overlapY = Math.min(
+            leftPlacement.bubbleBox.bottom - rightPlacement.bubbleBox.top,
+            rightPlacement.bubbleBox.bottom - leftPlacement.bubbleBox.top,
+          );
+          const leftCenterX =
+            (leftPlacement.bubbleBox.left + leftPlacement.bubbleBox.right) / 2;
+          const rightCenterX =
+            (rightPlacement.bubbleBox.left + rightPlacement.bubbleBox.right) / 2;
+          const leftCenterY =
+            (leftPlacement.bubbleBox.top + leftPlacement.bubbleBox.bottom) / 2;
+          const rightCenterY =
+            (rightPlacement.bubbleBox.top + rightPlacement.bubbleBox.bottom) / 2;
+          const moveAlongX = overlapX <= overlapY;
+          const shift = (moveAlongX ? overlapX : overlapY) / 2 + 2;
+          const direction =
+            moveAlongX
+              ? leftCenterX <= rightCenterX
+                ? -1
+                : 1
+              : leftCenterY <= rightCenterY
+                ? -1
+                : 1;
+          const leftLocked = leftIndex === draggedIndex;
+          const rightLocked = rightIndex === draggedIndex;
+
+          if (!leftLocked && !rightLocked) {
+            if (moveAlongX) {
+              left.x += direction * shift;
+              right.x -= direction * shift;
+            } else {
+              left.y += direction * shift;
+              right.y -= direction * shift;
+            }
+          } else if (!leftLocked) {
+            if (moveAlongX) {
+              left.x += direction * shift * 2;
+            } else {
+              left.y += direction * shift * 2;
+            }
+          } else if (!rightLocked) {
+            if (moveAlongX) {
+              right.x -= direction * shift * 2;
+            } else {
+              right.y -= direction * shift * 2;
+            }
+          }
+        }
+      }
+
+      for (let index = 0; index < relaxedNodes.length; index += 1) {
+        const node = relaxedNodes[index];
+
+        if (index !== draggedIndex) {
+          node.x += (node.baseX - node.x) * 0.08;
+          node.y += (node.baseY - node.y) * 0.08;
+        }
+
+        const placement = buildRenderPlacement(
+          node,
+          node.orientation,
+          node.labelWidth,
+        );
+        const dx =
+          placement.bubbleBox.left < 12
+            ? 12 - placement.bubbleBox.left
+            : placement.bubbleBox.right > initialLayout.width - 12
+              ? initialLayout.width - 12 - placement.bubbleBox.right
+              : 0;
+        const dy =
+          placement.bubbleBox.top < 12
+            ? 12 - placement.bubbleBox.top
+            : placement.bubbleBox.bottom > initialLayout.height - 12
+              ? initialLayout.height - 12 - placement.bubbleBox.bottom
+              : 0;
+
+        node.x += dx;
+        node.y += dy;
+      }
+
+      if (!hadOverlap) {
+        break;
+      }
+    }
+  }
+
+  const renderNodes = relaxedNodes.map((node) => {
+    const placement = buildRenderPlacement(
+      node,
+      node.orientation,
+      node.labelWidth,
+    );
+
+    return {
+      ...node,
       labelX: placement.labelX,
       labelY: placement.labelY,
       labelAnchor: placement.labelAnchor,
+      bubbleBox: placement.bubbleBox,
     };
   });
-  const nodeMap = new Map(
-    renderNodes.map((node) => [node.tag, node] as const),
-  );
+  const nodeMap = new Map(renderNodes.map((node) => [node.tag, node] as const));
 
   const hasLinks = data.links.length > 0;
   const interestLabel =
@@ -1379,7 +1578,10 @@ function InterestMapView({
     }
   }
 
-  function handleNodeClick(event: React.MouseEvent, tag: string) {
+  function handleNodeClick(
+    event: React.MouseEvent,
+    node: { tag: string; x: number; y: number },
+  ) {
     event.stopPropagation();
 
     if (wasDraggedRef.current) {
@@ -1391,8 +1593,6 @@ function InterestMapView({
       // Convert SVG coordinates to screen coordinates for popover positioning
       const svg = svgRef.current;
       if (!svg) return;
-      const node = simRef.current.find((n) => n.tag === tag);
-      if (!node) return;
       const point = svg.createSVGPoint();
       point.x = node.x;
       point.y = node.y;
@@ -1400,14 +1600,14 @@ function InterestMapView({
       if (!ctm) return;
       const screenPoint = point.matrixTransform(ctm);
       setEditingNode({
-        tag,
+        tag: node.tag,
         screenX: screenPoint.x,
         screenY: screenPoint.y,
       });
       return;
     }
 
-    onSelectTag?.(tag);
+    onSelectTag?.(node.tag);
   }
 
   return (
@@ -1533,7 +1733,7 @@ function InterestMapView({
               className={`interest-map-node${isSelectable ? " is-selectable" : ""}${selectedPathSet.has(node.tag) ? " is-selected" : ""}`}
               onClick={
                 onSelectTag
-                  ? (event: React.MouseEvent) => handleNodeClick(event, node.tag)
+                  ? (event: React.MouseEvent) => handleNodeClick(event, node)
                   : undefined
               }
               onPointerDown={
@@ -1547,6 +1747,27 @@ function InterestMapView({
                   : undefined
               }
             >
+              {!compact ? (
+                <rect
+                  className="interest-map-bubble"
+                  x={node.bubbleBox.left}
+                  y={node.bubbleBox.top}
+                  width={node.bubbleBox.right - node.bubbleBox.left}
+                  height={node.bubbleBox.bottom - node.bubbleBox.top}
+                  rx="16"
+                  fill={
+                    selectedPathSet.has(node.tag)
+                      ? "rgba(255, 247, 237, 0.92)"
+                      : "rgba(252, 248, 241, 0.78)"
+                  }
+                  stroke={
+                    selectedPathSet.has(node.tag)
+                      ? "rgba(180, 83, 9, 0.3)"
+                      : "rgba(180, 83, 9, 0.14)"
+                  }
+                  strokeWidth={selectedPathSet.has(node.tag) ? "1.6" : "1"}
+                />
+              ) : null}
               <title>{`${node.tag}: ${node.count} book${node.count === 1 ? "" : "s"}, interest ${node.interest}/5`}</title>
               {selectedPathSet.has(node.tag) ? (
                 <circle
