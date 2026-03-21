@@ -45,6 +45,10 @@ import {
   requestPathRecommendation,
   type PathRecommendationResponse,
 } from "./lib/recommend-api";
+import {
+  searchCatalog,
+  type CatalogSearchResult,
+} from "./lib/catalog-api";
 import { BookCard } from "./components/BookCard";
 
 type BookDraft = {
@@ -90,7 +94,12 @@ type DraftTextField =
   | "progress";
 
 const MAX_SUGGESTIONS = 6;
+const MAX_AUTOFILL_TOPICS = 8;
 const MIN_YEAR_OPTION = 1900;
+const compactCountFormatter = new Intl.NumberFormat(undefined, {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
 
 function createDraft(): BookDraft {
   return {
@@ -162,6 +171,24 @@ function resolvedSuggestion(
   return exactMatch ?? (suggestions.length === 1 ? suggestions[0] : null);
 }
 
+function buildCatalogTopics(result: CatalogSearchResult) {
+  return uniqueTags([...result.genres, ...result.tags, ...result.moods]).slice(
+    0,
+    MAX_AUTOFILL_TOPICS,
+  );
+}
+
+function formatCatalogRating(value: number) {
+  return String(Number(value.toFixed(2)));
+}
+
+function formatCatalogRatingCount(value: number) {
+  return String(Math.max(0, Math.round(value)));
+}
+
+function formatCompactCount(value: number) {
+  return compactCountFormatter.format(Math.max(0, value));
+}
 
 function buildDraftScores(tags: string[], scores: Record<string, number>) {
   return Object.fromEntries(
@@ -1426,6 +1453,15 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
   const [pendingTagDelete, setPendingTagDelete] = useState<string | null>(null);
+  const [titleSuggestions, setTitleSuggestions] = useState<CatalogSearchResult[]>(
+    [],
+  );
+  const [isSearchingCatalog, setIsSearchingCatalog] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [isTitleSuggestionActive, setIsTitleSuggestionActive] = useState(false);
+  const [selectedCatalogBookId, setSelectedCatalogBookId] = useState<string | null>(
+    null,
+  );
   const [activeSuggestionField, setActiveSuggestionField] =
     useState<SuggestionField | null>(null);
   const [activeTagActionMenu, setActiveTagActionMenu] = useState<string | null>(
@@ -1459,6 +1495,8 @@ export default function App() {
   const pendingBookRectsRef = useRef<Map<number, DOMRect> | null>(null);
   const pendingBookRevealIdRef = useRef<number | null>(null);
   const highlightClearTimeoutRef = useRef<number | null>(null);
+  const titleSearchRequestRef = useRef(0);
+  const selectedCatalogTitleRef = useRef("");
 
   const captureVisibleBookRects = useCallback(() => {
     const rects = new Map<number, DOMRect>();
@@ -1844,8 +1882,15 @@ export default function App() {
   }, [draft.genreInput, draft.genres, knownGenres]);
 
   const resetDraft = useCallback(() => {
+    titleSearchRequestRef.current += 1;
     setDraft(createDraft());
     setEditingBookId(null);
+    setTitleSuggestions([]);
+    setIsSearchingCatalog(false);
+    setCatalogError(null);
+    setIsTitleSuggestionActive(false);
+    setSelectedCatalogBookId(null);
+    selectedCatalogTitleRef.current = "";
     setActiveSuggestionField(null);
     setActiveTagActionMenu(null);
     setDraftTagDrag(null);
@@ -1899,6 +1944,8 @@ export default function App() {
   const parsedDraftLastReadYear = draft.lastReadYear.trim()
     ? Number(draft.lastReadYear)
     : undefined;
+  const showTitleSuggestions =
+    isTitleSuggestionActive && titleSuggestions.length > 0;
   const canSubmit =
     !isLoading &&
     !isSaving &&
@@ -1910,7 +1957,71 @@ export default function App() {
     (parsedDraftCount == null ||
       (Number.isFinite(parsedDraftCount) && parsedDraftCount >= 0));
 
+  useEffect(() => {
+    if (!isTitleSuggestionActive) {
+      setIsSearchingCatalog(false);
+      setCatalogError(null);
+      return;
+    }
+
+    const query = draft.title.trim();
+    const hasSelectedCatalogMatch =
+      selectedCatalogBookId != null &&
+      query.length > 0 &&
+      query === selectedCatalogTitleRef.current;
+
+    if (!query || query.length < 2 || hasSelectedCatalogMatch) {
+      setIsSearchingCatalog(false);
+      setCatalogError(null);
+      setTitleSuggestions([]);
+      return;
+    }
+
+    const requestId = titleSearchRequestRef.current + 1;
+    titleSearchRequestRef.current = requestId;
+    let cancelled = false;
+
+    setIsSearchingCatalog(true);
+    setCatalogError(null);
+
+    const debounce = window.setTimeout(async () => {
+      try {
+        const response = await searchCatalog(query, MAX_SUGGESTIONS);
+
+        if (cancelled || titleSearchRequestRef.current !== requestId) {
+          return;
+        }
+
+        setTitleSuggestions(response.results);
+      } catch (error) {
+        if (cancelled || titleSearchRequestRef.current !== requestId) {
+          return;
+        }
+
+        setTitleSuggestions([]);
+        setCatalogError(
+          error instanceof Error ? error.message : "Catalog search failed.",
+        );
+      } finally {
+        if (!cancelled && titleSearchRequestRef.current === requestId) {
+          setIsSearchingCatalog(false);
+        }
+      }
+    }, 260);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(debounce);
+    };
+  }, [draft.title, isTitleSuggestionActive, selectedCatalogBookId]);
+
   function updateDraft(field: DraftTextField, value: string) {
+    if (field === "title") {
+      setSelectedCatalogBookId(null);
+      setCatalogError(null);
+      selectedCatalogTitleRef.current = "";
+    }
+
     setDraft((current) => {
       let clamped = value;
       const num = Number(value);
@@ -2057,6 +2168,59 @@ export default function App() {
     }
 
     setActiveSuggestionField((current) => (current === field ? null : current));
+  }
+
+  function handleTitleSuggestionBlur(event: ReactFocusEvent<HTMLDivElement>) {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      return;
+    }
+
+    setIsTitleSuggestionActive(false);
+  }
+
+  function selectCatalogSuggestion(result: CatalogSearchResult) {
+    const catalogTopics = buildCatalogTopics(result);
+
+    setDraft((current) => {
+      const nextAuthors =
+        result.authors.length > 0 ? uniqueTags(result.authors) : current.authors;
+      const nextGenres =
+        catalogTopics.length > 0 ? catalogTopics : current.genres;
+
+      return {
+        ...current,
+        title: result.title,
+        authors: nextAuthors,
+        authorInput: "",
+        authorExperience: "",
+        authorExperienceIsManual: false,
+        authorScores:
+          result.authors.length > 0
+            ? buildDraftScores(nextAuthors, authorExperiences)
+            : current.authorScores,
+        genres: nextGenres,
+        genreInput: "",
+        genreInterest: "",
+        genreInterestIsManual: false,
+        genreScores:
+          catalogTopics.length > 0
+            ? buildDraftScores(nextGenres, genreInterests)
+            : current.genreScores,
+        starRating:
+          result.averageRating != null
+            ? formatCatalogRating(result.averageRating)
+            : current.starRating,
+        ratingCount:
+          result.ratingsCount != null
+            ? formatCatalogRatingCount(result.ratingsCount)
+            : current.ratingCount,
+      };
+    });
+
+    setSelectedCatalogBookId(result.id);
+    selectedCatalogTitleRef.current = result.title.trim();
+    setTitleSuggestions([]);
+    setCatalogError(null);
   }
 
   function selectSuggestedValue(field: SuggestionField, value: string) {
@@ -2317,8 +2481,15 @@ export default function App() {
 
   function startEditing(book: Book) {
     const lastReadYear = effectiveLastReadYear(book);
+    titleSearchRequestRef.current += 1;
     setEditingBookId(book.id);
     setScrollToForm(true);
+    setTitleSuggestions([]);
+    setIsSearchingCatalog(false);
+    setCatalogError(null);
+    setIsTitleSuggestionActive(false);
+    setSelectedCatalogBookId(null);
+    selectedCatalogTitleRef.current = "";
     setActiveTagActionMenu(null);
     setDraft({
       title: book.title,
@@ -3167,12 +3338,77 @@ export default function App() {
           <form ref={entryFormRef} className="entry-form" onSubmit={submitBook}>
             <label className="field entry-title">
               <span>Title</span>
-              <input
-                type="text"
-                placeholder="The Remains of the Day"
-                value={draft.title}
-                onChange={(event) => updateDraft("title", event.target.value)}
-              />
+              <div className="tag-entry-group">
+                <div className="tag-entry-row">
+                  <div
+                    className="suggestion-field"
+                    onFocus={() => setIsTitleSuggestionActive(true)}
+                    onBlur={handleTitleSuggestionBlur}
+                  >
+                    <input
+                      type="text"
+                      placeholder="The Remains of the Day"
+                      value={draft.title}
+                      autoComplete="off"
+                      aria-expanded={showTitleSuggestions}
+                      aria-controls="title-suggestions"
+                      onChange={(event) =>
+                        updateDraft("title", event.target.value)
+                      }
+                    />
+                    {showTitleSuggestions ? (
+                      <div
+                        id="title-suggestions"
+                        className="suggestion-popover"
+                        aria-label="Suggested books"
+                      >
+                        {titleSuggestions.map((result) => (
+                          <div
+                            key={result.id}
+                            className="suggestion-option title-suggestion-option"
+                          >
+                            <button
+                              type="button"
+                              className="suggestion-pick title-suggestion-pick"
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={() => selectCatalogSuggestion(result)}
+                            >
+                              <span className="title-suggestion-copy">
+                                <span className="suggestion-copy">
+                                  {result.title}
+                                </span>
+                                <span className="title-suggestion-meta">
+                                  {result.authors.length > 0
+                                    ? result.authors.join(", ")
+                                    : "Unknown author"}
+                                </span>
+                              </span>
+                              <span className="title-suggestion-trailing">
+                                {result.averageRating != null ? (
+                                  <span className="genre-tag-interest">
+                                    {formatCatalogRating(result.averageRating)}
+                                  </span>
+                                ) : null}
+                                {result.ratingsCount != null ? (
+                                  <span className="title-suggestion-count">
+                                    {formatCompactCount(result.ratingsCount)}
+                                  </span>
+                                ) : null}
+                              </span>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+                {isTitleSuggestionActive && isSearchingCatalog ? (
+                  <p className="field-note">Searching Hardcover…</p>
+                ) : null}
+                {isTitleSuggestionActive && catalogError ? (
+                  <p className="field-note is-error">{catalogError}</p>
+                ) : null}
+              </div>
             </label>
 
             <div className="field entry-author">

@@ -1034,8 +1034,56 @@ h3 {
     font-weight: 700;
 }
 
+.title-suggestion-option {
+    align-items: stretch;
+}
+
+.title-suggestion-pick {
+    align-items: flex-start;
+}
+
+.title-suggestion-copy {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+    text-align: left;
+}
+
+.title-suggestion-meta {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--muted);
+    font-size: 0.78rem;
+}
+
+.title-suggestion-trailing {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    padding-top: 1px;
+}
+
+.title-suggestion-count {
+    color: var(--muted);
+    font-size: 0.76rem;
+    font-weight: 600;
+}
+
 .suggestion-remove {
     flex-shrink: 0;
+}
+
+.field-note {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.8rem;
+    line-height: 1.4;
+}
+
+.field-note.is-error {
+    color: rgb(185, 28, 28);
 }
 
 .inline-rating {
