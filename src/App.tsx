@@ -1758,10 +1758,12 @@ export default function App() {
   const leftColumnRef = useRef<HTMLElement | null>(null);
   const entryFormRef = useRef<HTMLFormElement | null>(null);
   const pendingBookRectsRef = useRef<Map<number, DOMRect> | null>(null);
-  const pendingBookRevealIdRef = useRef<number | null>(null);
   const highlightClearTimeoutRef = useRef<number | null>(null);
   const titleSearchRequestRef = useRef(0);
   const selectedCatalogTitleRef = useRef("");
+  const [pendingBookRevealId, setPendingBookRevealId] = useState<number | null>(
+    null,
+  );
 
   const captureVisibleBookRects = useCallback(() => {
     const rects = new Map<number, DOMRect>();
@@ -1793,7 +1795,7 @@ export default function App() {
       return;
     }
 
-    pendingBookRevealIdRef.current = bookId;
+    setPendingBookRevealId(bookId);
     setHighlightedBookId(bookId);
 
     if (highlightClearTimeoutRef.current != null) {
@@ -1895,7 +1897,7 @@ export default function App() {
   }, [books, showArchive]);
 
   useEffect(() => {
-    const bookId = pendingBookRevealIdRef.current;
+    const bookId = pendingBookRevealId;
 
     if (bookId == null) {
       return;
@@ -1909,19 +1911,39 @@ export default function App() {
       return;
     }
 
+    const container =
+      card.closest<HTMLElement>(".board, .archive-list") ?? leftColumnRef.current;
+
+    if (!container) {
+      return;
+    }
+
     const frameId = window.requestAnimationFrame(() => {
-      pendingBookRevealIdRef.current = null;
-      card.scrollIntoView({
+      const containerRect = container.getBoundingClientRect();
+      const cardRect = card.getBoundingClientRect();
+      const currentScrollTop = container.scrollTop;
+      const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+      const targetScrollTop = Math.min(
+        maxScrollTop,
+        Math.max(
+          0,
+          currentScrollTop +
+            (cardRect.top - containerRect.top) -
+            (container.clientHeight - cardRect.height) / 2,
+        ),
+      );
+
+      setPendingBookRevealId((current) => (current === bookId ? null : current));
+      container.scrollTo({
+        top: targetScrollTop,
         behavior: "smooth",
-        block: "center",
-        inline: "nearest",
       });
     });
 
     return () => {
       window.cancelAnimationFrame(frameId);
     };
-  }, [books, showArchive, selectedInterestPath]);
+  }, [books, pendingBookRevealId, selectedInterestPath, showArchive]);
 
   useEffect(() => {
     return () => {
