@@ -758,7 +758,6 @@ type InterestMapProps = {
   compact?: boolean;
   selectedPath?: string[];
   onSelectTag?: (tag: string) => void;
-  editMode?: boolean;
   onEditingNodeChange?: (node: { tag: string; screenX: number; screenY: number } | null) => void;
 };
 
@@ -768,7 +767,6 @@ function InterestMapView({
   compact = false,
   selectedPath = [],
   onSelectTag,
-  editMode = false,
   onEditingNodeChange,
 }: InterestMapProps) {
   const data = useMemo(() => {
@@ -1134,13 +1132,6 @@ function InterestMapView({
   const [, setTick] = useState(0);
   const setEditingNode = onEditingNodeChange ?? (() => {});
 
-  // Close popover when leaving edit mode
-  useEffect(() => {
-    if (!editMode) {
-      setEditingNode(null);
-    }
-  }, [editMode]);
-
   // Initialize simulation from layout
   useEffect(() => {
     if (!initialLayout) {
@@ -1224,9 +1215,7 @@ function InterestMapView({
       const forceX = new Array(nodes.length).fill(0);
       const forceY = new Array(nodes.length).fill(0);
       const placements = nodes.map((node) => {
-        const labelText = editMode
-          ? `\u270E ${shortenLabel(node.tag)}`
-          : shortenLabel(node.tag);
+        const labelText = shortenLabel(node.tag);
         const labelWidth = estimateInterestLabelWidth(labelText);
 
         return buildInterestBubblePlacement(
@@ -1342,9 +1331,7 @@ function InterestMapView({
         const placement = buildInterestBubblePlacement(
           node,
           nodeOrientation(node),
-          estimateInterestLabelWidth(
-            editMode ? `\u270E ${shortenLabel(node.tag)}` : shortenLabel(node.tag),
-          ),
+          estimateInterestLabelWidth(shortenLabel(node.tag)),
         );
 
         if (placement.bubbleBox.left < boundaryPadding) {
@@ -1392,7 +1379,7 @@ function InterestMapView({
     return () => {
       window.cancelAnimationFrame(frameId);
     };
-  }, [compact, initialLayout, data.links, editMode]);
+  }, [compact, initialLayout, data.links]);
 
   // Drag handlers
   function handleNodePointerDown(
@@ -1716,9 +1703,7 @@ function InterestMapView({
       event.stopPropagation();
       wasDraggedRef.current = false;
     }
-    if (editMode) {
-      setEditingNode(null);
-    }
+    setEditingNode(null);
   }
 
   if (!initialLayout) {
@@ -1745,7 +1730,7 @@ function InterestMapView({
   const centerX = initialLayout.width / 2;
   const centerY = initialLayout.height / 2;
   const renderNodes = currentNodes.map((node, index) => {
-    const labelText = editMode ? `\u270E ${shortenLabel(node.tag)}` : shortenLabel(node.tag);
+    const labelText = shortenLabel(node.tag);
     const labelWidth = estimateInterestLabelWidth(labelText);
     const orientation =
       preferredInterestLabelOrientation(node.restX - centerX, node.restY - centerY);
@@ -1781,7 +1766,7 @@ function InterestMapView({
 
   function handleNodeKeyDown(
     event: ReactKeyboardEvent<SVGGElement>,
-    tag: string,
+    node: { tag: string; x: number; y: number },
   ) {
     if (!onSelectTag) {
       return;
@@ -1789,12 +1774,12 @@ function InterestMapView({
 
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      onSelectTag(tag);
+      handleNodeClick(event, node);
     }
   }
 
   function handleNodeClick(
-    event: React.MouseEvent,
+    event: Pick<React.MouseEvent<SVGGElement>, "stopPropagation">,
     node: { tag: string; x: number; y: number },
   ) {
     event.stopPropagation();
@@ -1804,22 +1789,22 @@ function InterestMapView({
       return;
     }
 
-    if (editMode) {
-      // Convert SVG coordinates to screen coordinates for popover positioning
-      const svg = svgRef.current;
-      if (!svg) return;
+    const svg = svgRef.current;
+
+    if (svg) {
       const point = svg.createSVGPoint();
       point.x = node.x;
       point.y = node.y;
       const ctm = svg.getScreenCTM();
-      if (!ctm) return;
-      const screenPoint = point.matrixTransform(ctm);
-      setEditingNode({
-        tag: node.tag,
-        screenX: screenPoint.x,
-        screenY: screenPoint.y,
-      });
-      return;
+
+      if (ctm) {
+        const screenPoint = point.matrixTransform(ctm);
+        setEditingNode({
+          tag: node.tag,
+          screenX: screenPoint.x,
+          screenY: screenPoint.y,
+        });
+      }
     }
 
     onSelectTag?.(node.tag);
@@ -1962,7 +1947,7 @@ function InterestMapView({
               }
               onKeyDown={
                 onSelectTag
-                  ? (event) => handleNodeKeyDown(event, node.tag)
+                  ? (event) => handleNodeKeyDown(event, node)
                   : undefined
               }
             >
@@ -2050,7 +2035,6 @@ const InterestMap = memo(
   InterestMapView,
   (previousProps, nextProps) =>
     previousProps.compact === nextProps.compact &&
-    previousProps.editMode === nextProps.editMode &&
     sameStringList(previousProps.selectedPath ?? [], nextProps.selectedPath ?? []) &&
     sameGraphBooks(previousProps.books, nextProps.books) &&
     sameInterestMap(previousProps.interests, nextProps.interests),
@@ -2103,7 +2087,6 @@ export default function App() {
   const [listSize, setListSize] = useState(5);
   const [showArchive, setShowArchive] = useState(false);
   const [addedRecIds, setAddedRecIds] = useState<Set<string>>(new Set());
-  const [graphEditMode, setGraphEditMode] = useState(false);
   const [graphAddGenreInput, setGraphAddGenreInput] = useState("");
   const [graphAddGenreRating, setGraphAddGenreRating] = useState<number | null>(null);
   const [graphEditingNode, setGraphEditingNode] = useState<{ tag: string; screenX: number; screenY: number } | null>(null);
@@ -2368,6 +2351,12 @@ export default function App() {
       current.filter((tag) => visibleGraphTags.has(tag)),
     );
   }, [books, genreInterests]);
+
+  useEffect(() => {
+    setGraphEditingNode((current) =>
+      current && selectedInterestPath.includes(current.tag) ? current : null,
+    );
+  }, [selectedInterestPath]);
 
   const smoothingFactors = useMemo(
     () => buildTagSmoothingFactorMap(books),
@@ -3437,6 +3426,11 @@ export default function App() {
 
       applyBooksUpdate(nextBooks);
       setGenreInterests(nextInterests);
+      setSelectedInterestPath((current) =>
+        uniqueTags(
+          current.map((tag) => (tag === oldName ? newName : tag)),
+        ),
+      );
       setGraphEditingNode((current) =>
         current && current.tag === oldName ? { ...current, tag: newName } : current,
       );
@@ -3909,71 +3903,54 @@ export default function App() {
         </aside>
 
         {/* ── Center column: interest map graph ── */}
-        <section className={`center-column${graphEditMode ? " is-editing" : ""}`}>
+        <section className="center-column">
           <div className="graph-edit-toolbar">
-            <button
-              type="button"
-              className={`graph-edit-btn${graphEditMode ? " is-active" : ""}`}
-              onClick={() => setGraphEditMode((prev) => !prev)}
-              aria-label={graphEditMode ? "Exit edit mode" : "Edit graph"}
-              title={graphEditMode ? "Exit edit mode" : "Edit interests"}
-            >
-              {graphEditMode ? "\u2715" : "\u270E"}
-            </button>
-            {!graphEditMode ? (
-              <span className="graph-edit-hint">
-                Select nodes to generate a list
-              </span>
-            ) : null}
-            {graphEditMode ? (
-              <div className="tag-entry-group graph-tag-entry">
-                <div className="tag-entry-row">
-                  <input
-                    type="text"
-                    placeholder="Add genre or topic..."
-                    value={graphAddGenreInput}
-                    onChange={(e) => setGraphAddGenreInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (
-                        e.key === "Enter" &&
-                        graphAddGenreInput.trim() &&
-                        graphAddGenreRating != null
-                      ) {
-                        void addGraphGenreInterest();
-                      }
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="graph-add-btn"
-                    disabled={!graphAddGenreInput.trim() || graphAddGenreRating == null}
-                    onClick={() => {
-                      if (graphAddGenreInput.trim() && graphAddGenreRating != null) {
-                        void addGraphGenreInterest();
-                      }
-                    }}
-                    aria-label="Add genre"
-                  >
-                    +
-                  </button>
-                </div>
-                <RatingButtons
-                  value={graphAddGenreRating}
-                  onChange={setGraphAddGenreRating}
+            <div className="tag-entry-group graph-tag-entry">
+              <div className="tag-entry-row">
+                <input
+                  type="text"
+                  placeholder="Add genre or topic..."
+                  value={graphAddGenreInput}
+                  onChange={(e) => setGraphAddGenreInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (
+                      e.key === "Enter" &&
+                      graphAddGenreInput.trim() &&
+                      graphAddGenreRating != null
+                    ) {
+                      void addGraphGenreInterest();
+                    }
+                  }}
                 />
+                <button
+                  type="button"
+                  className="graph-add-btn"
+                  disabled={!graphAddGenreInput.trim() || graphAddGenreRating == null}
+                  onClick={() => {
+                    if (graphAddGenreInput.trim() && graphAddGenreRating != null) {
+                      void addGraphGenreInterest();
+                    }
+                  }}
+                  aria-label="Add genre"
+                >
+                  +
+                </button>
               </div>
-            ) : null}
+              <RatingButtons
+                value={graphAddGenreRating}
+                onChange={setGraphAddGenreRating}
+              />
+            </div>
           </div>
           <InterestMap
             books={books}
             interests={genreInterests}
             selectedPath={selectedInterestPath}
             onSelectTag={toggleInterestPathTag}
-            editMode={graphEditMode}
             onEditingNodeChange={setGraphEditingNode}
           />
         </section>
-          {graphEditMode && graphEditingNode ? createPortal(
+          {graphEditingNode ? createPortal(
             <div
               className="node-edit-popover"
               style={{ left: graphEditingNode.screenX, top: graphEditingNode.screenY }}
