@@ -30,7 +30,7 @@ export type PathRecommendationResponse = {
   bestMatch: RecommendedBook | null;
   candidates: RecommendedBook[];
   queries: string[];
-  provider: "hardcover";
+  provider: string;
 };
 
 export async function requestPathRecommendation(

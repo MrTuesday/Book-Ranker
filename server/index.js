@@ -21,7 +21,7 @@ import {
 } from "./lib/library-service.js";
 import { createSeedState } from "./lib/seed-state.js";
 import { JsonStateStore } from "./lib/state-store.js";
-import { createHardcoverClient } from "./lib/hardcover.js";
+import { createGoodreadsClient } from "./lib/goodreads.js";
 import { fetchPathRecommendations } from "./lib/recommendations.js";
 import { HttpError, notFound, readJson, sendJson } from "./lib/http.js";
 
@@ -33,7 +33,7 @@ const host = process.env.HOST ?? "127.0.0.1";
 const port = Number(process.env.PORT) || 8787;
 
 const stateStore = new JsonStateStore(dataFilePath, createSeedState);
-const hardcoverClient = createHardcoverClient();
+const goodreadsClient = createGoodreadsClient();
 
 const contentTypes = new Map([
   [".html", "text/html; charset=utf-8"],
@@ -199,12 +199,12 @@ async function handleApi(request, response, url) {
   if (request.method === "GET" && path === "/api/catalog/search") {
     const query = url.searchParams.get("query") ?? "";
     const limit = Number(url.searchParams.get("limit")) || 10;
-    const results = await hardcoverClient.searchBooks(query, {
-      perPage: Math.max(1, Math.min(20, limit)),
+    const results = await goodreadsClient.autocompleteBooksByTitle(query, {
+      limit: Math.max(1, Math.min(8, limit)),
     });
 
     return sendJson(response, 200, {
-      provider: "hardcover",
+      provider: goodreadsClient.provider,
       query,
       results,
     });
@@ -212,7 +212,7 @@ async function handleApi(request, response, url) {
 
   if (request.method === "POST" && path === "/api/recommendations/path") {
     const body = await readJson(request);
-    return sendJson(response, 200, await fetchPathRecommendations(hardcoverClient, body));
+    return sendJson(response, 200, await fetchPathRecommendations(goodreadsClient, body));
   }
 
   notFound();

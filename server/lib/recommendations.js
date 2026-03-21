@@ -4,7 +4,7 @@ const RECOMMENDATION_SEARCH_FIELDS = "genres,tags,moods,description";
 const RECOMMENDATION_SEARCH_WEIGHTS = "10,6,4,1";
 const RECOMMENDATION_SEARCH_SORT =
   "_text_match:desc,users_count:desc,ratings_count:desc";
-const RECOMMENDATION_RESULTS_PER_QUERY = 18;
+const RECOMMENDATION_RESULTS_PER_QUERY = 8;
 
 function normalizeForMatch(value) {
   return String(value ?? "").trim().toLowerCase();
@@ -178,6 +178,7 @@ export async function fetchPathRecommendations(client, payload) {
         fields: RECOMMENDATION_SEARCH_FIELDS,
         weights: RECOMMENDATION_SEARCH_WEIGHTS,
         sort: RECOMMENDATION_SEARCH_SORT,
+        enrich: false,
       }),
     ),
   );
@@ -194,7 +195,12 @@ export async function fetchPathRecommendations(client, payload) {
     }
   }
 
-  const rankedCandidates = Array.from(deduped.values())
+  const detailedCandidates =
+    typeof client.enrichBooks === "function"
+      ? await client.enrichBooks(Array.from(deduped.values()))
+      : Array.from(deduped.values());
+
+  const rankedCandidates = detailedCandidates
     .filter((candidate) => !bookAlreadyExists(candidate, books))
     .filter((candidate) => !titleMatchesSelectedTag(candidate.title, selectedTags))
     .map((candidate) =>
@@ -212,7 +218,7 @@ export async function fetchPathRecommendations(client, payload) {
     .slice(0, 10);
 
   return {
-    provider: "hardcover",
+    provider: client.provider ?? "unknown",
     queries,
     bestMatch: rankedCandidates[0] ?? null,
     candidates: rankedCandidates,

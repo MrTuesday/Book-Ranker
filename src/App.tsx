@@ -100,7 +100,7 @@ type DraftTextField =
 
 const MAX_SUGGESTIONS = 6;
 const MAX_AUTOFILL_TOPICS = 8;
-const TITLE_SUGGESTION_FETCH_LIMIT = 12;
+const TITLE_SUGGESTION_FETCH_LIMIT = 6;
 const MIN_YEAR_OPTION = 1900;
 
 function createDraft(): BookDraft {

@@ -1,7 +1,7 @@
 import { HttpError } from "../../server/lib/http.js";
-import { createHardcoverClient } from "../../server/lib/hardcover.js";
+import { createGoodreadsClient } from "../../server/lib/goodreads.js";
 
-const hardcoverClient = createHardcoverClient();
+const goodreadsClient = createGoodreadsClient();
 
 export default async function handler(request, response) {
   if (request.method !== "GET") {
@@ -13,12 +13,12 @@ export default async function handler(request, response) {
   const limit = Number(request.query?.limit) || 10;
 
   try {
-    const results = await hardcoverClient.autocompleteBooksByTitle(query, {
-      limit: Math.max(1, Math.min(20, limit)),
+    const results = await goodreadsClient.autocompleteBooksByTitle(query, {
+      limit: Math.max(1, Math.min(8, limit)),
     });
 
     response.status(200).json({
-      provider: "hardcover",
+      provider: goodreadsClient.provider,
       query,
       results,
     });

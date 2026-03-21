@@ -11,10 +11,11 @@ export type CatalogSearchResult = {
   usersCount?: number;
   description?: string;
   coverUrl?: string;
+  infoLink?: string;
 };
 
 export type CatalogSearchResponse = {
-  provider: "hardcover";
+  provider: string;
   query: string;
   results: CatalogSearchResult[];
 };

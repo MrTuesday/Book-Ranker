@@ -1,8 +1,8 @@
 import { HttpError } from "../../server/lib/http.js";
-import { createHardcoverClient } from "../../server/lib/hardcover.js";
+import { createGoodreadsClient } from "../../server/lib/goodreads.js";
 import { fetchPathRecommendations } from "../../server/lib/recommendations.js";
 
-const hardcoverClient = createHardcoverClient();
+const goodreadsClient = createGoodreadsClient();
 
 function parseJsonBody(body) {
   if (!body) {
@@ -33,7 +33,7 @@ export default async function handler(request, response) {
   const body = parseJsonBody(request.body);
 
   try {
-    const result = await fetchPathRecommendations(hardcoverClient, body);
+    const result = await fetchPathRecommendations(goodreadsClient, body);
     response.status(200).json(result);
   } catch (error) {
     if (error instanceof HttpError) {
