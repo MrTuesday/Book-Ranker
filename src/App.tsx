@@ -890,6 +890,8 @@ function InterestMapView({
         y,
         vx: 0,
         vy: 0,
+        homeX: x,
+        homeY: y,
         radius,
         restX: x,
         restY: y,
@@ -1030,6 +1032,8 @@ function InterestMapView({
     for (const node of positionedNodes) {
       node.vx = 0;
       node.vy = 0;
+      node.homeX = node.x;
+      node.homeY = node.y;
       node.restX = node.x;
       node.restY = node.y;
     }
@@ -1059,6 +1063,8 @@ function InterestMapView({
       y: number;
       vx: number;
       vy: number;
+      homeX: number;
+      homeY: number;
       radius: number;
       restX: number;
       restY: number;
@@ -1106,14 +1112,16 @@ function InterestMapView({
     const boundaryPadding = 12;
 
     function nodeOrientation(node: {
+      homeX: number;
+      homeY: number;
       restX: number;
       restY: number;
       x: number;
       y: number;
     }) {
       return preferredInterestLabelOrientation(
-        node.restX - width / 2,
-        node.restY - height / 2,
+        node.homeX - width / 2,
+        node.homeY - height / 2,
       );
     }
 
@@ -1246,19 +1254,33 @@ function InterestMapView({
         }
 
         const swaySeed = hashTag(node.tag);
+        const driftAmplitudeX = 18 + Math.min(node.degree, 12) * 1.8;
+        const driftAmplitudeY = 12 + Math.min(node.degree, 12) * 1.2;
+        const driftTargetX =
+          node.homeX +
+          Math.sin(
+            animationTimeRef.current * 0.16 + (swaySeed & 0xff) * 0.031,
+          ) * driftAmplitudeX;
+        const driftTargetY =
+          node.homeY +
+          Math.cos(
+            animationTimeRef.current * 0.13 + ((swaySeed >> 8) & 0xff) * 0.029,
+          ) * driftAmplitudeY;
+        node.restX += (driftTargetX - node.restX) * 0.028;
+        node.restY += (driftTargetY - node.restY) * 0.028;
         const swayX =
-          Math.sin(animationTimeRef.current * 0.42 + (swaySeed & 0xff) * 0.027) *
-          0.016;
+          Math.sin(animationTimeRef.current * 0.44 + (swaySeed & 0xff) * 0.027) *
+          0.012;
         const swayY =
           Math.cos(
-            animationTimeRef.current * 0.36 + ((swaySeed >> 8) & 0xff) * 0.025,
-          ) * 0.012;
+            animationTimeRef.current * 0.38 + ((swaySeed >> 8) & 0xff) * 0.025,
+          ) * 0.01;
 
-        forceX[index] += (node.restX - node.x) * 0.012 + swayX;
-        forceY[index] += (node.restY - node.y) * 0.012 + swayY;
+        forceX[index] += (node.restX - node.x) * 0.006 + swayX;
+        forceY[index] += (node.restY - node.y) * 0.006 + swayY;
 
-        node.vx = (node.vx + forceX[index] * dt) * 0.86;
-        node.vy = (node.vy + forceY[index] * dt) * 0.86;
+        node.vx = (node.vx + forceX[index] * dt) * 0.9;
+        node.vy = (node.vy + forceY[index] * dt) * 0.9;
         node.x += node.vx * dt;
         node.y += node.vy * dt;
       }
@@ -1277,6 +1299,7 @@ function InterestMapView({
           const shift = boundaryPadding - placement.bubbleBox.left;
           node.x += shift;
           if (dragRef.current?.nodeIndex !== index) {
+            node.homeX += shift * 0.12;
             node.restX += shift * 0.3;
           }
           node.vx *= 0.65;
@@ -1284,6 +1307,7 @@ function InterestMapView({
           const shift = width - boundaryPadding - placement.bubbleBox.right;
           node.x += shift;
           if (dragRef.current?.nodeIndex !== index) {
+            node.homeX += shift * 0.12;
             node.restX += shift * 0.3;
           }
           node.vx *= 0.65;
@@ -1293,6 +1317,7 @@ function InterestMapView({
           const shift = boundaryPadding - placement.bubbleBox.top;
           node.y += shift;
           if (dragRef.current?.nodeIndex !== index) {
+            node.homeY += shift * 0.12;
             node.restY += shift * 0.3;
           }
           node.vy *= 0.65;
@@ -1300,6 +1325,7 @@ function InterestMapView({
           const shift = height - boundaryPadding - placement.bubbleBox.bottom;
           node.y += shift;
           if (dragRef.current?.nodeIndex !== index) {
+            node.homeY += shift * 0.12;
             node.restY += shift * 0.3;
           }
           node.vy *= 0.65;
@@ -1358,6 +1384,8 @@ function InterestMapView({
       if (node) {
         node.x = pt.x;
         node.y = pt.y;
+        node.homeX = pt.x;
+        node.homeY = pt.y;
         node.restX = pt.x;
         node.restY = pt.y;
         node.vx = 0;
