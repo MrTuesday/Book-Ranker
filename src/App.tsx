@@ -95,11 +95,8 @@ type DraftTextField =
 
 const MAX_SUGGESTIONS = 6;
 const MAX_AUTOFILL_TOPICS = 8;
+const TITLE_SUGGESTION_FETCH_LIMIT = 12;
 const MIN_YEAR_OPTION = 1900;
-const compactCountFormatter = new Intl.NumberFormat(undefined, {
-  notation: "compact",
-  maximumFractionDigits: 1,
-});
 
 function createDraft(): BookDraft {
   return {
@@ -178,16 +175,62 @@ function buildCatalogTopics(result: CatalogSearchResult) {
   );
 }
 
+function normalizeSearchText(value: string) {
+  return value.trim().toLocaleLowerCase();
+}
+
+function catalogTitleMatchRank(query: string, result: CatalogSearchResult) {
+  const normalizedQuery = normalizeSearchText(query);
+  const normalizedTitle = normalizeSearchText(result.title);
+
+  if (!normalizedQuery || !normalizedTitle) {
+    return 0;
+  }
+
+  if (normalizedTitle === normalizedQuery) {
+    return 4;
+  }
+
+  if (normalizedTitle.startsWith(normalizedQuery)) {
+    return 3;
+  }
+
+  if (
+    normalizedTitle.split(/\s+/).some((word) => word.startsWith(normalizedQuery))
+  ) {
+    return 2;
+  }
+
+  if (normalizedTitle.includes(normalizedQuery)) {
+    return 1;
+  }
+
+  return 0;
+}
+
+function sortCatalogResults(query: string, results: CatalogSearchResult[]) {
+  return [...results]
+    .sort((left, right) => {
+      const rightMatchRank = catalogTitleMatchRank(query, right);
+      const leftMatchRank = catalogTitleMatchRank(query, left);
+
+      return (
+        rightMatchRank - leftMatchRank ||
+        (right.ratingsCount ?? 0) - (left.ratingsCount ?? 0) ||
+        (right.averageRating ?? 0) - (left.averageRating ?? 0) ||
+        right.authors.length - left.authors.length ||
+        left.title.localeCompare(right.title)
+      );
+    })
+    .slice(0, MAX_SUGGESTIONS);
+}
+
 function formatCatalogRating(value: number) {
   return String(Number(value.toFixed(2)));
 }
 
 function formatCatalogRatingCount(value: number) {
   return String(Math.max(0, Math.round(value)));
-}
-
-function formatCompactCount(value: number) {
-  return compactCountFormatter.format(Math.max(0, value));
 }
 
 function buildDraftScores(tags: string[], scores: Record<string, number>) {
@@ -1986,13 +2029,13 @@ export default function App() {
 
     const debounce = window.setTimeout(async () => {
       try {
-        const response = await searchCatalog(query, MAX_SUGGESTIONS);
+        const response = await searchCatalog(query, TITLE_SUGGESTION_FETCH_LIMIT);
 
         if (cancelled || titleSearchRequestRef.current !== requestId) {
           return;
         }
 
-        setTitleSuggestions(response.results);
+        setTitleSuggestions(sortCatalogResults(query, response.results));
       } catch (error) {
         if (cancelled || titleSearchRequestRef.current !== requestId) {
           return;
@@ -3382,18 +3425,6 @@ export default function App() {
                                     ? result.authors.join(", ")
                                     : "Unknown author"}
                                 </span>
-                              </span>
-                              <span className="title-suggestion-trailing">
-                                {result.averageRating != null ? (
-                                  <span className="genre-tag-interest">
-                                    {formatCatalogRating(result.averageRating)}
-                                  </span>
-                                ) : null}
-                                {result.ratingsCount != null ? (
-                                  <span className="title-suggestion-count">
-                                    {formatCompactCount(result.ratingsCount)}
-                                  </span>
-                                ) : null}
                               </span>
                             </button>
                           </div>
