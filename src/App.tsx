@@ -2023,9 +2023,6 @@ export default function App() {
         if (field === "ratingCount" && num < 0) {
           clamped = "0";
         }
-        if (field === "ratingCount" && num > 0) {
-          clamped = String(Number(num.toPrecision(2)));
-        }
         if (
           (field === "starRating" ||
             field === "genreInterest" ||
