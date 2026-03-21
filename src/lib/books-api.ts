@@ -3,6 +3,7 @@ export type Book = {
   title: string;
   authors: string[];
   genres: string[];
+  moods: string[];
   starRating?: number;
   ratingCount?: number;
   myRating?: number;
@@ -31,8 +32,10 @@ export type LibraryState = {
 type LegacyBook = Partial<Book> & {
   author?: unknown;
   genre?: unknown;
+  mood?: unknown;
   authors?: unknown;
   genres?: unknown;
+  moods?: unknown;
 };
 
 const STORAGE_KEY = "book-ranker.books.v1";
@@ -209,6 +212,7 @@ function normalizeBook(value: unknown): Book | null {
   );
   const authors = normalizeTagList(book?.authors ?? book?.author);
   const genres = normalizeTagList(book?.genres ?? book?.genre);
+  const moods = normalizeTagList(book?.moods ?? book?.mood);
 
   if (
     !title ||
@@ -225,6 +229,7 @@ function normalizeBook(value: unknown): Book | null {
     title,
     authors,
     genres,
+    moods,
     ...(starRating != null ? { starRating } : {}),
     ...(ratingCount != null ? { ratingCount } : {}),
     ...(myRating != null ? { myRating } : {}),
@@ -259,6 +264,7 @@ function cloneBooks(books: Book[]) {
     ...book,
     authors: [...book.authors],
     genres: [...book.genres],
+    moods: [...book.moods],
   }));
 }
 
@@ -347,11 +353,16 @@ function parseBookPayload(
 
   const authors = normalizeTagList(value?.authors ?? value?.author);
   const genres = normalizeTagList(value?.genres ?? value?.genre);
+  const moods = normalizeTagList(
+    (value as Partial<{ moods: unknown; mood: unknown }>)?.moods ??
+      (value as Partial<{ moods: unknown; mood: unknown }>)?.mood,
+  );
 
   return {
     title,
     authors,
     genres,
+    moods,
     ...(starRating != null ? { starRating } : {}),
     ...(ratingCount != null ? { ratingCount } : {}),
     ...(myRating != null ? { myRating } : {}),

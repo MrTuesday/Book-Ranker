@@ -143,6 +143,7 @@ function cloneBooks(books) {
     ...book,
     authors: [...book.authors],
     genres: [...book.genres],
+    moods: [...(Array.isArray(book.moods) ? book.moods : [])],
   }));
 }
 

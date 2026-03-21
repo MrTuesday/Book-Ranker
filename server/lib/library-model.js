@@ -5,6 +5,7 @@ function cloneBooks(books) {
     ...book,
     authors: [...book.authors],
     genres: [...book.genres],
+    moods: [...book.moods],
   }));
 }
 
@@ -114,6 +115,7 @@ export function normalizeBook(value) {
   const archivedAtYear = normalizeYear(book?.archivedAtYear);
   const authors = normalizeTagList(book?.authors ?? book?.author);
   const genres = normalizeTagList(book?.genres ?? book?.genre);
+  const moods = normalizeTagList(book?.moods ?? book?.mood);
 
   if (
     !title ||
@@ -130,6 +132,7 @@ export function normalizeBook(value) {
     title,
     authors,
     genres,
+    moods,
     ...(starRating != null ? { starRating } : {}),
     ...(ratingCount != null ? { ratingCount } : {}),
     ...(myRating != null ? { myRating } : {}),
@@ -200,11 +203,13 @@ export function parseBookPayload(value) {
 
   const authors = normalizeTagList(value?.authors ?? value?.author);
   const genres = normalizeTagList(value?.genres ?? value?.genre);
+  const moods = normalizeTagList(value?.moods ?? value?.mood);
 
   return {
     title,
     authors,
     genres,
+    moods,
     ...(starRating != null ? { starRating } : {}),
     ...(ratingCount != null ? { ratingCount } : {}),
     ...(myRating != null ? { myRating } : {}),

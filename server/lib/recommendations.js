@@ -1,5 +1,10 @@
 const GLOBAL_MEAN = 3.8;
 const SMOOTHING_FACTOR = 500;
+const RECOMMENDATION_SEARCH_FIELDS = "genres,tags,moods,description";
+const RECOMMENDATION_SEARCH_WEIGHTS = "10,6,4,1";
+const RECOMMENDATION_SEARCH_SORT =
+  "_text_match:desc,users_count:desc,ratings_count:desc";
+const RECOMMENDATION_RESULTS_PER_QUERY = 18;
 
 function normalizeForMatch(value) {
   return String(value ?? "").trim().toLowerCase();
@@ -58,6 +63,16 @@ function bookAlreadyExists(candidate, existingBooks) {
 
     return book.authors.some((author) => candidateAuthors.has(normalizeForMatch(author)));
   });
+}
+
+function titleMatchesSelectedTag(title, selectedTags) {
+  const normalizedTitle = normalizeForMatch(title);
+
+  if (!normalizedTitle) {
+    return false;
+  }
+
+  return selectedTags.some((tag) => normalizeForMatch(tag) === normalizedTitle);
 }
 
 function buildSearchQueries(selectedTags) {
@@ -156,7 +171,10 @@ export async function fetchPathRecommendations(client, payload) {
   const searchResults = await Promise.all(
     queries.map((query) =>
       client.searchBooks(query, {
-        perPage: 12,
+        perPage: RECOMMENDATION_RESULTS_PER_QUERY,
+        fields: RECOMMENDATION_SEARCH_FIELDS,
+        weights: RECOMMENDATION_SEARCH_WEIGHTS,
+        sort: RECOMMENDATION_SEARCH_SORT,
       }),
     ),
   );
@@ -175,6 +193,7 @@ export async function fetchPathRecommendations(client, payload) {
 
   const rankedCandidates = Array.from(deduped.values())
     .filter((candidate) => !bookAlreadyExists(candidate, books))
+    .filter((candidate) => !titleMatchesSelectedTag(candidate.title, selectedTags))
     .map((candidate) =>
       scoreCandidate(candidate, selectedTags, genreInterests, authorExperiences),
     )

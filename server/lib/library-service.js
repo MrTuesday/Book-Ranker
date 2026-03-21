@@ -17,6 +17,7 @@ export async function importLibraryState(store, payload) {
       ...book,
       authors: [...book.authors],
       genres: [...book.genres],
+      moods: [...book.moods],
     })),
     genreInterests: { ...imported.genreInterests },
     authorExperiences: { ...imported.authorExperiences },
