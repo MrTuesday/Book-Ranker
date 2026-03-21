@@ -290,6 +290,10 @@ function buildDraftScores(tags: string[], scores: Record<string, number>) {
   );
 }
 
+function hasDraftTagScore(scores: Record<string, string>, tag: string) {
+  return Object.prototype.hasOwnProperty.call(scores, tag);
+}
+
 function removeTagFromScores(scores: Record<string, string>, tag: string) {
   const nextScores = { ...scores };
   delete nextScores[tag];
@@ -2812,7 +2816,10 @@ export default function App() {
                 ...current.authorScores,
                 [matchingAuthor]: clamped,
               }
-            : removeTagFromScores(current.authorScores, matchingAuthor);
+            : {
+                ...current.authorScores,
+                [matchingAuthor]: "",
+              };
         }
 
         next.authorExperienceIsManual = true;
@@ -2832,7 +2839,10 @@ export default function App() {
                 ...current.genreScores,
                 [matchingGenre]: clamped,
               }
-            : removeTagFromScores(current.genreScores, matchingGenre);
+            : {
+                ...current.genreScores,
+                [matchingGenre]: "",
+              };
         }
 
         next.genreInterestIsManual = true;
@@ -2851,8 +2861,12 @@ export default function App() {
           knownGenres,
         );
         const nextScore =
-          nextMatch != null && genreInterests[nextMatch] != null
-            ? String(genreInterests[nextMatch])
+          nextMatch != null
+            ? hasDraftTagScore(current.genreScores, nextMatch)
+              ? current.genreScores[nextMatch]?.trim() ?? ""
+              : genreInterests[nextMatch] != null
+                ? String(genreInterests[nextMatch])
+                : ""
             : "";
 
         if (!clamped.trim()) {
@@ -2882,8 +2896,12 @@ export default function App() {
           knownAuthors,
         );
         const nextScore =
-          nextMatch != null && authorExperiences[nextMatch] != null
-            ? String(authorExperiences[nextMatch])
+          nextMatch != null
+            ? hasDraftTagScore(current.authorScores, nextMatch)
+              ? current.authorScores[nextMatch]?.trim() ?? ""
+              : authorExperiences[nextMatch] != null
+                ? String(authorExperiences[nextMatch])
+                : ""
             : "";
 
         if (!clamped.trim()) {
@@ -3057,9 +3075,9 @@ export default function App() {
       field === "author" ? draft.authorScores : draft.genreScores;
     const globalScores =
       field === "author" ? authorExperiences : genreInterests;
-    const draftScore = scoreMap[tag]?.trim();
+    const draftScore = scoreMap[tag]?.trim() ?? "";
 
-    if (draftScore) {
+    if (hasDraftTagScore(scoreMap, tag)) {
       return draftScore;
     }
 
@@ -3109,8 +3127,11 @@ export default function App() {
       const scoreMap = isAuthor ? current.authorScores : current.genreScores;
       const globalScores = isAuthor ? authorExperiences : genreInterests;
       const scoreValue =
-        scoreMap[tag]?.trim() ||
-        (globalScores[tag] != null ? String(globalScores[tag]) : "");
+        hasDraftTagScore(scoreMap, tag)
+          ? scoreMap[tag]?.trim() ?? ""
+          : globalScores[tag] != null
+            ? String(globalScores[tag])
+            : "";
 
       return {
         ...current,
@@ -3141,10 +3162,18 @@ export default function App() {
       }
 
       const globalScores = isAuthor ? authorExperiences : genreInterests;
+      const currentRatingValue = current[ratingKey].trim();
+      const existingDraftScore = hasDraftTagScore(current[scoresKey], nextTag)
+        ? current[scoresKey][nextTag]?.trim() ?? ""
+        : undefined;
       const ratingValue =
-        current[ratingKey].trim() ||
-        current[scoresKey][nextTag]?.trim() ||
-        (globalScores[nextTag] != null ? String(globalScores[nextTag]) : "");
+        currentRatingValue ||
+        existingDraftScore ||
+        (existingDraftScore === ""
+          ? ""
+          : globalScores[nextTag] != null
+            ? String(globalScores[nextTag])
+            : "");
 
       if (current[tagsKey].includes(nextTag)) {
         if (!ratingValue || current[scoresKey][nextTag] === ratingValue) {
