@@ -268,13 +268,9 @@ function formatCatalogRatingCount(value: number) {
   return String(Math.max(0, Math.round(value)));
 }
 
-function formatDisplayedDraftValue(value: string, fallback = "Unavailable") {
-  return value.trim() || fallback;
-}
-
 function formatDisplayedDraftCount(value: string) {
   if (!value.trim()) {
-    return "Unavailable";
+    return "";
   }
 
   const parsed = Number(value);
@@ -2668,6 +2664,8 @@ export default function App() {
     : undefined;
   const showTitleSuggestions =
     isTitleSuggestionActive && titleSuggestions.length > 0;
+  const hasAutomatedDraftStats =
+    draft.starRating.trim().length > 0 || draft.ratingCount.trim().length > 0;
   const canSubmit =
     !isLoading &&
     !isSaving &&
@@ -2773,6 +2771,10 @@ export default function App() {
       }
 
       const next = { ...current, [field]: clamped };
+      if (field === "title") {
+        next.starRating = "";
+        next.ratingCount = "";
+      }
       if (field === "authorExperience") {
         next.authorExperienceIsManual = true;
         return next;
@@ -4596,19 +4598,22 @@ export default function App() {
               </span>
             </div>
 
-            <div className="field entry-rating">
-              <span>Average rating</span>
-              <div className="field-readonly">
-                {formatDisplayedDraftValue(draft.starRating)}
+            {hasAutomatedDraftStats ? (
+              <div className="entry-automated-stats">
+                {draft.starRating.trim() ? (
+                  <span className="entry-automated-stat">
+                    <strong>{draft.starRating}</strong>
+                    <span>average rating</span>
+                  </span>
+                ) : null}
+                {draft.ratingCount.trim() ? (
+                  <span className="entry-automated-stat">
+                    <strong>{formatDisplayedDraftCount(draft.ratingCount)}</strong>
+                    <span>ratings</span>
+                  </span>
+                ) : null}
               </div>
-            </div>
-
-            <div className="field entry-count">
-              <span>Number of ratings</span>
-              <div className="field-readonly">
-                {formatDisplayedDraftCount(draft.ratingCount)}
-              </div>
-            </div>
+            ) : null}
 
             <div className="form-actions">
               <button
