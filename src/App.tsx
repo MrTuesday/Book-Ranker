@@ -1793,22 +1793,29 @@ function InterestMapView({
       return;
     }
 
-    const svg = svgRef.current;
+    const willBeOnlySelectedNode =
+      !selectedPath.includes(node.tag) && selectedPath.length === 0;
 
-    if (svg) {
-      const point = svg.createSVGPoint();
-      point.x = node.x;
-      point.y = node.y;
-      const ctm = svg.getScreenCTM();
+    if (willBeOnlySelectedNode) {
+      const svg = svgRef.current;
 
-      if (ctm) {
-        const screenPoint = point.matrixTransform(ctm);
-        setEditingNode({
-          tag: node.tag,
-          screenX: screenPoint.x,
-          screenY: screenPoint.y,
-        });
+      if (svg) {
+        const point = svg.createSVGPoint();
+        point.x = node.x;
+        point.y = node.y;
+        const ctm = svg.getScreenCTM();
+
+        if (ctm) {
+          const screenPoint = point.matrixTransform(ctm);
+          setEditingNode({
+            tag: node.tag,
+            screenX: screenPoint.x,
+            screenY: screenPoint.y,
+          });
+        }
       }
+    } else {
+      setEditingNode(null);
     }
 
     onSelectTag?.(node.tag);
@@ -2358,7 +2365,11 @@ export default function App() {
 
   useEffect(() => {
     setGraphEditingNode((current) =>
-      current && selectedInterestPath.includes(current.tag) ? current : null,
+      current &&
+      selectedInterestPath.length === 1 &&
+      selectedInterestPath.includes(current.tag)
+        ? current
+        : null,
     );
   }, [selectedInterestPath]);
 
