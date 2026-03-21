@@ -75,6 +75,20 @@ function normalizeYear(value) {
   return parsed;
 }
 
+function normalizeTimestamp(value) {
+  if (typeof value !== "string" || !value.trim()) {
+    return undefined;
+  }
+
+  const parsed = Date.parse(value);
+
+  if (!Number.isFinite(parsed)) {
+    return undefined;
+  }
+
+  return new Date(parsed).toISOString();
+}
+
 function normalizeReadCount(read, progress, readCount, lastReadYear) {
   if (lastReadYear != null) {
     return Math.max(1, readCount ?? 0);
@@ -133,6 +147,9 @@ export function normalizeBook(value) {
     lastReadYear,
   );
   const archivedAtYear = normalizeYear(book?.archivedAtYear);
+  const catalogInfoLink =
+    typeof book?.catalogInfoLink === "string" ? book.catalogInfoLink.trim() : "";
+  const statsUpdatedAt = normalizeTimestamp(book?.statsUpdatedAt);
   const authors = normalizeTagList(book?.authors ?? book?.author);
   const genres = normalizeTagList(book?.genres ?? book?.genre, normalizeGenreTag);
   const moods = normalizeTagList(book?.moods ?? book?.mood, normalizeMoodTag);
@@ -161,6 +178,8 @@ export function normalizeBook(value) {
     ...(readCount != null ? { readCount } : {}),
     ...(lastReadYear != null ? { lastReadYear } : {}),
     ...(archivedAtYear != null ? { archivedAtYear } : {}),
+    ...(catalogInfoLink ? { catalogInfoLink } : {}),
+    ...(statsUpdatedAt ? { statsUpdatedAt } : {}),
   };
 }
 
@@ -220,6 +239,9 @@ export function parseBookPayload(value) {
     lastReadYear,
   );
   const archivedAtYear = normalizeYear(value?.archivedAtYear);
+  const catalogInfoLink =
+    typeof value?.catalogInfoLink === "string" ? value.catalogInfoLink.trim() : "";
+  const statsUpdatedAt = normalizeTimestamp(value?.statsUpdatedAt);
 
   const authors = normalizeTagList(value?.authors ?? value?.author);
   const genres = normalizeTagList(value?.genres ?? value?.genre, normalizeGenreTag);
@@ -237,6 +259,8 @@ export function parseBookPayload(value) {
     ...(read != null ? { read } : {}),
     ...(readCount != null ? { readCount } : {}),
     ...(lastReadYear != null ? { lastReadYear } : {}),
+    ...(catalogInfoLink ? { catalogInfoLink } : {}),
+    ...(statsUpdatedAt ? { statsUpdatedAt } : {}),
     ...(read
       ? {
           archivedAtYear:

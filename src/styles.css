@@ -1063,6 +1063,18 @@ h3 {
     font-size: 0.8rem;
 }
 
+.field-readonly {
+    display: flex;
+    align-items: center;
+    min-height: 32px;
+    padding: 4px 10px;
+    border-radius: 8px;
+    background: var(--surface-strong);
+    box-shadow: inset 0 0 0 1px var(--line);
+    color: var(--text);
+    font-size: 0.92rem;
+}
+
 input,
 select {
     width: 100%;

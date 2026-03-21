@@ -59,6 +59,14 @@ function uniqueStrings(values) {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
+function normalizedStringSet(values) {
+  return new Set(
+    normalizeStringArray(values)
+      .map((value) => normalizeForMatch(value))
+      .filter(Boolean),
+  );
+}
+
 function getCachedText(cacheKey) {
   const cached = textCache.get(cacheKey);
 
@@ -154,6 +162,47 @@ function sortAutocompleteResults(query, results) {
       left.title.localeCompare(right.title)
     );
   });
+}
+
+function referenceMatchScore(reference, result) {
+  const referenceTitle = normalizeForMatch(reference?.title);
+  const resultTitle = normalizeForMatch(result?.title);
+  const referenceAuthors = normalizedStringSet(reference?.authors);
+  const resultAuthors = normalizedStringSet(result?.authors);
+  let score = 0;
+
+  if (referenceTitle && resultTitle) {
+    if (resultTitle === referenceTitle) {
+      score += 100;
+    } else if (
+      resultTitle.startsWith(referenceTitle) ||
+      referenceTitle.startsWith(resultTitle)
+    ) {
+      score += 70;
+    } else if (
+      resultTitle.includes(referenceTitle) ||
+      referenceTitle.includes(resultTitle)
+    ) {
+      score += 35;
+    }
+  }
+
+  if (referenceAuthors.size > 0 && resultAuthors.size > 0) {
+    let sharedAuthorCount = 0;
+
+    for (const author of referenceAuthors) {
+      if (resultAuthors.has(author)) {
+        sharedAuthorCount += 1;
+      }
+    }
+
+    if (sharedAuthorCount > 0) {
+      score += 30 + sharedAuthorCount * 10;
+    }
+  }
+
+  score += Math.min(result?.ratingsCount ?? 0, 1_000_000) / 1_000_000;
+  return score;
 }
 
 function extractScriptJson(html, id) {
@@ -500,10 +549,55 @@ export function createGoodreadsClient(options = {}) {
     return results.slice(0, limit);
   }
 
+  async function resolveBookMetadata(reference = {}) {
+    const title =
+      typeof reference?.title === "string" ? reference.title.trim() : "";
+    const authors = normalizeStringArray(reference?.authors);
+    const infoLink =
+      typeof reference?.infoLink === "string" && reference.infoLink.trim()
+        ? normalizeGoodreadsUrl(baseUrl, reference.infoLink)
+        : "";
+
+    if (infoLink) {
+      try {
+        return await fetchBookDetails(infoLink, { title, authors, infoLink });
+      } catch {
+        // Fall through to title/author lookup if the saved link no longer works.
+      }
+    }
+
+    const query = [title, authors[0]].filter(Boolean).join(" ").trim();
+
+    if (!query) {
+      return null;
+    }
+
+    const results = await searchBooks(query, { perPage: 5, enrich: false });
+
+    if (results.length === 0) {
+      return null;
+    }
+
+    const bestResult = [...results].sort((left, right) => {
+      return referenceMatchScore(reference, right) - referenceMatchScore(reference, left);
+    })[0] ?? null;
+
+    if (!bestResult?.infoLink) {
+      return bestResult;
+    }
+
+    try {
+      return await fetchBookDetails(bestResult.infoLink, bestResult);
+    } catch {
+      return bestResult;
+    }
+  }
+
   return {
     provider,
     autocompleteBooksByTitle,
     searchBooks,
     enrichBooks,
+    resolveBookMetadata,
   };
 }

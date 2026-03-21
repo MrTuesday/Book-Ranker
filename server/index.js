@@ -210,6 +210,18 @@ async function handleApi(request, response, url) {
     });
   }
 
+  if (request.method === "POST" && path === "/api/catalog/book") {
+    const body = await readJson(request);
+    const result = await goodreadsClient.resolveBookMetadata(body);
+
+    return sendJson(response, 200, {
+      averageRating: result?.averageRating,
+      ratingsCount: result?.ratingsCount,
+      infoLink: result?.infoLink,
+      fetchedAt: new Date().toISOString(),
+    });
+  }
+
   if (request.method === "POST" && path === "/api/recommendations/path") {
     const body = await readJson(request);
     return sendJson(response, 200, await fetchPathRecommendations(goodreadsClient, body));

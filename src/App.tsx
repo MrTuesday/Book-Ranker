@@ -87,8 +87,6 @@ type DraftTagDrag = {
 };
 type DraftTextField =
   | "title"
-  | "starRating"
-  | "ratingCount"
   | "authorInput"
   | "authorExperience"
   | "genreInput"
@@ -257,6 +255,7 @@ type DraftAutofillSource = Pick<
   | "authors"
   | "genres"
   | "tags"
+  | "infoLink"
   | "averageRating"
   | "ratingsCount"
 >;
@@ -267,6 +266,24 @@ function formatCatalogRating(value: number) {
 
 function formatCatalogRatingCount(value: number) {
   return String(Math.max(0, Math.round(value)));
+}
+
+function formatDisplayedDraftValue(value: string, fallback = "Unavailable") {
+  return value.trim() || fallback;
+}
+
+function formatDisplayedDraftCount(value: string) {
+  if (!value.trim()) {
+    return "Unavailable";
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed)) {
+    return value;
+  }
+
+  return Math.round(parsed).toLocaleString();
 }
 
 function buildDraftScores(tags: string[], scores: Record<string, number>) {
@@ -2071,6 +2088,12 @@ export default function App() {
   const [selectedCatalogBookId, setSelectedCatalogBookId] = useState<string | null>(
     null,
   );
+  const [selectedCatalogInfoLink, setSelectedCatalogInfoLink] = useState<string | null>(
+    null,
+  );
+  const [draftStatsUpdatedAt, setDraftStatsUpdatedAt] = useState<string | null>(
+    null,
+  );
   const [activeSuggestionField, setActiveSuggestionField] =
     useState<SuggestionField | null>(null);
   const [activeTagActionMenu, setActiveTagActionMenu] = useState<string | null>(
@@ -2573,6 +2596,8 @@ export default function App() {
     setCatalogError(null);
     setIsTitleSuggestionActive(false);
     setSelectedCatalogBookId(null);
+    setSelectedCatalogInfoLink(null);
+    setDraftStatsUpdatedAt(null);
     setSelectedRecommendationId(null);
     selectedCatalogTitleRef.current = "";
     setActiveSuggestionField(null);
@@ -2715,6 +2740,8 @@ export default function App() {
   function updateDraft(field: DraftTextField, value: string) {
     if (field === "title") {
       setSelectedCatalogBookId(null);
+      setSelectedCatalogInfoLink(null);
+      setDraftStatsUpdatedAt(null);
       setSelectedRecommendationId(null);
       setCatalogError(null);
       selectedCatalogTitleRef.current = "";
@@ -2725,21 +2752,14 @@ export default function App() {
       const num = Number(value);
 
       if (value.trim() && Number.isFinite(num)) {
-        if (field === "ratingCount" && num < 0) {
-          clamped = "0";
-        }
         if (
-          (field === "starRating" ||
-            field === "genreInterest" ||
-            field === "authorExperience") &&
+          (field === "genreInterest" || field === "authorExperience") &&
           num < 0
         ) {
           clamped = "0";
         }
         if (
-          (field === "starRating" ||
-            field === "genreInterest" ||
-            field === "authorExperience") &&
+          (field === "genreInterest" || field === "authorExperience") &&
           num > 5
         ) {
           clamped = "5";
@@ -2878,6 +2898,7 @@ export default function App() {
     options?: { resetDraft?: boolean },
   ) {
     const catalogGenres = buildCatalogGenres(result);
+    const fetchedAt = new Date().toISOString();
 
     setDraft((current) => {
       const baseDraft = options?.resetDraft ? createDraft() : current;
@@ -2917,6 +2938,8 @@ export default function App() {
     });
 
     setSelectedCatalogBookId(result.id);
+    setSelectedCatalogInfoLink(result.infoLink ?? null);
+    setDraftStatsUpdatedAt(fetchedAt);
     selectedCatalogTitleRef.current = result.title.trim();
     setTitleSuggestions([]);
     setCatalogError(null);
@@ -3215,6 +3238,8 @@ export default function App() {
     setCatalogError(null);
     setIsTitleSuggestionActive(false);
     setSelectedCatalogBookId(null);
+    setSelectedCatalogInfoLink(book.catalogInfoLink ?? null);
+    setDraftStatsUpdatedAt(book.statsUpdatedAt ?? null);
     setSelectedRecommendationId(null);
     selectedCatalogTitleRef.current = "";
     setActiveTagActionMenu(null);
@@ -3284,6 +3309,8 @@ export default function App() {
         authors: draft.authors,
         starRating: parsedDraftRating,
         ratingCount: parsedDraftCount,
+        ...(selectedCatalogInfoLink ? { catalogInfoLink: selectedCatalogInfoLink } : {}),
+        ...(draftStatsUpdatedAt ? { statsUpdatedAt: draftStatsUpdatedAt } : {}),
         genres: draft.genres,
         progress: parsedProgress,
         myRating: draft.myRating ?? undefined,
@@ -4569,34 +4596,19 @@ export default function App() {
               </span>
             </div>
 
-            <label className="field entry-rating">
+            <div className="field entry-rating">
               <span>Average rating</span>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                max="5"
-                placeholder="4.14"
-                value={draft.starRating}
-                onChange={(event) =>
-                  updateDraft("starRating", event.target.value)
-                }
-              />
-            </label>
+              <div className="field-readonly">
+                {formatDisplayedDraftValue(draft.starRating)}
+              </div>
+            </div>
 
-            <label className="field entry-count">
+            <div className="field entry-count">
               <span>Number of ratings</span>
-              <input
-                type="number"
-                step="1"
-                min="0"
-                placeholder="370000"
-                value={draft.ratingCount}
-                onChange={(event) =>
-                  updateDraft("ratingCount", event.target.value)
-                }
-              />
-            </label>
+              <div className="field-readonly">
+                {formatDisplayedDraftCount(draft.ratingCount)}
+              </div>
+            </div>
 
             <div className="form-actions">
               <button

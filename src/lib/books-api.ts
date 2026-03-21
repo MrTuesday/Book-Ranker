@@ -6,6 +6,8 @@ export type Book = {
   moods: string[];
   starRating?: number;
   ratingCount?: number;
+  catalogInfoLink?: string;
+  statsUpdatedAt?: string;
   myRating?: number;
   progress?: number;
   read?: boolean;
@@ -44,6 +46,8 @@ const STORAGE_KEY = "book-ranker.books.v1";
 const GENRE_INTEREST_KEY = "book-ranker.genre-interests.v1";
 const AUTHOR_EXP_KEY = "book-ranker.author-experiences.v1";
 const BACKEND_MIGRATION_KEY = "book-ranker.backend-migrated.v1";
+const AUTOMATED_STATS_REFRESH_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+const AUTOMATED_STATS_REFRESH_CONCURRENCY = 3;
 
 class BackendUnavailableError extends Error {
   constructor(message = "Backend is unavailable.") {
@@ -167,6 +171,20 @@ function normalizeYear(value: unknown) {
   return parsed;
 }
 
+function normalizeTimestamp(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) {
+    return undefined;
+  }
+
+  const parsed = Date.parse(value);
+
+  if (!Number.isFinite(parsed)) {
+    return undefined;
+  }
+
+  return new Date(parsed).toISOString();
+}
+
 function normalizeReadCount(
   read: boolean | undefined,
   progress: number | undefined,
@@ -235,6 +253,13 @@ function normalizeBook(value: unknown): Book | null {
   const archivedAtYear = normalizeYear(
     (book as Record<string, unknown>)?.archivedAtYear,
   );
+  const catalogInfoLink =
+    typeof (book as Record<string, unknown>)?.catalogInfoLink === "string"
+      ? String((book as Record<string, unknown>)?.catalogInfoLink).trim()
+      : "";
+  const statsUpdatedAt = normalizeTimestamp(
+    (book as Record<string, unknown>)?.statsUpdatedAt,
+  );
   const authors = normalizeTagList(book?.authors ?? book?.author);
   const genres = normalizeTagList(book?.genres ?? book?.genre, normalizeGenreTag);
   const moods = normalizeTagList(book?.moods ?? book?.mood, normalizeMoodTag);
@@ -263,6 +288,8 @@ function normalizeBook(value: unknown): Book | null {
     ...(readCount != null ? { readCount } : {}),
     ...(lastReadYear != null ? { lastReadYear } : {}),
     ...(archivedAtYear != null ? { archivedAtYear } : {}),
+    ...(catalogInfoLink ? { catalogInfoLink } : {}),
+    ...(statsUpdatedAt ? { statsUpdatedAt } : {}),
   };
 }
 
@@ -380,6 +407,13 @@ function parseBookPayload(
   const archivedAtYear = normalizeYear(
     (value as Record<string, unknown>)?.archivedAtYear,
   );
+  const catalogInfoLink =
+    typeof (value as Record<string, unknown>)?.catalogInfoLink === "string"
+      ? String((value as Record<string, unknown>)?.catalogInfoLink).trim()
+      : "";
+  const statsUpdatedAt = normalizeTimestamp(
+    (value as Record<string, unknown>)?.statsUpdatedAt,
+  );
 
   const authors = normalizeTagList(value?.authors ?? value?.author);
   const genres = normalizeTagList(value?.genres ?? value?.genre, normalizeGenreTag);
@@ -401,6 +435,8 @@ function parseBookPayload(
     ...(read != null ? { read } : {}),
     ...(readCount != null ? { readCount } : {}),
     ...(lastReadYear != null ? { lastReadYear } : {}),
+    ...(catalogInfoLink ? { catalogInfoLink } : {}),
+    ...(statsUpdatedAt ? { statsUpdatedAt } : {}),
     ...(read
       ? {
           archivedAtYear:
@@ -568,13 +604,140 @@ async function migrateLegacyStateIfNeeded(libraryState: LibraryState) {
   return migratedState;
 }
 
+type CatalogBookMetadataResponse = {
+  averageRating?: number;
+  ratingsCount?: number;
+  infoLink?: string;
+  fetchedAt?: string;
+};
+
+function isAutomatedStatsRefreshDue(book: Book) {
+  const refreshedAt = book.statsUpdatedAt ? Date.parse(book.statsUpdatedAt) : NaN;
+
+  if (!Number.isFinite(refreshedAt)) {
+    return true;
+  }
+
+  return Date.now() - refreshedAt >= AUTOMATED_STATS_REFRESH_INTERVAL_MS;
+}
+
+async function requestCatalogBookMetadata(book: Book) {
+  return requestJson<CatalogBookMetadataResponse>("/api/catalog/book", {
+    method: "POST",
+    body: JSON.stringify({
+      title: book.title,
+      authors: book.authors,
+      infoLink: book.catalogInfoLink,
+    }),
+  });
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapItem: (item: T) => Promise<R>,
+) {
+  if (items.length === 0) {
+    return [];
+  }
+
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.max(1, Math.min(concurrency, items.length));
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (true) {
+        const currentIndex = nextIndex;
+        nextIndex += 1;
+
+        if (currentIndex >= items.length) {
+          return;
+        }
+
+        results[currentIndex] = await mapItem(items[currentIndex]);
+      }
+    }),
+  );
+
+  return results;
+}
+
+function sameBookStats(left: Book, right: Book) {
+  return (
+    left.starRating === right.starRating &&
+    left.ratingCount === right.ratingCount &&
+    left.catalogInfoLink === right.catalogInfoLink &&
+    left.statsUpdatedAt === right.statsUpdatedAt
+  );
+}
+
+async function refreshLibraryAutomatedStats(
+  libraryState: LibraryState,
+  options: { persistLocal?: boolean } = {},
+) {
+  const staleBooks = libraryState.books.filter((book) => {
+    return book.title.trim().length > 0 && isAutomatedStatsRefreshDue(book);
+  });
+
+  if (staleBooks.length === 0) {
+    return libraryState;
+  }
+
+  const refreshedBooks = await mapWithConcurrency(
+    staleBooks,
+    AUTOMATED_STATS_REFRESH_CONCURRENCY,
+    async (book) => {
+      try {
+        const metadata = await requestCatalogBookMetadata(book);
+        return normalizeBook({
+          ...book,
+          starRating: metadata.averageRating ?? book.starRating,
+          ratingCount: metadata.ratingsCount ?? book.ratingCount,
+          catalogInfoLink: metadata.infoLink ?? book.catalogInfoLink,
+          statsUpdatedAt: metadata.fetchedAt ?? new Date().toISOString(),
+        }) ?? book;
+      } catch {
+        return book;
+      }
+    },
+  );
+
+  const refreshedById = new Map(
+    refreshedBooks.map((book) => [book.id, book] as const),
+  );
+  const nextBooks = libraryState.books.map((book) => refreshedById.get(book.id) ?? book);
+  const changed = nextBooks.some((book, index) => !sameBookStats(book, libraryState.books[index]));
+
+  if (!changed) {
+    return libraryState;
+  }
+
+  if (options.persistLocal && getStorage()) {
+    writeLocalBooks(nextBooks);
+  }
+
+  return {
+    ...libraryState,
+    books: nextBooks,
+    meta: {
+      ...libraryState.meta,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+}
+
 export async function fetchLibraryState() {
   try {
     const libraryState = await requestJson<LibraryState>("/api/library");
-    return migrateLegacyStateIfNeeded(libraryState);
+    return refreshLibraryAutomatedStats(
+      await migrateLegacyStateIfNeeded(libraryState),
+    );
   } catch (error) {
     if (error instanceof BackendUnavailableError) {
-      return readLocalLibraryState();
+      return refreshLibraryAutomatedStats(readLocalLibraryState(), {
+        persistLocal: true,
+      });
     }
 
     throw error;
