@@ -4269,16 +4269,6 @@ export default function App() {
                     ) : null}
                   </div>
                 </div>
-                <div className="tag-entry-row">
-                  <input
-                    type="text"
-                    placeholder="Robert Moses and the Fall of New York"
-                    value={draft.subtitle}
-                    onChange={(event) =>
-                      updateDraft("subtitle", event.target.value)
-                    }
-                  />
-                </div>
                 {isTitleSuggestionActive && isSearchingCatalog ? (
                   <p className="field-note">Searching site…</p>
                 ) : null}
@@ -4286,6 +4276,18 @@ export default function App() {
                   <p className="field-note is-error">{catalogError}</p>
                 ) : null}
               </div>
+            </label>
+
+            <label className="field entry-subtitle">
+              <span>Subtitle</span>
+              <input
+                type="text"
+                placeholder="Robert Moses and the Fall of New York"
+                value={draft.subtitle}
+                onChange={(event) =>
+                  updateDraft("subtitle", event.target.value)
+                }
+              />
             </label>
 
             <div className="field entry-author">
