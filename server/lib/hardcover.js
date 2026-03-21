@@ -59,10 +59,14 @@ function uniqueStrings(values) {
 }
 
 function normalizeSearchResult(rawResult) {
-  const result =
+  const hit =
     rawResult && typeof rawResult === "object" && !Array.isArray(rawResult)
       ? rawResult
       : null;
+  const result =
+    hit?.document && typeof hit.document === "object" && !Array.isArray(hit.document)
+      ? hit.document
+      : hit;
   const title = typeof result?.title === "string" ? result.title.trim() : "";
 
   if (!title) {
