@@ -36,10 +36,11 @@ function clampSmoothingFactor(value: number) {
 }
 
 /**
- * Use the book's niche-est genre as the Bayesian smoothing factor.
+ * Use the book's niche-est scored genre as the Bayesian smoothing factor.
  */
 export function buildTagSmoothingFactorMap(
   books: Pick<Book, "id" | "genres" | "ratingCount">[],
+  genreInterests: Record<string, number>,
   fallback = SMOOTHING_FACTOR,
 ) {
   const clampedFallback = clampSmoothingFactor(fallback);
@@ -53,6 +54,10 @@ export function buildTagSmoothingFactorMap(
     }
 
     for (const genre of new Set(book.genres)) {
+      if (genreInterests[genre] == null) {
+        continue;
+      }
+
       const current = genreStats.get(genre) ?? { totalRatings: 0, count: 0 };
       current.totalRatings += ratingCount;
       current.count += 1;
@@ -71,6 +76,7 @@ export function buildTagSmoothingFactorMap(
   return new Map(
     books.map((book) => {
       const nicheGenreAverages = Array.from(new Set(book.genres))
+        .filter((genre) => genreInterests[genre] != null)
         .map((genre) => genreAverages.get(genre))
         .filter((value): value is number => value != null && Number.isFinite(value));
       const smoothingFactor =

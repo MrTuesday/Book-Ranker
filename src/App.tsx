@@ -2394,8 +2394,8 @@ export default function App() {
   }, [selectedInterestPath]);
 
   const smoothingFactors = useMemo(
-    () => buildTagSmoothingFactorMap(books),
-    [books],
+    () => buildTagSmoothingFactorMap(books, genreInterests),
+    [books, genreInterests],
   );
 
   const signalWeights = useMemo(
