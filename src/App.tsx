@@ -424,15 +424,6 @@ function padInterestBox(
   };
 }
 
-function interestLabelBoxesOverlap(left: LabelBox, right: LabelBox) {
-  return (
-    left.left < right.right &&
-    left.right > right.left &&
-    left.top < right.bottom &&
-    left.bottom > right.top
-  );
-}
-
 function preferredInterestLabelOrientation(
   dx: number,
   dy: number,
@@ -478,6 +469,8 @@ function buildInterestBubblePlacement(
   );
   const bubbleWidth = bubbleBox.right - bubbleBox.left;
   const bubbleHeight = bubbleBox.bottom - bubbleBox.top;
+  const bubbleCenterX = (bubbleBox.left + bubbleBox.right) / 2;
+  const bubbleCenterY = (bubbleBox.top + bubbleBox.bottom) / 2;
 
   return {
     labelX,
@@ -485,6 +478,8 @@ function buildInterestBubblePlacement(
     labelAnchor,
     labelBox,
     bubbleBox,
+    bubbleCenterX,
+    bubbleCenterY,
     bubbleRadius: Math.hypot(bubbleWidth, bubbleHeight) / 2,
   };
 }
@@ -1157,12 +1152,10 @@ function InterestMapView({
           rightIndex < nodes.length;
           rightIndex += 1
         ) {
-          const leftNode = nodes[leftIndex];
-          const rightNode = nodes[rightIndex];
           const leftPlacement = placements[leftIndex];
           const rightPlacement = placements[rightIndex];
-          let dx = rightNode.x - leftNode.x;
-          let dy = rightNode.y - leftNode.y;
+          let dx = rightPlacement.bubbleCenterX - leftPlacement.bubbleCenterX;
+          let dy = rightPlacement.bubbleCenterY - leftPlacement.bubbleCenterY;
           let distance = Math.hypot(dx, dy);
 
           if (distance < 0.001) {
@@ -1174,41 +1167,16 @@ function InterestMapView({
           const directionX = dx / distance;
           const directionY = dy / distance;
           const minDistance =
-            leftPlacement.bubbleRadius + rightPlacement.bubbleRadius + 22;
-          const baseRepulsion =
-            (1000 / (distance * distance)) *
-            Math.min(1.35, minDistance / Math.max(distance, 1));
+            leftPlacement.bubbleRadius + rightPlacement.bubbleRadius + 10;
+          const baseRepulsion = 1450 / (distance * distance);
+          const overlapRepulsion =
+            distance < minDistance ? (minDistance - distance) * 0.12 : 0;
+          const push = baseRepulsion + overlapRepulsion;
 
-          forceX[leftIndex] -= directionX * baseRepulsion;
-          forceY[leftIndex] -= directionY * baseRepulsion;
-          forceX[rightIndex] += directionX * baseRepulsion;
-          forceY[rightIndex] += directionY * baseRepulsion;
-
-          if (
-            interestLabelBoxesOverlap(
-              leftPlacement.bubbleBox,
-              rightPlacement.bubbleBox,
-            )
-          ) {
-            const overlapX = Math.min(
-              leftPlacement.bubbleBox.right - rightPlacement.bubbleBox.left,
-              rightPlacement.bubbleBox.right - leftPlacement.bubbleBox.left,
-            );
-            const overlapY = Math.min(
-              leftPlacement.bubbleBox.bottom - rightPlacement.bubbleBox.top,
-              rightPlacement.bubbleBox.bottom - leftPlacement.bubbleBox.top,
-            );
-            const moveAlongX = overlapX <= overlapY;
-            const overlapForce = (moveAlongX ? overlapX : overlapY) * 0.085;
-
-            if (moveAlongX) {
-              forceX[leftIndex] -= directionX * overlapForce;
-              forceX[rightIndex] += directionX * overlapForce;
-            } else {
-              forceY[leftIndex] -= directionY * overlapForce;
-              forceY[rightIndex] += directionY * overlapForce;
-            }
-          }
+          forceX[leftIndex] -= directionX * push;
+          forceY[leftIndex] -= directionY * push;
+          forceX[rightIndex] += directionX * push;
+          forceY[rightIndex] += directionY * push;
         }
       }
 
@@ -1256,17 +1224,17 @@ function InterestMapView({
         const swaySeed = hashTag(node.tag);
         const swayX =
           Math.sin(animationTimeRef.current * 0.44 + (swaySeed & 0xff) * 0.027) *
-          0.006;
+          0.0035;
         const swayY =
           Math.cos(
             animationTimeRef.current * 0.38 + ((swaySeed >> 8) & 0xff) * 0.025,
-          ) * 0.005;
+          ) * 0.003;
 
-        forceX[index] += (node.restX - node.x) * 0.01 + swayX;
-        forceY[index] += (node.restY - node.y) * 0.01 + swayY;
+        forceX[index] += (node.restX - node.x) * 0.012 + swayX;
+        forceY[index] += (node.restY - node.y) * 0.012 + swayY;
 
-        node.vx = (node.vx + forceX[index] * dt) * 0.88;
-        node.vy = (node.vy + forceY[index] * dt) * 0.88;
+        node.vx = (node.vx + forceX[index] * dt) * 0.9;
+        node.vy = (node.vy + forceY[index] * dt) * 0.9;
         node.x += node.vx * dt;
         node.y += node.vy * dt;
       }
@@ -1420,30 +1388,13 @@ function InterestMapView({
   const selectedPathSet = new Set(selectedPath);
   const centerX = initialLayout.width / 2;
   const centerY = initialLayout.height / 2;
-  const animationTime = animationTimeRef.current;
   const renderNodes = currentNodes.map((node, index) => {
     const labelText = editMode ? `\u270E ${shortenLabel(node.tag)}` : shortenLabel(node.tag);
     const labelWidth = estimateInterestLabelWidth(labelText);
     const orientation =
       preferredInterestLabelOrientation(node.restX - centerX, node.restY - centerY);
-    const isDragged = dragRef.current?.nodeIndex === index;
-    const driftSeed = hashTag(node.tag);
-    const visualDriftX =
-      compact || isDragged
-        ? 0
-        : Math.sin(animationTime * 0.18 + (driftSeed & 0xff) * 0.029) * 4.5;
-    const visualDriftY =
-      compact || isDragged
-        ? 0
-        : Math.cos(animationTime * 0.15 + ((driftSeed >> 8) & 0xff) * 0.031) *
-          3.2;
-    const displayNode = {
-      x: node.x + visualDriftX,
-      y: node.y + visualDriftY,
-      radius: node.radius,
-    };
     const placement = buildInterestBubblePlacement(
-      displayNode,
+      node,
       orientation,
       labelWidth,
     );
@@ -1451,8 +1402,6 @@ function InterestMapView({
     return {
       ...node,
       index,
-      x: displayNode.x,
-      y: displayNode.y,
       labelText,
       labelWidth,
       orientation,
