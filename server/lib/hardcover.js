@@ -120,10 +120,20 @@ function parseResults(results) {
     return results;
   }
 
+  if (results && typeof results === "object" && !Array.isArray(results)) {
+    return Array.isArray(results.hits) ? results.hits : [];
+  }
+
   if (typeof results === "string") {
     try {
       const parsed = JSON.parse(results);
-      return Array.isArray(parsed) ? parsed : [];
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+
+      return parsed && typeof parsed === "object" && Array.isArray(parsed.hits)
+        ? parsed.hits
+        : [];
     } catch {
       return [];
     }
