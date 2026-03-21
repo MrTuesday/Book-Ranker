@@ -7,6 +7,12 @@ const SEARCH_RESULTS_PER_PAGE = 10;
 const MAX_BOOK_AUTOCOMPLETE_RESULTS = 8;
 const MAX_CONCURRENT_DETAIL_REQUESTS = 4;
 const HTML_CACHE_TTL_MS = 5 * 60 * 1000;
+const IGNORED_GOODREADS_LABELS = new Set([
+  "audiobook",
+  "audiobooks",
+  "book club",
+  "book clubs",
+]);
 
 const textCache = new Map();
 
@@ -57,6 +63,12 @@ function normalizeForMatch(value) {
 
 function uniqueStrings(values) {
   return Array.from(new Set(values.filter(Boolean)));
+}
+
+function filterGoodreadsLabels(values) {
+  return uniqueStrings(values).filter(
+    (value) => !IGNORED_GOODREADS_LABELS.has(normalizeForMatch(value)),
+  );
 }
 
 function normalizedStringSet(values) {
@@ -355,7 +367,7 @@ function parseBookPage(baseUrl, html, fallbackResult = {}) {
       ? [...contributorAuthors, ...normalizeStringArray(fallbackResult.authors)]
       : [...jsonLdAuthors, ...normalizeStringArray(fallbackResult.authors)],
   );
-  const genres = uniqueStrings(
+  const genres = filterGoodreadsLabels(
     Array.isArray(book?.bookGenres)
       ? book.bookGenres
           .map((entry) =>
