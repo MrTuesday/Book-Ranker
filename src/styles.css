@@ -722,16 +722,12 @@ h3 {
     display: grid;
     place-items: center;
     min-height: 180px;
-    padding: 16px;
-    border: 1px dashed var(--line-strong);
-    border-radius: 16px;
-    background: rgba(255, 255, 255, 0.3);
+    padding: 0;
     text-align: center;
 }
 
 .interest-map-empty.is-compact {
     min-height: 64px;
-    padding: 12px;
     font-size: 0.8rem;
 }
 
