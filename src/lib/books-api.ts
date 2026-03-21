@@ -3,6 +3,8 @@ import { applySiteRatingStats } from "./site-books";
 export type Book = {
   id: number;
   title: string;
+  series?: string;
+  seriesNumber?: number;
   authors: string[];
   genres: string[];
   moods: string[];
@@ -43,6 +45,24 @@ type LegacyBook = Partial<Book> & {
   genres?: unknown;
   moods?: unknown;
 };
+
+function normalizeSeriesName(value: unknown) {
+  return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
+}
+
+function normalizeSeriesNumber(value: unknown) {
+  if (value == null || value === "") {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return undefined;
+  }
+
+  return Number(parsed.toString());
+}
 
 const STORAGE_KEY = "book-ranker.books.v1";
 const GENRE_INTEREST_KEY = "book-ranker.genre-interests.v1";
@@ -213,6 +233,10 @@ function normalizeReadCount(
 function normalizeBook(value: unknown): Book | null {
   const book = value as LegacyBook | null;
   const title = typeof book?.title === "string" ? book.title.trim() : "";
+  const series = normalizeSeriesName((book as Record<string, unknown>)?.series);
+  const seriesNumber = normalizeSeriesNumber(
+    (book as Record<string, unknown>)?.seriesNumber,
+  );
   const rawStarRating = book?.starRating;
   const starRating =
     rawStarRating != null && Number.isFinite(Number(rawStarRating))
@@ -277,6 +301,8 @@ function normalizeBook(value: unknown): Book | null {
   return {
     id,
     title,
+    ...(series ? { series } : {}),
+    ...(seriesNumber != null ? { seriesNumber } : {}),
     authors,
     genres,
     moods,
@@ -348,6 +374,10 @@ function parseBookPayload(
     }>,
 ) {
   const title = typeof value?.title === "string" ? value.title.trim() : "";
+  const series = normalizeSeriesName((value as Record<string, unknown>)?.series);
+  const seriesNumber = normalizeSeriesNumber(
+    (value as Record<string, unknown>)?.seriesNumber,
+  );
 
   if (!title) {
     throw new Error("Title is required.");
@@ -425,6 +455,8 @@ function parseBookPayload(
 
   return {
     title,
+    ...(series ? { series } : {}),
+    ...(seriesNumber != null ? { seriesNumber } : {}),
     authors,
     genres,
     moods,

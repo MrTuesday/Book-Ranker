@@ -14,6 +14,8 @@ export type PathRecommendationRequest = {
 export type RecommendedBook = {
   id: string;
   title: string;
+  series?: string;
+  seriesNumber?: number;
   authors: string[];
   genres: string[];
   tags: string[];
@@ -157,6 +159,8 @@ export function requestPathRecommendation(
         {
           id: candidate.id,
           title: candidate.title,
+          series: candidate.series,
+          seriesNumber: candidate.seriesNumber,
           authors: candidate.authors,
           genres: candidate.genres,
           tags: candidate.tags,

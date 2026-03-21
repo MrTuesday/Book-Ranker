@@ -4,6 +4,8 @@ import { buildSiteBookAggregates, type SiteBookAggregate } from "./site-books";
 export type CatalogSearchResult = {
   id: string;
   title: string;
+  series?: string;
+  seriesNumber?: number;
   authors: string[];
   genres: string[];
   tags: string[];
@@ -36,6 +38,8 @@ function toSiteCatalogResult(book: SiteBookAggregate): SiteCatalogResult {
   return {
     id: book.id,
     title: book.title,
+    ...(book.series ? { series: book.series } : {}),
+    ...(book.seriesNumber != null ? { seriesNumber: book.seriesNumber } : {}),
     authors: [...book.authors],
     genres: [...book.genres],
     tags: [],

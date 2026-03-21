@@ -847,6 +847,14 @@ h3 {
     min-width: 0;
 }
 
+.series-number-input {
+    width: 32px;
+    min-width: 32px;
+    flex: 0 0 32px;
+    padding: 4px 0;
+    text-align: center;
+}
+
 .draft-tag-list {
     display: flex;
     flex-wrap: wrap;

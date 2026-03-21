@@ -56,6 +56,8 @@ import { BookCard } from "./components/BookCard";
 type BookDraft = {
   title: string;
   subtitle: string;
+  series: string;
+  seriesNumber: string;
   readCount: number;
   starRating: string;
   ratingCount: string;
@@ -89,6 +91,8 @@ type DraftTagDrag = {
 type DraftTextField =
   | "title"
   | "subtitle"
+  | "series"
+  | "seriesNumber"
   | "authorInput"
   | "authorExperience"
   | "genreInput"
@@ -108,6 +112,8 @@ function createDraft(): BookDraft {
   return {
     title: "",
     subtitle: "",
+    series: "",
+    seriesNumber: "",
     readCount: 0,
     starRating: "",
     ratingCount: "",
@@ -283,6 +289,8 @@ type DraftAutofillSource = Pick<
   CatalogSearchResult,
   | "id"
   | "title"
+  | "series"
+  | "seriesNumber"
   | "authors"
   | "genres"
   | "tags"
@@ -2844,6 +2852,19 @@ export default function App() {
       let clamped = value;
       const num = Number(value);
 
+      if (field === "seriesNumber") {
+        clamped = value.replace(/[^\d.]/g, "");
+        const decimalIndex = clamped.indexOf(".");
+
+        if (decimalIndex !== -1) {
+          clamped =
+            clamped.slice(0, decimalIndex + 1) +
+            clamped
+              .slice(decimalIndex + 1)
+              .replace(/\./g, "");
+        }
+      }
+
       if (value.trim() && Number.isFinite(num)) {
         if (
           (field === "genreInterest" || field === "authorExperience") &&
@@ -2869,6 +2890,9 @@ export default function App() {
       if (field === "title" || field === "subtitle") {
         next.starRating = "";
         next.ratingCount = "";
+      }
+      if (field === "series" && !clamped.trim()) {
+        next.seriesNumber = "";
       }
       if (field === "authorExperience") {
         const matchingAuthor = findMatchingDraftTag(
@@ -3052,6 +3076,11 @@ export default function App() {
         ...baseDraft,
         title: nextTitleParts.title,
         subtitle: nextTitleParts.subtitle,
+        series: result.series ?? "",
+        seriesNumber:
+          result.seriesNumber != null
+            ? String(result.seriesNumber)
+            : "",
         authors: nextAuthors,
         authorInput: "",
         authorExperience: "",
@@ -3423,6 +3452,9 @@ export default function App() {
     setDraft({
       title: nextTitleParts.title,
       subtitle: nextTitleParts.subtitle,
+      series: book.series ?? "",
+      seriesNumber:
+        book.seriesNumber != null ? String(book.seriesNumber) : "",
       readCount: book.readCount ?? 0,
       starRating: book.starRating != null ? String(book.starRating) : "",
       ratingCount: book.ratingCount != null ? String(book.ratingCount) : "",
@@ -3484,6 +3516,10 @@ export default function App() {
       const sourceCatalogBookId = selectedCatalogBookId;
       const payload = {
         title: buildDraftTitle(draft.title, draft.subtitle),
+        ...(draft.series.trim() ? { series: draft.series.trim() } : {}),
+        ...(draft.series.trim() && draft.seriesNumber.trim()
+          ? { seriesNumber: Number(draft.seriesNumber) }
+          : {}),
         authors: draft.authors,
         genres: draft.genres,
         progress: parsedProgress,
@@ -4359,6 +4395,32 @@ export default function App() {
                   updateDraft("subtitle", event.target.value)
                 }
               />
+            </label>
+
+            <label className="field entry-series">
+              <span>Series</span>
+              <div className="tag-entry-row">
+                <input
+                  type="text"
+                  placeholder="Series name"
+                  value={draft.series}
+                  onChange={(event) =>
+                    updateDraft("series", event.target.value)
+                  }
+                />
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  className="series-number-input"
+                  placeholder="#"
+                  aria-label="Series number"
+                  value={draft.seriesNumber}
+                  disabled={!draft.series.trim()}
+                  onChange={(event) =>
+                    updateDraft("seriesNumber", event.target.value)
+                  }
+                />
+              </div>
             </label>
 
             <div className="field entry-author">

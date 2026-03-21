@@ -3,6 +3,8 @@ import type { Book } from "./books-api";
 export type SiteBookAggregate = {
   id: string;
   title: string;
+  series?: string;
+  seriesNumber?: number;
   authors: string[];
   genres: string[];
   averageRating?: number;
@@ -72,6 +74,10 @@ export function buildSiteBookAggregates(books: Book[]): SiteBookAggregate[] {
       return {
         id: `site:${identityKey}`,
         title: representative.title,
+        ...(representative.series ? { series: representative.series } : {}),
+        ...(representative.seriesNumber != null
+          ? { seriesNumber: representative.seriesNumber }
+          : {}),
         authors: [...representative.authors],
         genres,
         ...ratingStats,

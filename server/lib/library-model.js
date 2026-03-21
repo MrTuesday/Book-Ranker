@@ -61,6 +61,24 @@ function normalizeTagList(value, normalizeValue = (tag) => tag.trim()) {
   return Array.from(seen);
 }
 
+function normalizeSeriesName(value) {
+  return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
+}
+
+function normalizeSeriesNumber(value) {
+  if (value == null || value === "") {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return undefined;
+  }
+
+  return Number(parsed.toString());
+}
+
 function normalizeYear(value) {
   const currentYear = new Date().getFullYear();
   const parsed =
@@ -112,6 +130,8 @@ function normalizeReadCount(read, progress, readCount, lastReadYear) {
 export function normalizeBook(value) {
   const book = value ?? null;
   const title = typeof book?.title === "string" ? book.title.trim() : "";
+  const series = normalizeSeriesName(book?.series);
+  const seriesNumber = normalizeSeriesNumber(book?.seriesNumber);
   const rawStarRating = book?.starRating;
   const starRating =
     rawStarRating != null && Number.isFinite(Number(rawStarRating))
@@ -167,6 +187,8 @@ export function normalizeBook(value) {
   return {
     id,
     title,
+    ...(series ? { series } : {}),
+    ...(seriesNumber != null ? { seriesNumber } : {}),
     authors,
     genres,
     moods,
@@ -185,6 +207,8 @@ export function normalizeBook(value) {
 
 export function parseBookPayload(value) {
   const title = typeof value?.title === "string" ? value.title.trim() : "";
+  const series = normalizeSeriesName(value?.series);
+  const seriesNumber = normalizeSeriesNumber(value?.seriesNumber);
 
   if (!title) {
     throw new Error("Title is required.");
@@ -249,6 +273,8 @@ export function parseBookPayload(value) {
 
   return {
     title,
+    ...(series ? { series } : {}),
+    ...(seriesNumber != null ? { seriesNumber } : {}),
     authors,
     genres,
     moods,
