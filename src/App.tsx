@@ -2776,11 +2776,41 @@ export default function App() {
         next.ratingCount = "";
       }
       if (field === "authorExperience") {
+        const matchingAuthor = findMatchingDraftTag(
+          "author",
+          current.authorInput,
+          current.authors,
+        );
+
+        if (matchingAuthor) {
+          next.authorScores = clamped.trim()
+            ? {
+                ...current.authorScores,
+                [matchingAuthor]: clamped,
+              }
+            : removeTagFromScores(current.authorScores, matchingAuthor);
+        }
+
         next.authorExperienceIsManual = true;
         return next;
       }
 
       if (field === "genreInterest") {
+        const matchingGenre = findMatchingDraftTag(
+          "genre",
+          current.genreInput,
+          current.genres,
+        );
+
+        if (matchingGenre) {
+          next.genreScores = clamped.trim()
+            ? {
+                ...current.genreScores,
+                [matchingGenre]: clamped,
+              }
+            : removeTagFromScores(current.genreScores, matchingGenre);
+        }
+
         next.genreInterestIsManual = true;
         return next;
       }
@@ -3014,6 +3044,34 @@ export default function App() {
     }
 
     return "";
+  }
+
+  function findMatchingDraftTag(
+    field: SuggestionField,
+    query: string,
+    selectedTags: string[],
+  ) {
+    if (field === "author") {
+      const normalizedQuery = query.trim().toLocaleLowerCase();
+
+      if (!normalizedQuery) {
+        return null;
+      }
+
+      return (
+        selectedTags.find(
+          (tag) => tag.trim().toLocaleLowerCase() === normalizedQuery,
+        ) ?? null
+      );
+    }
+
+    const normalizedQuery = normalizeGenreTag(query);
+
+    if (!normalizedQuery) {
+      return null;
+    }
+
+    return selectedTags.find((tag) => tag === normalizedQuery) ?? null;
   }
 
   function startEditingDraftTag(field: SuggestionField, tag: string) {
