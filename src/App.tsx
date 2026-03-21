@@ -2731,6 +2731,10 @@ export default function App() {
         return;
       }
 
+      if (target instanceof Element && target.closest(".ranking-row")) {
+        return;
+      }
+
       resetDraft();
     }
 
