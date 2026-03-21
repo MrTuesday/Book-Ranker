@@ -3435,18 +3435,28 @@ export default function App() {
 
       let nextInterests = genreInterests;
       for (const genre of draft.genres) {
-        const rawInterest = draft.genreScores[genre]?.trim();
+        const rawInterest = draft.genreScores[genre]?.trim() ?? "";
         if (rawInterest && Number.isFinite(Number(rawInterest))) {
           nextInterests = await writeGenreInterest(genre, Number(rawInterest));
+        } else if (
+          hasDraftTagScore(draft.genreScores, genre) &&
+          nextInterests[genre] != null
+        ) {
+          nextInterests = await deleteGenreInterest(genre);
         }
       }
       setGenreInterests(nextInterests);
 
       let nextExps = authorExperiences;
       for (const author of draft.authors) {
-        const rawExperience = draft.authorScores[author]?.trim();
+        const rawExperience = draft.authorScores[author]?.trim() ?? "";
         if (rawExperience && Number.isFinite(Number(rawExperience))) {
           nextExps = await writeAuthorExperience(author, Number(rawExperience));
+        } else if (
+          hasDraftTagScore(draft.authorScores, author) &&
+          nextExps[author] != null
+        ) {
+          nextExps = await deleteAuthorExperience(author);
         }
       }
       setAuthorExperiences(nextExps);
