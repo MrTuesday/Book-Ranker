@@ -675,11 +675,6 @@ h3 {
     font-family: "Avenir Next", "Segoe UI", sans-serif;
 }
 
-.interest-map-label.is-mood {
-    fill: rgba(23, 20, 17, 0.48);
-    font-size: 12px;
-}
-
 .interest-map-node.is-selectable {
     cursor: pointer;
 }
