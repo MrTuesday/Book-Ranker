@@ -1211,38 +1211,26 @@ select:focus {
 }
 
 .rank-badge {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 28px;
-    height: 22px;
-    padding: 0 6px;
-    border-radius: 6px;
-    border: 1px solid var(--line);
-    background: rgba(255, 255, 255, 0.72);
+    display: inline-block;
     color: var(--muted);
     font-family: "Iowan Old Style", "Palatino Linotype", serif;
     font-size: 0.75rem;
     font-weight: 600;
     letter-spacing: -0.04em;
+    line-height: 1;
     flex-shrink: 0;
-    transition:
-        background-color 200ms ease,
-        color 200ms ease;
+    transition: color 200ms ease;
 }
 
 .rank-badge.rank-gold {
-    background: linear-gradient(135deg, #fef3c7, #fde68a);
     color: #92400e;
 }
 
 .rank-badge.rank-silver {
-    background: linear-gradient(135deg, #f1f5f9, #e2e8f0);
     color: #475569;
 }
 
 .rank-badge.rank-bronze {
-    background: linear-gradient(135deg, #fed7aa, #fdba74);
     color: #9a3412;
 }
 
