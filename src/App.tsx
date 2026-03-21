@@ -14,7 +14,6 @@ import {
 import { createPortal } from "react-dom";
 import {
   createBookRecord,
-  deleteAuthorExperience,
   deleteBookRecord,
   deleteGenreInterest,
   fetchBooks,
@@ -3119,6 +3118,7 @@ export default function App() {
       const globalScores = isAuthor ? authorExperiences : genreInterests;
       const ratingValue =
         current[ratingKey].trim() ||
+        current[scoresKey][nextTag]?.trim() ||
         (globalScores[nextTag] != null ? String(globalScores[nextTag]) : "");
 
       if (current[tagsKey].includes(nextTag)) {
@@ -3191,14 +3191,12 @@ export default function App() {
         return {
           ...current,
           authors: current.authors.filter((author) => author !== tag),
-          authorScores: removeTagFromScores(current.authorScores, tag),
         };
       }
 
       return {
         ...current,
         genres: current.genres.filter((genre) => genre !== tag),
-        genreScores: removeTagFromScores(current.genreScores, tag),
       };
     });
   }
@@ -3438,41 +3436,19 @@ export default function App() {
     try {
       if (field === "author") {
         const nextBooks = await renameAuthorInBooks(tag, "");
-        const nextExps = await deleteAuthorExperience(tag);
 
         applyBooksUpdate(nextBooks);
-        setAuthorExperiences(nextExps);
         setDraft((current) => ({
           ...current,
           authors: current.authors.filter((author) => author !== tag),
-          authorScores: removeTagFromScores(current.authorScores, tag),
-          authorInput:
-            current.authorInput.trim() === tag ? "" : current.authorInput,
-          authorExperience:
-            current.authorInput.trim() === tag ? "" : current.authorExperience,
-          authorExperienceIsManual:
-            current.authorInput.trim() === tag
-              ? false
-              : current.authorExperienceIsManual,
         }));
       } else {
         const nextBooks = await renameGenreInBooks(tag, "");
-        const nextInterests = await deleteGenreInterest(tag);
 
         applyBooksUpdate(nextBooks);
-        setGenreInterests(nextInterests);
         setDraft((current) => ({
           ...current,
           genres: current.genres.filter((genre) => genre !== tag),
-          genreScores: removeTagFromScores(current.genreScores, tag),
-          genreInput:
-            current.genreInput.trim() === tag ? "" : current.genreInput,
-          genreInterest:
-            current.genreInput.trim() === tag ? "" : current.genreInterest,
-          genreInterestIsManual:
-            current.genreInput.trim() === tag
-              ? false
-              : current.genreInterestIsManual,
         }));
       }
     } catch (error) {
