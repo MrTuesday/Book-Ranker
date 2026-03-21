@@ -390,6 +390,27 @@ function buildInterestLabelBox(
   };
 }
 
+function buildInterestNodeBox(
+  node: { x: number; y: number; radius: number },
+  padding = 6,
+): LabelBox {
+  return {
+    left: node.x - node.radius - padding,
+    right: node.x + node.radius + padding,
+    top: node.y - node.radius - padding,
+    bottom: node.y + node.radius + padding,
+  };
+}
+
+function mergeInterestBoxes(...boxes: LabelBox[]) {
+  return {
+    left: Math.min(...boxes.map((box) => box.left)),
+    right: Math.max(...boxes.map((box) => box.right)),
+    top: Math.min(...boxes.map((box) => box.top)),
+    bottom: Math.max(...boxes.map((box) => box.bottom)),
+  };
+}
+
 function interestLabelBoxesOverlap(left: LabelBox, right: LabelBox) {
   return (
     left.left < right.right &&
@@ -1177,7 +1198,7 @@ function InterestMapView({
   >();
 
   if (!compact) {
-    const placedBoxes: LabelBox[] = [];
+    const placedFootprints: LabelBox[] = [];
     const orderedNodes = [...animatedNodes].sort(
       (left, right) =>
         Number(selectedPathSet.has(right.tag)) -
@@ -1208,6 +1229,7 @@ function InterestMapView({
             labelY: number;
             labelAnchor: LabelAnchor;
             box: LabelBox;
+            footprint: LabelBox;
           }
         | null = null;
 
@@ -1242,12 +1264,17 @@ function InterestMapView({
             labelAnchor,
             labelWidth,
           );
+          const footprint = mergeInterestBoxes(box, buildInterestNodeBox(node));
 
           if (!interestLabelFitsChart(box, initialLayout.width, initialLayout.height)) {
             continue;
           }
 
-          if (placedBoxes.some((placedBox) => interestLabelBoxesOverlap(box, placedBox))) {
+          if (
+            placedFootprints.some((placedFootprint) =>
+              interestLabelBoxesOverlap(footprint, placedFootprint),
+            )
+          ) {
             continue;
           }
 
@@ -1261,7 +1288,7 @@ function InterestMapView({
             continue;
           }
 
-          chosen = { labelX, labelY, labelAnchor, box };
+          chosen = { labelX, labelY, labelAnchor, box, footprint };
           break;
         }
 
@@ -1289,10 +1316,14 @@ function InterestMapView({
           "middle",
           fallbackLabelTextWidth,
         );
+        let fallbackFootprint = mergeInterestBoxes(
+          fallbackBox,
+          buildInterestNodeBox(node),
+        );
 
         while (
-          placedBoxes.some((placedBox) =>
-            interestLabelBoxesOverlap(fallbackBox, placedBox),
+          placedFootprints.some((placedFootprint) =>
+            interestLabelBoxesOverlap(fallbackFootprint, placedFootprint),
           ) &&
           fallbackY < initialLayout.height - 18
         ) {
@@ -1303,6 +1334,10 @@ function InterestMapView({
             "middle",
             fallbackLabelTextWidth,
           );
+          fallbackFootprint = mergeInterestBoxes(
+            fallbackBox,
+            buildInterestNodeBox(node),
+          );
         }
 
         chosen = {
@@ -1310,6 +1345,7 @@ function InterestMapView({
           labelY: fallbackY,
           labelAnchor: "middle",
           box: fallbackBox,
+          footprint: fallbackFootprint,
         };
       }
 
@@ -1318,7 +1354,7 @@ function InterestMapView({
         labelY: chosen.labelY,
         labelAnchor: chosen.labelAnchor,
       });
-      placedBoxes.push(chosen.box);
+      placedFootprints.push(chosen.footprint);
     }
   }
 
