@@ -3370,7 +3370,7 @@ export default function App() {
                 No books in your reading list match the selected nodes.
               </div>
             ) : (
-              visibleRankedBooks.map((book, index) => {
+              visibleRankedBooks.map((book) => {
                 const isDeleting = pendingDeleteId === book.id;
                 const isEditingBook = editingBookId === book.id;
                 const editActionDisabled =
@@ -3400,7 +3400,6 @@ export default function App() {
                     ]
                       .filter(Boolean)
                       .join(" ")}
-                    animationDelay={`${index * 60}ms`}
                     isActive={isEditingBook}
                     onToggle={() => toggleCardEditing(book)}
                     progressBar={
