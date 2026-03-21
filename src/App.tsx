@@ -190,6 +190,20 @@ function buildCatalogMoods(result: Pick<CatalogSearchResult, "moods">) {
   return uniqueTags(result.moods).slice(0, MAX_AUTOFILL_TOPICS);
 }
 
+function currentTranslateY(element: HTMLElement) {
+  const transform = window.getComputedStyle(element).transform;
+
+  if (!transform || transform === "none") {
+    return 0;
+  }
+
+  try {
+    return new DOMMatrixReadOnly(transform).m42;
+  } catch {
+    return 0;
+  }
+}
+
 type DraftAutofillSource = Pick<
   CatalogSearchResult,
   | "id"
@@ -1924,6 +1938,8 @@ export default function App() {
     const frameId = window.requestAnimationFrame(() => {
       const containerRect = container.getBoundingClientRect();
       const cardRect = card.getBoundingClientRect();
+      const translateY = currentTranslateY(card);
+      const finalCardTop = cardRect.top - translateY;
       const currentScrollTop = container.scrollTop;
       const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
       const targetScrollTop = Math.min(
@@ -1931,7 +1947,7 @@ export default function App() {
         Math.max(
           0,
           currentScrollTop +
-            (cardRect.top - containerRect.top) -
+            (finalCardTop - containerRect.top) -
             (container.clientHeight - cardRect.height) / 2,
         ),
       );
