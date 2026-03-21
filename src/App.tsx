@@ -758,6 +758,7 @@ type InterestMapProps = {
   compact?: boolean;
   selectedPath?: string[];
   onSelectTag?: (tag: string) => void;
+  onClearSelection?: () => void;
   onEditingNodeChange?: (node: { tag: string; screenX: number; screenY: number } | null) => void;
 };
 
@@ -767,6 +768,7 @@ function InterestMapView({
   compact = false,
   selectedPath = [],
   onSelectTag,
+  onClearSelection,
   onEditingNodeChange,
 }: InterestMapProps) {
   const data = useMemo(() => {
@@ -1702,8 +1704,10 @@ function InterestMapView({
     if (wasDraggedRef.current) {
       event.stopPropagation();
       wasDraggedRef.current = false;
+      return;
     }
     setEditingNode(null);
+    onClearSelection?.();
   }
 
   if (!initialLayout) {
@@ -3947,6 +3951,7 @@ export default function App() {
             interests={genreInterests}
             selectedPath={selectedInterestPath}
             onSelectTag={toggleInterestPathTag}
+            onClearSelection={() => setSelectedInterestPath([])}
             onEditingNodeChange={setGraphEditingNode}
           />
         </section>
