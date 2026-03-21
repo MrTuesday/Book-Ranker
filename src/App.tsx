@@ -1842,6 +1842,7 @@ export default function App() {
 
   useLayoutEffect(() => {
     const previousRects = pendingBookRectsRef.current;
+    const revealedBookId = pendingBookRevealId;
 
     if (!previousRects || previousRects.size === 0) {
       pendingBookRectsRef.current = null;
@@ -1862,6 +1863,11 @@ export default function App() {
 
     cards.forEach((card) => {
       const id = Number(card.dataset.bookId);
+
+      if (id === revealedBookId) {
+        return;
+      }
+
       const previousRect = previousRects.get(id);
 
       if (!previousRect) {
@@ -1911,7 +1917,7 @@ export default function App() {
       window.clearTimeout(timeoutId);
       cleanup();
     };
-  }, [books, showArchive]);
+  }, [books, pendingBookRevealId, showArchive]);
 
   useEffect(() => {
     const bookId = pendingBookRevealId;
