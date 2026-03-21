@@ -175,56 +175,6 @@ function buildCatalogTopics(result: CatalogSearchResult) {
   );
 }
 
-function normalizeSearchText(value: string) {
-  return value.trim().toLocaleLowerCase();
-}
-
-function catalogTitleMatchRank(query: string, result: CatalogSearchResult) {
-  const normalizedQuery = normalizeSearchText(query);
-  const normalizedTitle = normalizeSearchText(result.title);
-
-  if (!normalizedQuery || !normalizedTitle) {
-    return 0;
-  }
-
-  if (normalizedTitle === normalizedQuery) {
-    return 4;
-  }
-
-  if (normalizedTitle.startsWith(normalizedQuery)) {
-    return 3;
-  }
-
-  if (
-    normalizedTitle.split(/\s+/).some((word) => word.startsWith(normalizedQuery))
-  ) {
-    return 2;
-  }
-
-  if (normalizedTitle.includes(normalizedQuery)) {
-    return 1;
-  }
-
-  return 0;
-}
-
-function sortCatalogResults(query: string, results: CatalogSearchResult[]) {
-  return [...results]
-    .sort((left, right) => {
-      const rightMatchRank = catalogTitleMatchRank(query, right);
-      const leftMatchRank = catalogTitleMatchRank(query, left);
-
-      return (
-        rightMatchRank - leftMatchRank ||
-        (right.ratingsCount ?? 0) - (left.ratingsCount ?? 0) ||
-        (right.averageRating ?? 0) - (left.averageRating ?? 0) ||
-        right.authors.length - left.authors.length ||
-        left.title.localeCompare(right.title)
-      );
-    })
-    .slice(0, MAX_SUGGESTIONS);
-}
-
 function formatCatalogRating(value: number) {
   return String(Number(value.toFixed(2)));
 }
@@ -2035,7 +1985,7 @@ export default function App() {
           return;
         }
 
-        setTitleSuggestions(sortCatalogResults(query, response.results));
+        setTitleSuggestions(response.results);
       } catch (error) {
         if (cancelled || titleSearchRequestRef.current !== requestId) {
           return;

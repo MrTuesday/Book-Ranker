@@ -8,6 +8,7 @@ export type CatalogSearchResult = {
   topics: string[];
   averageRating?: number;
   ratingsCount?: number;
+  usersCount?: number;
   description?: string;
   coverUrl?: string;
 };

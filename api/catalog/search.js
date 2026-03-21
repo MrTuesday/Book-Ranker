@@ -13,8 +13,8 @@ export default async function handler(request, response) {
   const limit = Number(request.query?.limit) || 10;
 
   try {
-    const results = await hardcoverClient.searchBooks(query, {
-      perPage: Math.max(1, Math.min(20, limit)),
+    const results = await hardcoverClient.autocompleteBooksByTitle(query, {
+      limit: Math.max(1, Math.min(20, limit)),
     });
 
     response.status(200).json({

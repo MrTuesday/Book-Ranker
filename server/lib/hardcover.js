@@ -1,6 +1,7 @@
 import { HttpError } from "./http.js";
 
 const DEFAULT_HARDCOVER_URL = "https://api.hardcover.app/v1/graphql";
+const MAX_BOOK_AUTOCOMPLETE_RESULTS = 25;
 const DEFAULT_SEARCH_BOOKS_QUERY = `
   query SearchBooks(
     $query: String!
@@ -41,6 +42,40 @@ const CUSTOM_SEARCH_BOOKS_QUERY = `
   }
 `;
 
+const AUTOCOMPLETE_BOOKS_QUERY = `
+  query AutocompleteBooks(
+    $pattern: String!
+    $limit: Int!
+  ) {
+    books(
+      where: {
+        title: {
+          _ilike: $pattern
+        }
+      }
+      limit: $limit
+      order_by: [
+        { users_count: desc }
+        { ratings_count: desc }
+        { rating: desc }
+        { title: asc }
+      ]
+    ) {
+      id
+      title
+      author_names
+      genres
+      tags
+      moods
+      rating
+      ratings_count
+      users_count
+      description
+      image
+    }
+  }
+`;
+
 function normalizeStringArray(value) {
   return Array.isArray(value)
     ? value
@@ -54,8 +89,19 @@ function normalizeNumber(value) {
   return Number.isFinite(Number(value)) ? Number(value) : undefined;
 }
 
+function normalizeForMatch(value) {
+  return String(value ?? "")
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
 function uniqueStrings(values) {
   return Array.from(new Set(values.filter(Boolean)));
+}
+
+function escapeLikePattern(value) {
+  return String(value).replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
 }
 
 function normalizeSearchResult(rawResult) {
@@ -94,6 +140,7 @@ function normalizeSearchResult(rawResult) {
     topics,
     averageRating: normalizeNumber(result.rating),
     ratingsCount: normalizeNumber(result.ratings_count),
+    usersCount: normalizeNumber(result.users_count),
     description:
       typeof result?.description === "string" ? result.description.trim() : undefined,
     coverUrl,
@@ -140,6 +187,45 @@ function parseResults(results) {
   }
 
   return [];
+}
+
+function autocompleteMatchRank(query, result) {
+  const normalizedQuery = normalizeForMatch(query);
+  const normalizedTitle = normalizeForMatch(result.title);
+
+  if (!normalizedQuery || !normalizedTitle) {
+    return 0;
+  }
+
+  if (normalizedTitle === normalizedQuery) {
+    return 5;
+  }
+
+  if (normalizedTitle.startsWith(normalizedQuery)) {
+    return 4;
+  }
+
+  if (normalizedTitle.split(" ").some((word) => word.startsWith(normalizedQuery))) {
+    return 3;
+  }
+
+  if (normalizedTitle.includes(normalizedQuery)) {
+    return 2;
+  }
+
+  return 0;
+}
+
+function sortAutocompleteResults(query, results) {
+  return [...results].sort((left, right) => {
+    return (
+      autocompleteMatchRank(query, right) - autocompleteMatchRank(query, left) ||
+      (right.usersCount ?? 0) - (left.usersCount ?? 0) ||
+      (right.ratingsCount ?? 0) - (left.ratingsCount ?? 0) ||
+      (right.averageRating ?? 0) - (left.averageRating ?? 0) ||
+      left.title.localeCompare(right.title)
+    );
+  });
 }
 
 export function createHardcoverClient(options = {}) {
@@ -237,7 +323,35 @@ export function createHardcoverClient(options = {}) {
     );
   }
 
+  async function autocompleteBooksByTitle(rawQuery, options = {}) {
+    const query = String(rawQuery ?? "").trim();
+
+    if (!query) {
+      return [];
+    }
+
+    const limit = Math.max(1, Math.min(MAX_BOOK_AUTOCOMPLETE_RESULTS, Number(options.limit) || 10));
+    const fetchLimit = Math.max(limit, MAX_BOOK_AUTOCOMPLETE_RESULTS);
+    const pattern = `%${escapeLikePattern(query)}%`;
+
+    const data = await request(AUTOCOMPLETE_BOOKS_QUERY, {
+      pattern,
+      limit: fetchLimit,
+    });
+    const results = Array.isArray(data.books) ? data.books : [];
+
+    return sortAutocompleteResults(
+      query,
+      dedupeResults(
+        results
+          .map(normalizeSearchResult)
+          .filter((result) => result !== null),
+      ),
+    ).slice(0, limit);
+  }
+
   return {
+    autocompleteBooksByTitle,
     searchBooks,
   };
 }
