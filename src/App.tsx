@@ -4304,7 +4304,7 @@ export default function App() {
                     >
                       <input
                         type="text"
-                        placeholder="Kazuo Ishiguro"
+                        placeholder="Robert A. Caro"
                         value={draft.authorInput}
                         autoComplete="off"
                         aria-expanded={showAuthorSuggestions}
@@ -4491,7 +4491,7 @@ export default function App() {
                     >
                       <input
                         type="text"
-                        placeholder="Fictive Memoir"
+                        placeholder="Biography"
                         value={draft.genreInput}
                         autoComplete="off"
                         aria-expanded={showGenreSuggestions}
