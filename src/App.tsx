@@ -1361,6 +1361,12 @@ function InterestMapView({
       return;
     }
 
+    if (event.button !== 0) {
+      return;
+    }
+
+    event.preventDefault();
+
     // Don't use setPointerCapture — it retargets pointerup/click to the
     // SVG element instead of the original node <g>, which prevents the
     // React onClick handler from firing on nodes.
@@ -1426,6 +1432,8 @@ function InterestMapView({
     if (event.button !== 0) {
       return;
     }
+
+    event.preventDefault();
 
     const target = event.target as Element | null;
     if (target?.closest(".interest-map-node")) {

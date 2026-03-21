@@ -649,6 +649,14 @@ h3 {
     height: auto;
     touch-action: none;
     cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+}
+
+.interest-map-chart * {
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 .interest-map.is-compact .interest-map-plot {
