@@ -99,6 +99,9 @@ const MAX_SUGGESTIONS = 6;
 const MAX_AUTOFILL_TOPICS = 8;
 const TITLE_SUGGESTION_FETCH_LIMIT = 6;
 const MIN_YEAR_OPTION = 1900;
+const MIN_INTEREST_MAP_ZOOM = 0.75;
+const MAX_INTEREST_MAP_ZOOM = 2.5;
+const INTEREST_MAP_BUTTON_ZOOM_FACTOR = 1.2;
 
 function createDraft(): BookDraft {
   return {
@@ -193,6 +196,42 @@ function currentTranslateY(element: HTMLElement) {
   } catch {
     return 0;
   }
+}
+
+type InterestMapViewport = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+function zoomInterestMapViewport(
+  viewport: InterestMapViewport,
+  baseWidth: number,
+  baseHeight: number,
+  nextZoom: number,
+  anchor = {
+    x: viewport.x + viewport.width / 2,
+    y: viewport.y + viewport.height / 2,
+  },
+): InterestMapViewport {
+  const clampedZoom = Math.max(
+    MIN_INTEREST_MAP_ZOOM,
+    Math.min(MAX_INTEREST_MAP_ZOOM, nextZoom),
+  );
+  const nextWidth = baseWidth / clampedZoom;
+  const nextHeight = baseHeight / clampedZoom;
+  const relativeX =
+    viewport.width > 0 ? (anchor.x - viewport.x) / viewport.width : 0.5;
+  const relativeY =
+    viewport.height > 0 ? (anchor.y - viewport.y) / viewport.height : 0.5;
+
+  return {
+    x: anchor.x - relativeX * nextWidth,
+    y: anchor.y - relativeY * nextHeight,
+    width: nextWidth,
+    height: nextHeight,
+  };
 }
 
 type DraftAutofillSource = Pick<
@@ -1059,9 +1098,17 @@ function InterestMapView({
     startClientY: number;
     moved: boolean;
   } | null>(null);
+  const panRef = useRef<{
+    pointerId: number;
+    startClientX: number;
+    startClientY: number;
+    startViewport: InterestMapViewport;
+    moved: boolean;
+  } | null>(null);
   const wasDraggedRef = useRef(false);
   const animationTimeRef = useRef(0);
   const svgRef = useRef<SVGSVGElement>(null);
+  const [viewport, setViewport] = useState<InterestMapViewport | null>(null);
   const [, setTick] = useState(0);
   const setEditingNode = onEditingNodeChange ?? (() => {});
 
@@ -1080,6 +1127,20 @@ function InterestMapView({
     }
     simRef.current = initialLayout.nodes.map((n) => ({ ...n }));
     setTick((t) => t + 1);
+  }, [initialLayout]);
+
+  useEffect(() => {
+    if (!initialLayout) {
+      setViewport(null);
+      return;
+    }
+
+    setViewport({
+      x: 0,
+      y: 0,
+      width: initialLayout.width,
+      height: initialLayout.height,
+    });
   }, [initialLayout]);
 
   // Bubble physics.
@@ -1357,6 +1418,102 @@ function InterestMapView({
     document.addEventListener("pointerup", onDocUp);
   }
 
+  function handleSvgPointerDown(event: React.PointerEvent<SVGSVGElement>) {
+    if (compact || !svgRef.current || !viewport) {
+      return;
+    }
+
+    if (event.button !== 0) {
+      return;
+    }
+
+    const target = event.target as Element | null;
+    if (target?.closest(".interest-map-node")) {
+      return;
+    }
+
+    panRef.current = {
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startViewport: viewport,
+      moved: false,
+    };
+
+    function onDocMove(e: PointerEvent) {
+      const pan = panRef.current;
+      const svg = svgRef.current;
+
+      if (!pan || !svg) {
+        return;
+      }
+
+      const dx = e.clientX - pan.startClientX;
+      const dy = e.clientY - pan.startClientY;
+
+      if (!pan.moved && Math.hypot(dx, dy) < 4) {
+        return;
+      }
+
+      pan.moved = true;
+      const svgWidth = svg.clientWidth || svg.getBoundingClientRect().width;
+      const svgHeight = svg.clientHeight || svg.getBoundingClientRect().height;
+
+      if (svgWidth <= 0 || svgHeight <= 0) {
+        return;
+      }
+
+      setViewport({
+        x: pan.startViewport.x - (dx * pan.startViewport.width) / svgWidth,
+        y: pan.startViewport.y - (dy * pan.startViewport.height) / svgHeight,
+        width: pan.startViewport.width,
+        height: pan.startViewport.height,
+      });
+    }
+
+    function onDocUp() {
+      if (panRef.current) {
+        wasDraggedRef.current = panRef.current.moved;
+        panRef.current = null;
+      }
+      setTick((t) => t + 1);
+      document.removeEventListener("pointermove", onDocMove);
+      document.removeEventListener("pointerup", onDocUp);
+    }
+
+    document.addEventListener("pointermove", onDocMove);
+    document.addEventListener("pointerup", onDocUp);
+  }
+
+  function handleSvgWheel(event: React.WheelEvent<SVGSVGElement>) {
+    if (compact || !svgRef.current || !initialLayout || !viewport) {
+      return;
+    }
+
+    event.preventDefault();
+    const ctm = svgRef.current.getScreenCTM();
+
+    if (!ctm) {
+      return;
+    }
+
+    const anchor = new DOMPoint(event.clientX, event.clientY).matrixTransform(
+      ctm.inverse(),
+    );
+    const currentZoom = initialLayout.width / viewport.width;
+    const nextZoom = currentZoom * Math.exp(-event.deltaY * 0.0015);
+
+    setViewport(
+      zoomInterestMapViewport(
+        viewport,
+        initialLayout.width,
+        initialLayout.height,
+        nextZoom,
+        { x: anchor.x, y: anchor.y },
+      ),
+    );
+  }
+
   function handleSvgClick(event: React.MouseEvent) {
     if (wasDraggedRef.current) {
       event.stopPropagation();
@@ -1380,6 +1537,14 @@ function InterestMapView({
     !compact && simRef.current.length > 0
       ? simRef.current
       : initialLayout.nodes;
+  const activeViewport = viewport ?? {
+    x: 0,
+    y: 0,
+    width: initialLayout.width,
+    height: initialLayout.height,
+  };
+  const currentZoom = initialLayout.width / activeViewport.width;
+  const isInteracting = dragRef.current != null || panRef.current != null;
   const selectedPathSet = new Set(selectedPath);
   const centerX = initialLayout.width / 2;
   const centerY = initialLayout.height / 2;
@@ -1473,12 +1638,77 @@ function InterestMapView({
         </div>
       ) : null}
       <div className="interest-map-plot">
+        {!compact ? (
+          <div className="interest-map-controls">
+            <button
+              type="button"
+              className="interest-map-control-btn"
+              onClick={() =>
+                setViewport((current) =>
+                  current
+                    ? zoomInterestMapViewport(
+                        current,
+                        initialLayout.width,
+                        initialLayout.height,
+                        initialLayout.width /
+                          current.width /
+                          INTEREST_MAP_BUTTON_ZOOM_FACTOR,
+                      )
+                    : current,
+                )
+              }
+              aria-label="Zoom out graph"
+              title="Zoom out"
+            >
+              -
+            </button>
+            <button
+              type="button"
+              className="interest-map-control-btn interest-map-control-readout"
+              onClick={() =>
+                setViewport({
+                  x: 0,
+                  y: 0,
+                  width: initialLayout.width,
+                  height: initialLayout.height,
+                })
+              }
+              aria-label="Reset graph zoom and pan"
+              title="Reset view"
+            >
+              {Math.round(currentZoom * 100)}%
+            </button>
+            <button
+              type="button"
+              className="interest-map-control-btn"
+              onClick={() =>
+                setViewport((current) =>
+                  current
+                    ? zoomInterestMapViewport(
+                        current,
+                        initialLayout.width,
+                        initialLayout.height,
+                        (initialLayout.width / current.width) *
+                          INTEREST_MAP_BUTTON_ZOOM_FACTOR,
+                      )
+                    : current,
+                )
+              }
+              aria-label="Zoom in graph"
+              title="Zoom in"
+            >
+              +
+            </button>
+          </div>
+        ) : null}
         <svg
           ref={svgRef}
-          className={`interest-map-chart${dragRef.current ? " is-dragging" : ""}`}
-          preserveAspectRatio="xMidYMid slice"
-          viewBox={`0 0 ${initialLayout.width} ${initialLayout.height}`}
+          className={`interest-map-chart${isInteracting ? " is-dragging" : ""}`}
+          preserveAspectRatio="xMidYMid meet"
+          viewBox={`${activeViewport.x} ${activeViewport.y} ${activeViewport.width} ${activeViewport.height}`}
           aria-label="Interest graph showing how genre and topic tags connect across your books"
+          onPointerDown={!compact ? handleSvgPointerDown : undefined}
+          onWheel={!compact ? handleSvgWheel : undefined}
           onClick={!compact ? handleSvgClick : undefined}
         >
           {data.links.map((link) => {
@@ -1673,7 +1903,7 @@ function InterestMapView({
       {!compact ? (
         <p className="interest-map-note">
           {hasLinks
-            ? "Lines connect interests that appear together on the same book. Drag nodes to rearrange."
+            ? "Lines connect interests that appear together on the same book. Drag the background to pan, use the wheel or controls to zoom, and drag nodes to rearrange."
             : "Your current books do not connect any two interests yet."}
         </p>
       ) : null}
