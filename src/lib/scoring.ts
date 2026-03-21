@@ -1,6 +1,6 @@
 import type { Book } from "./books-api";
 
-export const GLOBAL_MEAN = 3.8;
+export const GLOBAL_MEAN = 3;
 export const SMOOTHING_FACTOR = 500;
 export const MAX_SMOOTHING_FACTOR = 1000;
 export const BAYESIAN_SIGNAL_WEIGHT = 0.5;
