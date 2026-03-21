@@ -958,133 +958,6 @@ function InterestMapView({
     setTick((t) => t + 1);
   }, [initialLayout]);
 
-  // Animation loop (non-compact only)
-  useEffect(() => {
-    if (compact || !initialLayout || simRef.current.length === 0) {
-      return;
-    }
-
-    const { width, height, padding, maxLinkCount, nodeIndex } = initialLayout;
-    const centerX = width / 2;
-    const centerY = height / 2;
-    const links = data.links;
-    let running = true;
-    let time = 0;
-
-    function step() {
-      if (!running) {
-        return;
-      }
-
-      const nodes = simRef.current;
-
-      if (nodes.length === 0) {
-        requestAnimationFrame(step);
-        return;
-      }
-
-      time += 1;
-
-      // Gentle sway — slow drift like tree branches
-      for (let i = 0; i < nodes.length; i += 1) {
-        const hash = hashTag(nodes[i].tag);
-        const px =
-          Math.sin(time * 0.003 + (hash & 0xff) * 0.04) * 0.008;
-        const py =
-          Math.cos(time * 0.004 + ((hash >> 8) & 0xff) * 0.04) * 0.006;
-        nodes[i].vx += px;
-        nodes[i].vy += py;
-
-        // Very light centering — just prevents runaway drift
-        const cp = 0.0004;
-        nodes[i].vx += (centerX - nodes[i].x) * cp;
-        nodes[i].vy += (centerY - nodes[i].y) * cp;
-      }
-
-      // Repulsion
-      for (let i = 0; i < nodes.length; i += 1) {
-        for (let j = i + 1; j < nodes.length; j += 1) {
-          let dx = nodes[j].x - nodes[i].x;
-          let dy = nodes[j].y - nodes[i].y;
-          let dist = Math.hypot(dx, dy);
-
-          if (dist < 0.001) {
-            dx = 0.01;
-            dy = 0;
-            dist = 0.01;
-          }
-
-          const minDist = nodes[i].radius + nodes[j].radius + 60;
-          const ux = dx / dist;
-          const uy = dy / dist;
-          const repulsion = 1000 / (dist * dist);
-          const overlap =
-            dist < minDist ? (minDist - dist) * 0.06 : 0;
-          const push = repulsion + overlap;
-
-          nodes[i].vx -= ux * push;
-          nodes[i].vy -= uy * push;
-          nodes[j].vx += ux * push;
-          nodes[j].vy += uy * push;
-        }
-      }
-
-      // Spring attraction
-      for (const link of links) {
-        const si = nodeIndex.get(link.source) ?? -1;
-        const ti = nodeIndex.get(link.target) ?? -1;
-
-        if (si === -1 || ti === -1) {
-          continue;
-        }
-
-        const dx = nodes[ti].x - nodes[si].x;
-        const dy = nodes[ti].y - nodes[si].y;
-        const dist = Math.max(1, Math.hypot(dx, dy));
-        const ux = dx / dist;
-        const uy = dy / dist;
-        const desired =
-          280 -
-          (link.count / maxLinkCount) * 50 -
-          (nodes[si].radius + nodes[ti].radius);
-        const spring = (dist - desired) * 0.002;
-        const pull = spring * (0.8 + link.count / maxLinkCount);
-
-        nodes[si].vx += ux * pull;
-        nodes[si].vy += uy * pull;
-        nodes[ti].vx -= ux * pull;
-        nodes[ti].vy -= uy * pull;
-      }
-
-      // Update positions — damping for smooth motion
-      for (let i = 0; i < nodes.length; i += 1) {
-        if (dragRef.current?.nodeIndex === i) {
-          nodes[i].vx = 0;
-          nodes[i].vy = 0;
-          continue;
-        }
-
-        nodes[i].vx *= 0.92;
-        nodes[i].vy *= 0.92;
-        nodes[i].x += nodes[i].vx;
-        nodes[i].y += nodes[i].vy;
-        const xPad = padding + nodes[i].radius + 80; // extra for labels
-        const yPad = padding + nodes[i].radius + 40; // extra for slice crop
-        nodes[i].x = Math.max(xPad, Math.min(width - xPad, nodes[i].x));
-        nodes[i].y = Math.max(yPad, Math.min(height - yPad, nodes[i].y));
-      }
-
-      setTick((t) => t + 1);
-      requestAnimationFrame(step);
-    }
-
-    const frameId = requestAnimationFrame(step);
-    return () => {
-      running = false;
-      cancelAnimationFrame(frameId);
-    };
-  }, [compact, initialLayout, data]);
-
   // Drag handlers
   function handleNodePointerDown(
     event: React.PointerEvent<SVGGElement>,
@@ -1129,6 +1002,7 @@ function InterestMapView({
         node.y = pt.y;
         node.vx = 0;
         node.vy = 0;
+        setTick((t) => t + 1);
       }
     }
 
@@ -1137,6 +1011,7 @@ function InterestMapView({
         wasDraggedRef.current = dragRef.current.moved;
         dragRef.current = null;
       }
+      setTick((t) => t + 1);
       document.removeEventListener("pointermove", onDocMove);
       document.removeEventListener("pointerup", onDocUp);
     }
