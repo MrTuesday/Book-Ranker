@@ -42,39 +42,9 @@ const CUSTOM_SEARCH_BOOKS_QUERY = `
   }
 `;
 
-const AUTOCOMPLETE_BOOKS_QUERY = `
-  query AutocompleteBooks(
-    $pattern: String!
-    $limit: Int!
-  ) {
-    books(
-      where: {
-        title: {
-          _ilike: $pattern
-        }
-      }
-      limit: $limit
-      order_by: [
-        { users_count: desc }
-        { ratings_count: desc }
-        { rating: desc }
-        { title: asc }
-      ]
-    ) {
-      id
-      title
-      author_names
-      genres
-      tags
-      moods
-      rating
-      ratings_count
-      users_count
-      description
-      image
-    }
-  }
-`;
+const AUTOCOMPLETE_SEARCH_FIELDS = "title,alternative_titles,author_names";
+const AUTOCOMPLETE_SEARCH_WEIGHTS = "8,2,1";
+const AUTOCOMPLETE_SEARCH_SORT = "_text_match:desc,users_count:desc";
 
 function normalizeStringArray(value) {
   return Array.isArray(value)
@@ -98,10 +68,6 @@ function normalizeForMatch(value) {
 
 function uniqueStrings(values) {
   return Array.from(new Set(values.filter(Boolean)));
-}
-
-function escapeLikePattern(value) {
-  return String(value).replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
 }
 
 function normalizeSearchResult(rawResult) {
@@ -257,12 +223,28 @@ export function createHardcoverClient(options = {}) {
       }),
     });
 
-    if (response.status === 401 || response.status === 403) {
+    if (response.status === 401) {
       throw new HttpError(response.status, "Hardcover token is invalid or expired.");
     }
 
     if (response.status === 429) {
       throw new HttpError(429, "Hardcover rate limit reached. Try again shortly.");
+    }
+
+    if (response.status === 403) {
+      let message = "Hardcover request was rejected by the API.";
+
+      try {
+        const errorPayload = await response.json();
+
+        if (typeof errorPayload?.error === "string" && errorPayload.error.trim()) {
+          message = errorPayload.error.trim();
+        }
+      } catch {
+        // ignore parse failures and keep the fallback message
+      }
+
+      throw new HttpError(502, message);
     }
 
     if (!response.ok) {
@@ -332,22 +314,14 @@ export function createHardcoverClient(options = {}) {
 
     const limit = Math.max(1, Math.min(MAX_BOOK_AUTOCOMPLETE_RESULTS, Number(options.limit) || 10));
     const fetchLimit = Math.max(limit, MAX_BOOK_AUTOCOMPLETE_RESULTS);
-    const pattern = `%${escapeLikePattern(query)}%`;
-
-    const data = await request(AUTOCOMPLETE_BOOKS_QUERY, {
-      pattern,
-      limit: fetchLimit,
+    const results = await searchBooks(query, {
+      perPage: fetchLimit,
+      fields: AUTOCOMPLETE_SEARCH_FIELDS,
+      weights: AUTOCOMPLETE_SEARCH_WEIGHTS,
+      sort: AUTOCOMPLETE_SEARCH_SORT,
     });
-    const results = Array.isArray(data.books) ? data.books : [];
 
-    return sortAutocompleteResults(
-      query,
-      dedupeResults(
-        results
-          .map(normalizeSearchResult)
-          .filter((result) => result !== null),
-      ),
-    ).slice(0, limit);
+    return sortAutocompleteResults(query, results).slice(0, limit);
   }
 
   return {
