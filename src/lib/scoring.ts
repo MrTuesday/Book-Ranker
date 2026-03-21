@@ -1,8 +1,8 @@
 import type { Book } from "./books-api";
 
 export const GLOBAL_MEAN = 3.8;
-export const MIN_SMOOTHING_FACTOR = 50;
-export const MAX_SMOOTHING_FACTOR = 500;
+export const MIN_SMOOTHING_FACTOR = 100;
+export const MAX_SMOOTHING_FACTOR = 1000;
 export const SMOOTHING_FACTOR = MIN_SMOOTHING_FACTOR;
 export const BAYESIAN_SIGNAL_WEIGHT = 1 / 3;
 export const AUTHOR_SIGNAL_WEIGHT = 1 / 3;
