@@ -9,6 +9,7 @@ import {
   deleteAuthorExperience,
   deleteBookRecord,
   deleteGenreInterest,
+  deleteSeriesExperience,
   getLibraryState,
   importLibraryState,
   renameAuthorExperience,
@@ -18,6 +19,7 @@ import {
   updateBookRecord,
   writeAuthorExperience,
   writeGenreInterest,
+  writeSeriesExperience,
 } from "./lib/library-service.js";
 import { createSeedState } from "./lib/seed-state.js";
 import { JsonStateStore } from "./lib/state-store.js";
@@ -191,6 +193,24 @@ async function handleApi(request, response, url) {
       200,
       await renameAuthorExperience(stateStore, body?.oldAuthor, body?.newAuthor),
     );
+  }
+
+  const seriesMatch = path.match(/^\/api\/series-experiences\/(.+)$/);
+  if (seriesMatch) {
+    const series = decodePathSegment(seriesMatch[1]);
+
+    if (request.method === "PUT") {
+      const body = await readJson(request);
+      return sendJson(
+        response,
+        200,
+        await writeSeriesExperience(stateStore, series, body?.experience),
+      );
+    }
+
+    if (request.method === "DELETE") {
+      return sendJson(response, 200, await deleteSeriesExperience(stateStore, series));
+    }
   }
 
   notFound();

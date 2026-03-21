@@ -14,6 +14,7 @@ export function cloneState(state) {
     books: cloneBooks(state.books),
     genreInterests: { ...state.genreInterests },
     authorExperiences: { ...state.authorExperiences },
+    seriesExperiences: { ...(state.seriesExperiences ?? {}) },
     meta: { ...state.meta },
   };
 }
@@ -335,6 +336,7 @@ export function normalizeLibraryState(value) {
     books: hasBookList ? books : seedState.books,
     genreInterests: normalizeScoreMap(value.genreInterests, normalizeGenreTag),
     authorExperiences: normalizeScoreMap(value.authorExperiences),
+    seriesExperiences: normalizeScoreMap(value.seriesExperiences),
     meta: {
       seeded: value.meta?.seeded === true,
       migratedLocalState: value.meta?.migratedLocalState === true,
@@ -364,6 +366,7 @@ export function normalizeImportedState(value) {
     books,
     genreInterests: normalizeScoreMap(value.genreInterests, normalizeGenreTag),
     authorExperiences: normalizeScoreMap(value.authorExperiences),
+    seriesExperiences: normalizeScoreMap(value.seriesExperiences),
   };
 }
 

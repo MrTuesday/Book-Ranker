@@ -22,6 +22,7 @@ export async function importLibraryState(store, payload) {
     })),
     genreInterests: { ...imported.genreInterests },
     authorExperiences: { ...imported.authorExperiences },
+    seriesExperiences: { ...(imported.seriesExperiences ?? {}) },
     meta: {
       seeded: false,
       migratedLocalState: true,
@@ -209,6 +210,46 @@ export async function deleteAuthorExperience(store, author) {
     }),
   );
   return writtenState.authorExperiences;
+}
+
+export async function writeSeriesExperience(store, series, experience) {
+  const nextSeries = String(series ?? "").trim();
+  const nextExperience = Number(experience);
+
+  if (!nextSeries) {
+    throw new Error("Series is required.");
+  }
+
+  if (!Number.isFinite(nextExperience)) {
+    throw new Error("Series experience must be a number.");
+  }
+
+  const state = await store.read();
+  const writtenState = await store.write(
+    markStateUpdated({
+      ...state,
+      seriesExperiences: {
+        ...(state.seriesExperiences ?? {}),
+        [nextSeries]: Math.max(0, Math.min(5, nextExperience)),
+      },
+    }),
+  );
+  return writtenState.seriesExperiences;
+}
+
+export async function deleteSeriesExperience(store, series) {
+  const nextSeries = String(series ?? "").trim();
+  const state = await store.read();
+  const nextMap = { ...(state.seriesExperiences ?? {}) };
+  delete nextMap[nextSeries];
+
+  const writtenState = await store.write(
+    markStateUpdated({
+      ...state,
+      seriesExperiences: nextMap,
+    }),
+  );
+  return writtenState.seriesExperiences;
 }
 
 export async function renameAuthorExperience(store, oldAuthor, newAuthor) {

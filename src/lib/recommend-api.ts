@@ -1,4 +1,9 @@
-import type { AuthorExperienceMap, Book, GenreInterestMap } from "./books-api";
+import type {
+  AuthorExperienceMap,
+  Book,
+  GenreInterestMap,
+  SeriesExperienceMap,
+} from "./books-api";
 import { GLOBAL_MEAN, bayesianScore } from "./scoring";
 import { buildSiteCatalogResults } from "./catalog-api";
 
@@ -8,6 +13,7 @@ export type PathRecommendationRequest = {
     books: Book[];
     genreInterests: GenreInterestMap;
     authorExperiences: AuthorExperienceMap;
+    seriesExperiences: SeriesExperienceMap;
   };
 };
 
@@ -72,6 +78,7 @@ function scoreCandidate(
   selectedTags: string[],
   genreInterests: GenreInterestMap,
   authorExperiences: AuthorExperienceMap,
+  seriesExperiences: SeriesExperienceMap,
 ) {
   const candidateLabels = uniqueStrings([...candidate.topics, ...candidate.genres]);
   const matchedSelectedTags = selectedTags.filter((tag) =>
@@ -102,6 +109,10 @@ function scoreCandidate(
         ] ?? 3,
     ),
   );
+  const seriesScore =
+    candidate.series && seriesExperiences[candidate.series] != null
+      ? seriesExperiences[candidate.series]
+      : 3;
   const genreMatches = matchedProfileGenres.map((tag) => genreInterests[tag] ?? 3);
   const pathCoverage =
     selectedTags.length > 0
@@ -114,6 +125,7 @@ function scoreCandidate(
   const score = average([
     bayesian,
     authorScore,
+    seriesScore,
     pathCoverage,
     pathInterest,
     ...(genreMatches.length > 0 ? genreMatches : [3]),
@@ -145,6 +157,10 @@ export function requestPathRecommendation(
     profile?.authorExperiences && typeof profile.authorExperiences === "object"
       ? profile.authorExperiences
       : {};
+  const seriesExperiences =
+    profile?.seriesExperiences && typeof profile.seriesExperiences === "object"
+      ? profile.seriesExperiences
+      : {};
 
   if (selectedTags.length < 1) {
     throw new Error(
@@ -171,6 +187,7 @@ export function requestPathRecommendation(
         selectedTags,
         genreInterests,
         authorExperiences,
+        seriesExperiences,
       ),
     )
     .filter((candidate) => candidate.tagOverlap > 0)

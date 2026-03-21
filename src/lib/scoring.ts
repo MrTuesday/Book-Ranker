@@ -3,9 +3,10 @@ import type { Book } from "./books-api";
 export const GLOBAL_MEAN = 3.8;
 export const MAX_SMOOTHING_FACTOR = 1000;
 export const SMOOTHING_FACTOR = 0;
-export const BAYESIAN_SIGNAL_WEIGHT = 1 / 3;
-export const AUTHOR_SIGNAL_WEIGHT = 1 / 3;
-export const GENRE_SIGNAL_WEIGHT = 1 / 3;
+export const BAYESIAN_SIGNAL_WEIGHT = 1 / 4;
+export const AUTHOR_SIGNAL_WEIGHT = 1 / 4;
+export const GENRE_SIGNAL_WEIGHT = 1 / 4;
+export const SERIES_SIGNAL_WEIGHT = 1 / 4;
 export const REREAD_DECAY = 0.65;
 export const ARCHIVE_SCORE_FLOOR = 0.2;
 export const ARCHIVE_COOLDOWN_YEARS = 10;
@@ -94,12 +95,14 @@ export type SignalWeights = {
   bayesian: number;
   author: number;
   genre: number;
+  series: number;
 };
 
 export type PredictiveWeightSample = {
   bayesian: number;
   author: number | null;
   genre: number | null;
+  series: number | null;
   target: number;
 };
 
@@ -107,6 +110,7 @@ const DEFAULT_SIGNAL_WEIGHTS: SignalWeights = {
   bayesian: BAYESIAN_SIGNAL_WEIGHT,
   author: AUTHOR_SIGNAL_WEIGHT,
   genre: GENRE_SIGNAL_WEIGHT,
+  series: SERIES_SIGNAL_WEIGHT,
 };
 
 const MIN_ADAPTIVE_WEIGHT_SAMPLES = 3;
@@ -123,6 +127,7 @@ function blendSignalWeights(
       defaults.bayesian + (learned.bayesian - defaults.bayesian) * blend,
     author: defaults.author + (learned.author - defaults.author) * blend,
     genre: defaults.genre + (learned.genre - defaults.genre) * blend,
+    series: defaults.series + (learned.series - defaults.series) * blend,
   };
 }
 
@@ -130,7 +135,8 @@ function weightDistance(left: SignalWeights, right: SignalWeights) {
   return (
     (left.bayesian - right.bayesian) ** 2 +
     (left.author - right.author) ** 2 +
-    (left.genre - right.genre) ** 2
+    (left.genre - right.genre) ** 2 +
+    (left.series - right.series) ** 2
   );
 }
 
@@ -156,34 +162,42 @@ export function learnSignalWeights(
       authorStep += 1
     ) {
       const author = authorStep * WEIGHT_SEARCH_STEP;
-      const genre = 1 - bayesian - author;
-
-      if (genre < 0) {
-        continue;
-      }
-
-      const candidate = { bayesian, author, genre };
-      const loss =
-        samples.reduce((total, sample) => {
-          const prediction = predictiveScore(
-            sample.bayesian,
-            sample.author,
-            sample.genre,
-            candidate,
-          );
-          const error = prediction - sample.target;
-
-          return total + error ** 2;
-        }, 0) / samples.length;
-      const distance = weightDistance(candidate, defaults);
-
-      if (
-        loss < bestLoss ||
-        (Math.abs(loss - bestLoss) < 1e-9 && distance < bestDistance)
+      for (
+        let genreStep = 0;
+        genreStep <= steps - bayesianStep - authorStep;
+        genreStep += 1
       ) {
-        bestWeights = candidate;
-        bestLoss = loss;
-        bestDistance = distance;
+        const genre = genreStep * WEIGHT_SEARCH_STEP;
+        const series = 1 - bayesian - author - genre;
+
+        if (series < 0) {
+          continue;
+        }
+
+        const candidate = { bayesian, author, genre, series };
+        const loss =
+          samples.reduce((total, sample) => {
+            const prediction = predictiveScore(
+              sample.bayesian,
+              sample.author,
+              sample.genre,
+              sample.series,
+              candidate,
+            );
+            const error = prediction - sample.target;
+
+            return total + error ** 2;
+          }, 0) / samples.length;
+        const distance = weightDistance(candidate, defaults);
+
+        if (
+          loss < bestLoss ||
+          (Math.abs(loss - bestLoss) < 1e-9 && distance < bestDistance)
+        ) {
+          bestWeights = candidate;
+          bestLoss = loss;
+          bestDistance = distance;
+        }
       }
     }
   }
@@ -197,6 +211,7 @@ export function predictiveScore(
   bayesian: number,
   authorPref: number | null,
   genrePref: number | null,
+  seriesPref: number | null,
   weights = DEFAULT_SIGNAL_WEIGHTS,
 ) {
   let weightedTotal = bayesian * weights.bayesian;
@@ -210,6 +225,11 @@ export function predictiveScore(
   if (genrePref != null) {
     weightedTotal += genrePref * weights.genre;
     totalWeight += weights.genre;
+  }
+
+  if (seriesPref != null) {
+    weightedTotal += seriesPref * weights.series;
+    totalWeight += weights.series;
   }
 
   if (totalWeight <= 0) {
@@ -383,6 +403,7 @@ export function scoreBook(
   bayesian: number,
   authorPref: number | null,
   genrePref: number | null,
+  seriesPref: number | null,
   myRating?: number,
   progress?: number,
   readCount = 0,
@@ -392,6 +413,7 @@ export function scoreBook(
     bayesian,
     authorPref,
     genrePref,
+    seriesPref,
     signalWeights,
   );
 

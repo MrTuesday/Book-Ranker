@@ -152,6 +152,7 @@ export function createSeedState() {
     books: cloneBooks(seededBooks),
     genreInterests: {},
     authorExperiences: {},
+    seriesExperiences: {},
     meta: {
       seeded: true,
       migratedLocalState: false,

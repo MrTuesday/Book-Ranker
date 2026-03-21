@@ -25,11 +25,13 @@ export type BookPayload = Omit<Book, "id" | "moods"> & {
 };
 export type GenreInterestMap = Record<string, number>;
 export type AuthorExperienceMap = Record<string, number>;
+export type SeriesExperienceMap = Record<string, number>;
 
 export type LibraryState = {
   books: Book[];
   genreInterests: GenreInterestMap;
   authorExperiences: AuthorExperienceMap;
+  seriesExperiences: SeriesExperienceMap;
   meta: {
     seeded: boolean;
     migratedLocalState: boolean;
@@ -67,6 +69,7 @@ function normalizeSeriesNumber(value: unknown) {
 const STORAGE_KEY = "book-ranker.books.v1";
 const GENRE_INTEREST_KEY = "book-ranker.genre-interests.v1";
 const AUTHOR_EXP_KEY = "book-ranker.author-experiences.v1";
+const SERIES_EXP_KEY = "book-ranker.series-experiences.v1";
 const BACKEND_MIGRATION_KEY = "book-ranker.backend-migrated.v1";
 
 class BackendUnavailableError extends Error {
@@ -360,6 +363,7 @@ function localLibraryState(
     books: cloneBooks(overrides.books ?? []),
     genreInterests: { ...(overrides.genreInterests ?? {}) },
     authorExperiences: { ...(overrides.authorExperiences ?? {}) },
+    seriesExperiences: { ...(overrides.seriesExperiences ?? {}) },
     meta: {
       seeded: false,
       migratedLocalState: false,
@@ -517,6 +521,7 @@ function readLegacyState(): Omit<LibraryState, "meta"> | null {
     const rawBooks = storage.getItem(STORAGE_KEY);
     const rawGenreInterests = storage.getItem(GENRE_INTEREST_KEY);
     const rawAuthorExperiences = storage.getItem(AUTHOR_EXP_KEY);
+    const rawSeriesExperiences = storage.getItem(SERIES_EXP_KEY);
 
     const parsedBooks = rawBooks ? (JSON.parse(rawBooks) as unknown) : [];
     const books = Array.isArray(parsedBooks)
@@ -530,11 +535,15 @@ function readLegacyState(): Omit<LibraryState, "meta"> | null {
     const authorExperiences = rawAuthorExperiences
       ? normalizeScoreMap(JSON.parse(rawAuthorExperiences))
       : {};
+    const seriesExperiences = rawSeriesExperiences
+      ? normalizeScoreMap(JSON.parse(rawSeriesExperiences))
+      : {};
 
     if (
       books.length === 0 &&
       Object.keys(genreInterests).length === 0 &&
-      Object.keys(authorExperiences).length === 0
+      Object.keys(authorExperiences).length === 0 &&
+      Object.keys(seriesExperiences).length === 0
     ) {
       return null;
     }
@@ -543,6 +552,7 @@ function readLegacyState(): Omit<LibraryState, "meta"> | null {
       books,
       genreInterests,
       authorExperiences,
+      seriesExperiences,
     };
   } catch {
     return null;
@@ -555,14 +565,19 @@ function stableMapEntries(value: Record<string, number>) {
 
 function sameLibraryData(
   left: Omit<LibraryState, "meta">,
-  right: Pick<LibraryState, "books" | "genreInterests" | "authorExperiences">,
+  right: Pick<
+    LibraryState,
+    "books" | "genreInterests" | "authorExperiences" | "seriesExperiences"
+  >,
 ) {
   return (
     JSON.stringify(left.books) === JSON.stringify(right.books) &&
     JSON.stringify(stableMapEntries(left.genreInterests)) ===
       JSON.stringify(stableMapEntries(right.genreInterests)) &&
     JSON.stringify(stableMapEntries(left.authorExperiences)) ===
-      JSON.stringify(stableMapEntries(right.authorExperiences))
+      JSON.stringify(stableMapEntries(right.authorExperiences)) &&
+    JSON.stringify(stableMapEntries(left.seriesExperiences)) ===
+      JSON.stringify(stableMapEntries(right.seriesExperiences))
   );
 }
 
@@ -599,6 +614,10 @@ function readLocalGenreInterests() {
 
 function readLocalAuthorExperiences() {
   return readLocalLibraryState().authorExperiences;
+}
+
+function readLocalSeriesExperiences() {
+  return readLocalLibraryState().seriesExperiences;
 }
 
 async function migrateLegacyStateIfNeeded(libraryState: LibraryState) {
@@ -891,6 +910,11 @@ export async function readAuthorExperiences() {
   return libraryState.authorExperiences;
 }
 
+export async function readSeriesExperiences() {
+  const libraryState = await fetchLibraryState();
+  return libraryState.seriesExperiences;
+}
+
 export async function writeAuthorExperience(author: string, experience: number) {
   try {
     return await requestJson<AuthorExperienceMap>(
@@ -933,6 +957,53 @@ export async function deleteAuthorExperience(author: string) {
     const map = readLocalAuthorExperiences();
     delete map[author.trim()];
     return writeLocalMap(AUTHOR_EXP_KEY, map);
+  }
+}
+
+export async function writeSeriesExperience(series: string, experience: number) {
+  const nextSeries = normalizeSeriesName(series);
+
+  try {
+    return await requestJson<SeriesExperienceMap>(
+      `/api/series-experiences/${encodeURIComponent(nextSeries)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ experience }),
+      },
+    );
+  } catch (error) {
+    if (!(error instanceof BackendUnavailableError)) {
+      throw error;
+    }
+
+    if (!nextSeries) {
+      throw new Error("Series is required.");
+    }
+
+    const map = readLocalSeriesExperiences();
+    map[nextSeries] = Math.max(0, Math.min(5, Number(experience)));
+    return writeLocalMap(SERIES_EXP_KEY, map);
+  }
+}
+
+export async function deleteSeriesExperience(series: string) {
+  const nextSeries = normalizeSeriesName(series);
+
+  try {
+    return await requestJson<SeriesExperienceMap>(
+      `/api/series-experiences/${encodeURIComponent(nextSeries)}`,
+      {
+        method: "DELETE",
+      },
+    );
+  } catch (error) {
+    if (!(error instanceof BackendUnavailableError)) {
+      throw error;
+    }
+
+    const map = readLocalSeriesExperiences();
+    delete map[nextSeries];
+    return writeLocalMap(SERIES_EXP_KEY, map);
   }
 }
 

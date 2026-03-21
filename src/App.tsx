@@ -17,15 +17,18 @@ import {
   deleteAuthorExperience,
   deleteBookRecord,
   deleteGenreInterest,
+  deleteSeriesExperience,
   fetchBooks,
   fetchLibraryState,
   type Book,
   type GenreInterestMap,
   type AuthorExperienceMap,
+  type SeriesExperienceMap,
   normalizeGenreTag,
   updateBookRecord,
   writeGenreInterest,
   writeAuthorExperience,
+  writeSeriesExperience,
   renameGenreInBooks,
   renameGenreInterest,
   renameAuthorInBooks,
@@ -58,6 +61,8 @@ type BookDraft = {
   subtitle: string;
   series: string;
   seriesNumber: string;
+  seriesExperience: string;
+  seriesExperienceIsManual: boolean;
   readCount: number;
   starRating: string;
   ratingCount: string;
@@ -93,6 +98,7 @@ type DraftTextField =
   | "subtitle"
   | "series"
   | "seriesNumber"
+  | "seriesExperience"
   | "authorInput"
   | "authorExperience"
   | "genreInput"
@@ -114,6 +120,8 @@ function createDraft(): BookDraft {
     subtitle: "",
     series: "",
     seriesNumber: "",
+    seriesExperience: "",
+    seriesExperienceIsManual: false,
     readCount: 0,
     starRating: "",
     ratingCount: "",
@@ -2186,6 +2194,8 @@ export default function App() {
   const [genreInterests, setGenreInterests] = useState<GenreInterestMap>({});
   const [authorExperiences, setAuthorExperiences] =
     useState<AuthorExperienceMap>({});
+  const [seriesExperiences, setSeriesExperiences] =
+    useState<SeriesExperienceMap>({});
   const [recommendations, setRecommendations] =
     useState<PathRecommendationResponse | null>(null);
   const [isLoadingRecs, setIsLoadingRecs] = useState(false);
@@ -2419,6 +2429,7 @@ export default function App() {
           setBooks(savedLibrary.books);
           setGenreInterests(savedLibrary.genreInterests);
           setAuthorExperiences(savedLibrary.authorExperiences);
+          setSeriesExperiences(savedLibrary.seriesExperiences ?? {});
         }
       } catch (error) {
         if (isActive) {
@@ -2501,6 +2512,10 @@ export default function App() {
           const genrePref = averageTagPreference(displayBook.genres, genreInterests, {
             excludeMissing: true,
           });
+          const seriesPref = averageTagPreference(
+            displayBook.series ? [displayBook.series] : [],
+            seriesExperiences,
+          );
           const R = book.starRating ?? GLOBAL_MEAN;
           const v = book.ratingCount ?? 0;
           const bScore = bayesianScore(
@@ -2515,12 +2530,20 @@ export default function App() {
               bayesian: bScore,
               author: authorPref,
               genre: genrePref,
+              series: seriesPref,
               target: displayBook.myRating,
             },
           ];
         }),
       ),
-    [books, predictiveBooksById, authorExperiences, genreInterests, smoothingFactors],
+    [
+      books,
+      predictiveBooksById,
+      authorExperiences,
+      genreInterests,
+      seriesExperiences,
+      smoothingFactors,
+    ],
   );
 
   const rankedBooks = useMemo<RankedBook[]>(() => {
@@ -2532,6 +2555,10 @@ export default function App() {
         const genrePref = averageTagPreference(book.genres, genreInterests, {
           excludeMissing: true,
         });
+        const seriesPref = averageTagPreference(
+          book.series ? [book.series] : [],
+          seriesExperiences,
+        );
         const R = predictiveBook.starRating ?? GLOBAL_MEAN;
         const v = predictiveBook.ratingCount ?? 0;
         const bScore = bayesianScore(
@@ -2548,6 +2575,7 @@ export default function App() {
             bScore,
             authorPref,
             genrePref,
+            seriesPref,
             book.myRating,
             book.progress,
             book.readCount ?? 0,
@@ -2569,7 +2597,15 @@ export default function App() {
         ...book,
         rank: index + 1,
       }));
-  }, [books, predictiveBooksById, genreInterests, authorExperiences, smoothingFactors, signalWeights]);
+  }, [
+    books,
+    predictiveBooksById,
+    genreInterests,
+    authorExperiences,
+    seriesExperiences,
+    smoothingFactors,
+    signalWeights,
+  ]);
 
   const readBooks = useMemo<RankedBook[]>(() => {
     return books
@@ -2580,6 +2616,10 @@ export default function App() {
         const genrePref = averageTagPreference(book.genres, genreInterests, {
           excludeMissing: true,
         });
+        const seriesPref = averageTagPreference(
+          book.series ? [book.series] : [],
+          seriesExperiences,
+        );
         const R = predictiveBook.starRating ?? GLOBAL_MEAN;
         const v = predictiveBook.ratingCount ?? 0;
         const bScore = bayesianScore(
@@ -2592,6 +2632,7 @@ export default function App() {
           bScore,
           authorPref,
           genrePref,
+          seriesPref,
           book.myRating,
           book.progress,
           book.readCount ?? 0,
@@ -2626,7 +2667,15 @@ export default function App() {
         ...book,
         rank: index + 1,
       }));
-  }, [books, predictiveBooksById, genreInterests, authorExperiences, smoothingFactors, signalWeights]);
+  }, [
+    books,
+    predictiveBooksById,
+    genreInterests,
+    authorExperiences,
+    seriesExperiences,
+    smoothingFactors,
+    signalWeights,
+  ]);
 
   const visibleRankedBooks = useMemo(
     () =>
@@ -2678,6 +2727,19 @@ export default function App() {
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [books, authorExperiences]);
+
+  const knownSeries = useMemo(() => {
+    const set = new Set<string>();
+    for (const book of books) {
+      if (book.series?.trim()) {
+        set.add(book.series);
+      }
+    }
+    for (const series of Object.keys(seriesExperiences)) {
+      set.add(series);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [books, seriesExperiences]);
 
   const authorSuggestions = useMemo(() => {
     return matchingSuggestions(draft.authorInput, draft.authors, knownAuthors);
@@ -2867,19 +2929,25 @@ export default function App() {
 
       if (value.trim() && Number.isFinite(num)) {
         if (
-          (field === "genreInterest" || field === "authorExperience") &&
+          (field === "genreInterest" ||
+            field === "authorExperience" ||
+            field === "seriesExperience") &&
           num < 0
         ) {
           clamped = "0";
         }
         if (
-          (field === "genreInterest" || field === "authorExperience") &&
+          (field === "genreInterest" ||
+            field === "authorExperience" ||
+            field === "seriesExperience") &&
           num > 5
         ) {
           clamped = "5";
         }
         if (
-          (field === "genreInterest" || field === "authorExperience") &&
+          (field === "genreInterest" ||
+            field === "authorExperience" ||
+            field === "seriesExperience") &&
           !Number.isInteger(num)
         ) {
           clamped = String(Math.round(num));
@@ -2911,6 +2979,33 @@ export default function App() {
       }
       if (field === "series" && !clamped.trim()) {
         next.seriesNumber = "";
+      }
+      if (field === "seriesExperience") {
+        next.seriesExperienceIsManual = true;
+        return next;
+      }
+      if (field === "series") {
+        const currentMatch = resolvedSuggestion(current.series, [], knownSeries);
+        const nextMatch = resolvedSuggestion(clamped, [], knownSeries);
+        const nextScore =
+          nextMatch != null && seriesExperiences[nextMatch] != null
+            ? String(seriesExperiences[nextMatch])
+            : "";
+
+        if (!clamped.trim()) {
+          next.seriesNumber = "";
+          next.seriesExperience = "";
+          next.seriesExperienceIsManual = false;
+        } else if (
+          nextScore &&
+          (!current.seriesExperienceIsManual || currentMatch !== nextMatch)
+        ) {
+          next.seriesExperience = nextScore;
+          next.seriesExperienceIsManual = false;
+        } else if (!nextScore && currentMatch !== nextMatch) {
+          next.seriesExperience = "";
+          next.seriesExperienceIsManual = false;
+        }
       }
       if (field === "authorExperience") {
         const matchingAuthor = findMatchingDraftTag(
@@ -3111,6 +3206,11 @@ export default function App() {
           result.seriesNumber != null
             ? String(result.seriesNumber)
             : "",
+        seriesExperience:
+          result.series && seriesExperiences[result.series] != null
+            ? String(seriesExperiences[result.series])
+            : "",
+        seriesExperienceIsManual: false,
         authors: nextAuthors,
         authorInput: "",
         authorExperience: "",
@@ -3485,6 +3585,11 @@ export default function App() {
       series: book.series ?? "",
       seriesNumber:
         book.seriesNumber != null ? String(book.seriesNumber) : "",
+      seriesExperience:
+        book.series && seriesExperiences[book.series] != null
+          ? String(seriesExperiences[book.series])
+          : "",
+      seriesExperienceIsManual: false,
       readCount: book.readCount ?? 0,
       starRating: book.starRating != null ? String(book.starRating) : "",
       ratingCount: book.ratingCount != null ? String(book.ratingCount) : "",
@@ -3588,6 +3693,19 @@ export default function App() {
         }
       }
       setAuthorExperiences(nextExps);
+
+      let nextSeriesExps = seriesExperiences;
+      const nextSeries = draft.series.trim();
+      const rawSeriesExperience = draft.seriesExperience.trim();
+      if (nextSeries && rawSeriesExperience && Number.isFinite(Number(rawSeriesExperience))) {
+        nextSeriesExps = await writeSeriesExperience(
+          nextSeries,
+          Number(rawSeriesExperience),
+        );
+      } else if (nextSeries && nextSeriesExps[nextSeries] != null) {
+        nextSeriesExps = await deleteSeriesExperience(nextSeries);
+      }
+      setSeriesExperiences(nextSeriesExps);
 
       const nextBooks = isEditing
         ? await updateBookRecord(editingBookId, payload)
@@ -3848,6 +3966,7 @@ export default function App() {
             books: predictiveBooks,
             genreInterests,
             authorExperiences,
+            seriesExperiences,
           },
         });
         if (!cancelled) setRecommendations(result);
@@ -3866,7 +3985,13 @@ export default function App() {
       cancelled = true;
       clearTimeout(debounce);
     };
-  }, [selectedInterestPath, predictiveBooks, genreInterests, authorExperiences]);
+  }, [
+    selectedInterestPath,
+    predictiveBooks,
+    genreInterests,
+    authorExperiences,
+    seriesExperiences,
+  ]);
 
 
 
@@ -4458,28 +4583,42 @@ export default function App() {
             </label>
 
             <label className="field entry-series">
-              <span>Series</span>
-              <div className="tag-entry-row">
-                <input
-                  type="text"
-                  placeholder="Series name"
-                  value={draft.series}
-                  onChange={(event) =>
-                    updateDraft("series", event.target.value)
-                  }
-                />
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  className="series-number-input"
-                  placeholder="#"
-                  aria-label="Series number"
-                  value={draft.seriesNumber}
-                  disabled={!draft.series.trim()}
-                  onChange={(event) =>
-                    updateDraft("seriesNumber", event.target.value)
-                  }
-                />
+              <span>Series + my experience with it</span>
+              <div className="tag-editor">
+                <div className="tag-entry-group">
+                  <div className="tag-entry-row">
+                    <input
+                      type="text"
+                      placeholder="Series name"
+                      value={draft.series}
+                      onChange={(event) =>
+                        updateDraft("series", event.target.value)
+                      }
+                    />
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      className="series-number-input"
+                      placeholder="#"
+                      aria-label="Series number"
+                      value={draft.seriesNumber}
+                      disabled={!draft.series.trim()}
+                      onChange={(event) =>
+                        updateDraft("seriesNumber", event.target.value)
+                      }
+                    />
+                  </div>
+                  <RatingButtons
+                    value={
+                      draft.seriesExperience
+                        ? Number(draft.seriesExperience)
+                        : null
+                    }
+                    onChange={(level) =>
+                      updateDraft("seriesExperience", level ? String(level) : "")
+                    }
+                  />
+                </div>
               </div>
             </label>
 
