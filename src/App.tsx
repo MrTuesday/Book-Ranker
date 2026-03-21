@@ -1168,9 +1168,9 @@ function InterestMapView({
           const directionY = dy / distance;
           const minDistance =
             leftPlacement.bubbleRadius + rightPlacement.bubbleRadius + 10;
-          const baseRepulsion = 1450 / (distance * distance);
+          const baseRepulsion = 950 / (distance * distance);
           const overlapRepulsion =
-            distance < minDistance ? (minDistance - distance) * 0.12 : 0;
+            distance < minDistance ? (minDistance - distance) * 0.07 : 0;
           const push = baseRepulsion + overlapRepulsion;
 
           forceX[leftIndex] -= directionX * push;
@@ -1202,8 +1202,8 @@ function InterestMapView({
           targetPlacement.bubbleRadius +
           26 +
           (1 - link.count / maxLinkCount) * 40;
-        const spring = (distance - desiredDistance) * 0.0035;
-        const pull = spring * (0.95 + link.count / maxLinkCount);
+        const spring = (distance - desiredDistance) * 0.0024;
+        const pull = spring * (0.8 + link.count / maxLinkCount * 0.85);
 
         forceX[sourceIndex] += directionX * pull;
         forceY[sourceIndex] += directionY * pull;
@@ -1224,17 +1224,25 @@ function InterestMapView({
         const swaySeed = hashTag(node.tag);
         const swayX =
           Math.sin(animationTimeRef.current * 0.44 + (swaySeed & 0xff) * 0.027) *
-          0.0035;
+          0.0018;
         const swayY =
           Math.cos(
             animationTimeRef.current * 0.38 + ((swaySeed >> 8) & 0xff) * 0.025,
-          ) * 0.003;
+          ) * 0.0015;
 
-        forceX[index] += (node.restX - node.x) * 0.012 + swayX;
-        forceY[index] += (node.restY - node.y) * 0.012 + swayY;
+        forceX[index] += (node.restX - node.x) * 0.009 + swayX;
+        forceY[index] += (node.restY - node.y) * 0.009 + swayY;
 
-        node.vx = (node.vx + forceX[index] * dt) * 0.9;
-        node.vy = (node.vy + forceY[index] * dt) * 0.9;
+        node.vx = (node.vx + forceX[index] * dt) * 0.86;
+        node.vy = (node.vy + forceY[index] * dt) * 0.86;
+        const speed = Math.hypot(node.vx, node.vy);
+
+        if (speed > 2.2) {
+          const clamp = 2.2 / speed;
+          node.vx *= clamp;
+          node.vy *= clamp;
+        }
+
         node.x += node.vx * dt;
         node.y += node.vy * dt;
       }
