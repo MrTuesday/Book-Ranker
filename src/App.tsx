@@ -625,10 +625,8 @@ function InterestMapView({
     for (const book of books) {
       const genreTags = uniqueTags(book.genres);
       const moodTags = uniqueTags(book.moods);
-      const tags = [
-        ...genreTags.map((tag) => buildInterestNodeId("genre", tag)),
-        ...moodTags.map((tag) => buildInterestNodeId("mood", tag)),
-      ];
+      const genreIds = genreTags.map((tag) => buildInterestNodeId("genre", tag));
+      const moodIds = moodTags.map((tag) => buildInterestNodeId("mood", tag));
 
       for (const tag of genreTags) {
         const id = buildInterestNodeId("genre", tag);
@@ -640,13 +638,21 @@ function InterestMapView({
         moodCounts.set(id, (moodCounts.get(id) ?? 0) + 1);
       }
 
-      for (let index = 0; index < tags.length; index += 1) {
+      for (let index = 0; index < genreIds.length; index += 1) {
         for (
           let pairIndex = index + 1;
-          pairIndex < tags.length;
+          pairIndex < genreIds.length;
           pairIndex += 1
         ) {
-          const [left, right] = [tags[index], tags[pairIndex]].sort();
+          const [left, right] = [genreIds[index], genreIds[pairIndex]].sort();
+          const key = `${left}\u0001${right}`;
+          pairCounts.set(key, (pairCounts.get(key) ?? 0) + 1);
+        }
+      }
+
+      for (const genreId of genreIds) {
+        for (const moodId of moodIds) {
+          const [left, right] = [genreId, moodId].sort();
           const key = `${left}\u0001${right}`;
           pairCounts.set(key, (pairCounts.get(key) ?? 0) + 1);
         }
@@ -733,6 +739,21 @@ function InterestMapView({
 
   function interestValue(node: InterestMapNode | PositionedInterestMapNode) {
     return node.kind === "genre" ? node.interest : -1;
+  }
+
+  function moodRepulsionFactor(
+    left: InterestMapNode | PositionedInterestMapNode,
+    right: InterestMapNode | PositionedInterestMapNode,
+  ) {
+    if (left.kind === "mood" && right.kind === "mood") {
+      return 0.16;
+    }
+
+    if (left.kind === "mood" || right.kind === "mood") {
+      return 0.35;
+    }
+
+    return 1;
   }
 
   const initialLayout = useMemo(() => {
@@ -862,11 +883,11 @@ function InterestMapView({
             rightIndex < positionedNodes.length;
             rightIndex += 1
           ) {
-            const left = positionedNodes[leftIndex];
-            const right = positionedNodes[rightIndex];
-            let dx = right.x - left.x;
-            let dy = right.y - left.y;
-            let distance = Math.hypot(dx, dy);
+          const left = positionedNodes[leftIndex];
+          const right = positionedNodes[rightIndex];
+          let dx = right.x - left.x;
+          let dy = right.y - left.y;
+          let distance = Math.hypot(dx, dy);
 
             if (distance < 0.001) {
               dx = 0.01;
@@ -874,13 +895,18 @@ function InterestMapView({
               distance = 0.01;
             }
 
-            const minDistance = left.radius + right.radius + 60;
-            const directionX = dx / distance;
-            const directionY = dy / distance;
-            const baseRepulsion = 30000 / (distance * distance);
-            const overlapRepulsion =
-              distance < minDistance ? (minDistance - distance) * 0.28 : 0;
-            const push = baseRepulsion + overlapRepulsion;
+          const repulsionFactor = moodRepulsionFactor(left, right);
+          const minDistance =
+            left.radius + right.radius + (repulsionFactor < 1 ? 28 : 60);
+          const directionX = dx / distance;
+          const directionY = dy / distance;
+          const baseRepulsion =
+            (30000 / (distance * distance)) * repulsionFactor;
+          const overlapRepulsion =
+              distance < minDistance
+                ? (minDistance - distance) * 0.28 * repulsionFactor
+                : 0;
+          const push = baseRepulsion + overlapRepulsion;
 
             forceX[leftIndex] -= directionX * push;
             forceY[leftIndex] -= directionY * push;
@@ -899,17 +925,22 @@ function InterestMapView({
 
           const source = positionedNodes[sourceIndex];
           const target = positionedNodes[targetIndex];
+          const hasMoodNode =
+            source.kind === "mood" || target.kind === "mood";
           const dx = target.x - source.x;
           const dy = target.y - source.y;
           const distance = Math.max(1, Math.hypot(dx, dy));
           const directionX = dx / distance;
           const directionY = dy / distance;
           const desiredDistance =
-            280 -
-            (link.count / maxLinkCount) * 50 -
+            (hasMoodNode ? 220 : 280) -
+            (link.count / maxLinkCount) * (hasMoodNode ? 30 : 50) -
             (source.radius + target.radius);
           const spring = (distance - desiredDistance) * 0.014;
-          const pull = spring * (0.8 + link.count / maxLinkCount);
+          const pull =
+            spring *
+            (0.8 + link.count / maxLinkCount) *
+            (hasMoodNode ? 0.4 : 1);
 
           forceX[sourceIndex] += directionX * pull;
           forceY[sourceIndex] += directionY * pull;
@@ -1052,16 +1083,17 @@ function InterestMapView({
 
       // Gentle sway — slow drift like tree branches
       for (let i = 0; i < nodes.length; i += 1) {
-        const hash = hashTag(nodes[i].tag);
+        const hash = hashTag(nodes[i].id);
+        const swayFactor = nodes[i].kind === "mood" ? 0.18 : 1;
         const px =
-          Math.sin(time * 0.003 + (hash & 0xff) * 0.04) * 0.008;
+          Math.sin(time * 0.003 + (hash & 0xff) * 0.04) * 0.008 * swayFactor;
         const py =
-          Math.cos(time * 0.004 + ((hash >> 8) & 0xff) * 0.04) * 0.006;
+          Math.cos(time * 0.004 + ((hash >> 8) & 0xff) * 0.04) * 0.006 * swayFactor;
         nodes[i].vx += px;
         nodes[i].vy += py;
 
         // Very light centering — just prevents runaway drift
-        const cp = 0.0004;
+        const cp = nodes[i].kind === "mood" ? 0.00025 : 0.0004;
         nodes[i].vx += (centerX - nodes[i].x) * cp;
         nodes[i].vy += (centerY - nodes[i].y) * cp;
       }
@@ -1079,12 +1111,14 @@ function InterestMapView({
             dist = 0.01;
           }
 
-          const minDist = nodes[i].radius + nodes[j].radius + 60;
+          const repulsionFactor = moodRepulsionFactor(nodes[i], nodes[j]);
+          const minDist =
+            nodes[i].radius + nodes[j].radius + (repulsionFactor < 1 ? 28 : 60);
           const ux = dx / dist;
           const uy = dy / dist;
-          const repulsion = 1000 / (dist * dist);
+          const repulsion = (1000 / (dist * dist)) * repulsionFactor;
           const overlap =
-            dist < minDist ? (minDist - dist) * 0.06 : 0;
+            dist < minDist ? (minDist - dist) * 0.06 * repulsionFactor : 0;
           const push = repulsion + overlap;
 
           nodes[i].vx -= ux * push;
@@ -1103,17 +1137,22 @@ function InterestMapView({
           continue;
         }
 
+        const hasMoodNode =
+          nodes[si].kind === "mood" || nodes[ti].kind === "mood";
         const dx = nodes[ti].x - nodes[si].x;
         const dy = nodes[ti].y - nodes[si].y;
         const dist = Math.max(1, Math.hypot(dx, dy));
         const ux = dx / dist;
         const uy = dy / dist;
         const desired =
-          280 -
-          (link.count / maxLinkCount) * 50 -
+          (hasMoodNode ? 220 : 280) -
+          (link.count / maxLinkCount) * (hasMoodNode ? 30 : 50) -
           (nodes[si].radius + nodes[ti].radius);
         const spring = (dist - desired) * 0.002;
-        const pull = spring * (0.8 + link.count / maxLinkCount);
+        const pull =
+          spring *
+          (0.8 + link.count / maxLinkCount) *
+          (hasMoodNode ? 0.4 : 1);
 
         nodes[si].vx += ux * pull;
         nodes[si].vy += uy * pull;
