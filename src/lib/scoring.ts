@@ -1,9 +1,8 @@
 import type { Book } from "./books-api";
 
 export const GLOBAL_MEAN = 3.8;
-export const MIN_SMOOTHING_FACTOR = 100;
 export const MAX_SMOOTHING_FACTOR = 1000;
-export const SMOOTHING_FACTOR = MIN_SMOOTHING_FACTOR;
+export const SMOOTHING_FACTOR = 0;
 export const BAYESIAN_SIGNAL_WEIGHT = 1 / 3;
 export const AUTHOR_SIGNAL_WEIGHT = 1 / 3;
 export const GENRE_SIGNAL_WEIGHT = 1 / 3;
@@ -29,10 +28,7 @@ export function bayesianScore(R: number, v: number, C: number, m: number) {
 }
 
 function clampSmoothingFactor(value: number) {
-  return Math.max(
-    MIN_SMOOTHING_FACTOR,
-    Math.min(MAX_SMOOTHING_FACTOR, value),
-  );
+  return Math.max(0, Math.min(MAX_SMOOTHING_FACTOR, value));
 }
 
 /**

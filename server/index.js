@@ -21,8 +21,6 @@ import {
 } from "./lib/library-service.js";
 import { createSeedState } from "./lib/seed-state.js";
 import { JsonStateStore } from "./lib/state-store.js";
-import { createGoodreadsClient } from "./lib/goodreads.js";
-import { fetchPathRecommendations } from "./lib/recommendations.js";
 import { HttpError, notFound, readJson, sendJson } from "./lib/http.js";
 
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -33,7 +31,6 @@ const host = process.env.HOST ?? "127.0.0.1";
 const port = Number(process.env.PORT) || 8787;
 
 const stateStore = new JsonStateStore(dataFilePath, createSeedState);
-const goodreadsClient = createGoodreadsClient();
 
 const contentTypes = new Map([
   [".html", "text/html; charset=utf-8"],
@@ -194,37 +191,6 @@ async function handleApi(request, response, url) {
       200,
       await renameAuthorExperience(stateStore, body?.oldAuthor, body?.newAuthor),
     );
-  }
-
-  if (request.method === "GET" && path === "/api/catalog/search") {
-    const query = url.searchParams.get("query") ?? "";
-    const limit = Number(url.searchParams.get("limit")) || 10;
-    const results = await goodreadsClient.autocompleteBooksByTitle(query, {
-      limit: Math.max(1, Math.min(8, limit)),
-    });
-
-    return sendJson(response, 200, {
-      provider: goodreadsClient.provider,
-      query,
-      results,
-    });
-  }
-
-  if (request.method === "POST" && path === "/api/catalog/book") {
-    const body = await readJson(request);
-    const result = await goodreadsClient.resolveBookMetadata(body);
-
-    return sendJson(response, 200, {
-      averageRating: result?.averageRating,
-      ratingsCount: result?.ratingsCount,
-      infoLink: result?.infoLink,
-      fetchedAt: new Date().toISOString(),
-    });
-  }
-
-  if (request.method === "POST" && path === "/api/recommendations/path") {
-    const body = await readJson(request);
-    return sendJson(response, 200, await fetchPathRecommendations(goodreadsClient, body));
   }
 
   notFound();

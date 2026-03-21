@@ -255,7 +255,6 @@ type DraftAutofillSource = Pick<
   | "authors"
   | "genres"
   | "tags"
-  | "infoLink"
   | "averageRating"
   | "ratingsCount"
 >;
@@ -2088,12 +2087,6 @@ export default function App() {
   const [selectedCatalogBookId, setSelectedCatalogBookId] = useState<string | null>(
     null,
   );
-  const [selectedCatalogInfoLink, setSelectedCatalogInfoLink] = useState<string | null>(
-    null,
-  );
-  const [draftStatsUpdatedAt, setDraftStatsUpdatedAt] = useState<string | null>(
-    null,
-  );
   const [activeSuggestionField, setActiveSuggestionField] =
     useState<SuggestionField | null>(null);
   const [activeTagActionMenu, setActiveTagActionMenu] = useState<string | null>(
@@ -2597,8 +2590,6 @@ export default function App() {
     setCatalogError(null);
     setIsTitleSuggestionActive(false);
     setSelectedCatalogBookId(null);
-    setSelectedCatalogInfoLink(null);
-    setDraftStatsUpdatedAt(null);
     setSelectedRecommendationId(null);
     selectedCatalogTitleRef.current = "";
     setActiveSuggestionField(null);
@@ -2681,12 +2672,6 @@ export default function App() {
     setSelectedRecommendationId(null);
   }, [recommendations, selectedRecommendationId]);
 
-  const parsedDraftRating = draft.starRating.trim()
-    ? Number(draft.starRating)
-    : undefined;
-  const parsedDraftCount = draft.ratingCount.trim()
-    ? Number(draft.ratingCount)
-    : undefined;
   const parsedDraftLastReadYear = draft.lastReadYear.trim()
     ? Number(draft.lastReadYear)
     : undefined;
@@ -2695,15 +2680,7 @@ export default function App() {
   const hasAutomatedDraftStats =
     draft.starRating.trim().length > 0 || draft.ratingCount.trim().length > 0;
   const canSubmit =
-    !isLoading &&
-    !isSaving &&
-    draft.title.trim().length > 0 &&
-    (parsedDraftRating == null ||
-      (Number.isFinite(parsedDraftRating) &&
-        parsedDraftRating >= 0 &&
-        parsedDraftRating <= 5)) &&
-    (parsedDraftCount == null ||
-      (Number.isFinite(parsedDraftCount) && parsedDraftCount >= 0));
+    !isLoading && !isSaving && draft.title.trim().length > 0;
 
   useEffect(() => {
     if (!isTitleSuggestionActive) {
@@ -2733,27 +2710,17 @@ export default function App() {
     setCatalogError(null);
 
     const debounce = window.setTimeout(async () => {
-      try {
-        const response = await searchCatalog(query, TITLE_SUGGESTION_FETCH_LIMIT);
+      const response = searchCatalog(books, query, TITLE_SUGGESTION_FETCH_LIMIT);
 
-        if (cancelled || titleSearchRequestRef.current !== requestId) {
-          return;
-        }
+      if (cancelled || titleSearchRequestRef.current !== requestId) {
+        return;
+      }
 
-        setTitleSuggestions(response.results);
-      } catch (error) {
-        if (cancelled || titleSearchRequestRef.current !== requestId) {
-          return;
-        }
+      setTitleSuggestions(response.results);
+      setCatalogError(null);
 
-        setTitleSuggestions([]);
-        setCatalogError(
-          error instanceof Error ? error.message : "Catalog search failed.",
-        );
-      } finally {
-        if (!cancelled && titleSearchRequestRef.current === requestId) {
-          setIsSearchingCatalog(false);
-        }
+      if (!cancelled && titleSearchRequestRef.current === requestId) {
+        setIsSearchingCatalog(false);
       }
     }, 260);
 
@@ -2761,13 +2728,11 @@ export default function App() {
       cancelled = true;
       window.clearTimeout(debounce);
     };
-  }, [draft.title, isTitleSuggestionActive, selectedCatalogBookId]);
+  }, [books, draft.title, isTitleSuggestionActive, selectedCatalogBookId]);
 
   function updateDraft(field: DraftTextField, value: string) {
     if (field === "title") {
       setSelectedCatalogBookId(null);
-      setSelectedCatalogInfoLink(null);
-      setDraftStatsUpdatedAt(null);
       setSelectedRecommendationId(null);
       setCatalogError(null);
       selectedCatalogTitleRef.current = "";
@@ -2972,7 +2937,6 @@ export default function App() {
     options?: { resetDraft?: boolean },
   ) {
     const catalogGenres = buildCatalogGenres(result);
-    const fetchedAt = new Date().toISOString();
 
     setDraft((current) => {
       const baseDraft = options?.resetDraft ? createDraft() : current;
@@ -3012,8 +2976,6 @@ export default function App() {
     });
 
     setSelectedCatalogBookId(result.id);
-    setSelectedCatalogInfoLink(result.infoLink ?? null);
-    setDraftStatsUpdatedAt(fetchedAt);
     selectedCatalogTitleRef.current = result.title.trim();
     setTitleSuggestions([]);
     setCatalogError(null);
@@ -3350,8 +3312,6 @@ export default function App() {
     setCatalogError(null);
     setIsTitleSuggestionActive(false);
     setSelectedCatalogBookId(null);
-    setSelectedCatalogInfoLink(book.catalogInfoLink ?? null);
-    setDraftStatsUpdatedAt(book.statsUpdatedAt ?? null);
     setSelectedRecommendationId(null);
     selectedCatalogTitleRef.current = "";
     setActiveTagActionMenu(null);
@@ -3419,10 +3379,6 @@ export default function App() {
       const payload = {
         title: draft.title.trim(),
         authors: draft.authors,
-        starRating: parsedDraftRating,
-        ratingCount: parsedDraftCount,
-        ...(selectedCatalogInfoLink ? { catalogInfoLink: selectedCatalogInfoLink } : {}),
-        ...(draftStatsUpdatedAt ? { statsUpdatedAt: draftStatsUpdatedAt } : {}),
         genres: draft.genres,
         progress: parsedProgress,
         myRating: draft.myRating ?? undefined,
@@ -3703,12 +3659,12 @@ export default function App() {
     }
 
     let cancelled = false;
-    const debounce = setTimeout(async () => {
+    const debounce = setTimeout(() => {
       setIsLoadingRecs(true);
       setRecError(null);
 
       try {
-        const result = await requestPathRecommendation({
+        const result = requestPathRecommendation({
           selectedTags: selectedInterestPath,
           profile: {
             books,
@@ -4207,7 +4163,7 @@ export default function App() {
             </>
           ) : recommendations && recommendations.candidates.length === 0 ? (
             <div className="right-column-status">
-              <p>No new books found for these interests.</p>
+              <p>No matching site books found for these interests.</p>
             </div>
           ) : null}
           <section className="panel control-panel">
@@ -4279,7 +4235,7 @@ export default function App() {
                   </div>
                 </div>
                 {isTitleSuggestionActive && isSearchingCatalog ? (
-                  <p className="field-note">Searching catalog…</p>
+                  <p className="field-note">Searching site…</p>
                 ) : null}
                 {isTitleSuggestionActive && catalogError ? (
                   <p className="field-note is-error">{catalogError}</p>

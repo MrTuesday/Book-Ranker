@@ -1,3 +1,5 @@
+import { applySiteRatingStats } from "./site-books";
+
 export type Book = {
   id: number;
   title: string;
@@ -46,8 +48,6 @@ const STORAGE_KEY = "book-ranker.books.v1";
 const GENRE_INTEREST_KEY = "book-ranker.genre-interests.v1";
 const AUTHOR_EXP_KEY = "book-ranker.author-experiences.v1";
 const BACKEND_MIGRATION_KEY = "book-ranker.backend-migrated.v1";
-const AUTOMATED_STATS_REFRESH_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
-const AUTOMATED_STATS_REFRESH_CONCURRENCY = 3;
 
 class BackendUnavailableError extends Error {
   constructor(message = "Backend is unavailable.") {
@@ -604,114 +604,11 @@ async function migrateLegacyStateIfNeeded(libraryState: LibraryState) {
   return migratedState;
 }
 
-type CatalogBookMetadataResponse = {
-  averageRating?: number;
-  ratingsCount?: number;
-  infoLink?: string;
-  fetchedAt?: string;
-};
-
-function isAutomatedStatsRefreshDue(book: Book) {
-  const refreshedAt = book.statsUpdatedAt ? Date.parse(book.statsUpdatedAt) : NaN;
-
-  if (!Number.isFinite(refreshedAt)) {
-    return true;
-  }
-
-  return Date.now() - refreshedAt >= AUTOMATED_STATS_REFRESH_INTERVAL_MS;
-}
-
-async function requestCatalogBookMetadata(book: Book) {
-  return requestJson<CatalogBookMetadataResponse>("/api/catalog/book", {
-    method: "POST",
-    body: JSON.stringify({
-      title: book.title,
-      authors: book.authors,
-      infoLink: book.catalogInfoLink,
-    }),
-  });
-}
-
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  mapItem: (item: T) => Promise<R>,
-) {
-  if (items.length === 0) {
-    return [];
-  }
-
-  const results = new Array<R>(items.length);
-  let nextIndex = 0;
-  const workerCount = Math.max(1, Math.min(concurrency, items.length));
-
-  await Promise.all(
-    Array.from({ length: workerCount }, async () => {
-      while (true) {
-        const currentIndex = nextIndex;
-        nextIndex += 1;
-
-        if (currentIndex >= items.length) {
-          return;
-        }
-
-        results[currentIndex] = await mapItem(items[currentIndex]);
-      }
-    }),
-  );
-
-  return results;
-}
-
-function sameBookStats(left: Book, right: Book) {
-  return (
-    left.starRating === right.starRating &&
-    left.ratingCount === right.ratingCount &&
-    left.catalogInfoLink === right.catalogInfoLink &&
-    left.statsUpdatedAt === right.statsUpdatedAt
-  );
-}
-
-async function refreshLibraryAutomatedStats(
+function withNativeRatingStats(
   libraryState: LibraryState,
   options: { persistLocal?: boolean } = {},
 ) {
-  const staleBooks = libraryState.books.filter((book) => {
-    return book.title.trim().length > 0 && isAutomatedStatsRefreshDue(book);
-  });
-
-  if (staleBooks.length === 0) {
-    return libraryState;
-  }
-
-  const refreshedBooks = await mapWithConcurrency(
-    staleBooks,
-    AUTOMATED_STATS_REFRESH_CONCURRENCY,
-    async (book) => {
-      try {
-        const metadata = await requestCatalogBookMetadata(book);
-        return normalizeBook({
-          ...book,
-          starRating: metadata.averageRating ?? book.starRating,
-          ratingCount: metadata.ratingsCount ?? book.ratingCount,
-          catalogInfoLink: metadata.infoLink ?? book.catalogInfoLink,
-          statsUpdatedAt: metadata.fetchedAt ?? new Date().toISOString(),
-        }) ?? book;
-      } catch {
-        return book;
-      }
-    },
-  );
-
-  const refreshedById = new Map(
-    refreshedBooks.map((book) => [book.id, book] as const),
-  );
-  const nextBooks = libraryState.books.map((book) => refreshedById.get(book.id) ?? book);
-  const changed = nextBooks.some((book, index) => !sameBookStats(book, libraryState.books[index]));
-
-  if (!changed) {
-    return libraryState;
-  }
+  const nextBooks = applySiteRatingStats(libraryState.books);
 
   if (options.persistLocal && getStorage()) {
     writeLocalBooks(nextBooks);
@@ -720,22 +617,28 @@ async function refreshLibraryAutomatedStats(
   return {
     ...libraryState,
     books: nextBooks,
-    meta: {
-      ...libraryState.meta,
-      updatedAt: new Date().toISOString(),
-    },
   };
+}
+
+function sanitizeBookPayload(payload: BookPayload) {
+  const {
+    starRating: _starRating,
+    ratingCount: _ratingCount,
+    catalogInfoLink: _catalogInfoLink,
+    statsUpdatedAt: _statsUpdatedAt,
+    ...rest
+  } = payload;
+
+  return rest;
 }
 
 export async function fetchLibraryState() {
   try {
     const libraryState = await requestJson<LibraryState>("/api/library");
-    return refreshLibraryAutomatedStats(
-      await migrateLegacyStateIfNeeded(libraryState),
-    );
+    return withNativeRatingStats(await migrateLegacyStateIfNeeded(libraryState));
   } catch (error) {
     if (error instanceof BackendUnavailableError) {
-      return refreshLibraryAutomatedStats(readLocalLibraryState(), {
+      return withNativeRatingStats(readLocalLibraryState(), {
         persistLocal: true,
       });
     }
@@ -750,36 +653,46 @@ export async function fetchBooks() {
 }
 
 export async function createBookRecord(payload: BookPayload) {
+  const sanitizedPayload = sanitizeBookPayload(payload);
+
   try {
-    return await requestJson<Book[]>("/api/books", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
+    return applySiteRatingStats(
+      await requestJson<Book[]>("/api/books", {
+        method: "POST",
+        body: JSON.stringify(sanitizedPayload),
+      }),
+    );
   } catch (error) {
     if (!(error instanceof BackendUnavailableError)) {
       throw error;
     }
 
-    const nextBook = parseBookPayload(payload);
+    const nextBook = parseBookPayload(sanitizedPayload);
     const books = readLocalBooks();
     const nextId = books.reduce((maxId, book) => Math.max(maxId, book.id), 0) + 1;
 
-    return writeLocalBooks([
-      ...books,
-      {
-        id: nextId,
-        ...nextBook,
-      },
-    ]);
+    return writeLocalBooks(
+      applySiteRatingStats([
+        ...books,
+        {
+          id: nextId,
+          ...nextBook,
+        },
+      ]),
+    );
   }
 }
 
 export async function updateBookRecord(id: number, payload: BookPayload) {
+  const sanitizedPayload = sanitizeBookPayload(payload);
+
   try {
-    return await requestJson<Book[]>(`/api/books/${id}`, {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    });
+    return applySiteRatingStats(
+      await requestJson<Book[]>(`/api/books/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(sanitizedPayload),
+      }),
+    );
   } catch (error) {
     if (!(error instanceof BackendUnavailableError)) {
       throw error;
@@ -789,7 +702,7 @@ export async function updateBookRecord(id: number, payload: BookPayload) {
       throw new Error("Book id is required.");
     }
 
-    const nextBook = parseBookPayload(payload);
+    const nextBook = parseBookPayload(sanitizedPayload);
     const books = readLocalBooks();
     const hasMatch = books.some((book) => book.id === id);
 
@@ -798,16 +711,20 @@ export async function updateBookRecord(id: number, payload: BookPayload) {
     }
 
     return writeLocalBooks(
-      books.map((book) => (book.id === id ? { id: book.id, ...nextBook } : book)),
+      applySiteRatingStats(
+        books.map((book) => (book.id === id ? { id: book.id, ...nextBook } : book)),
+      ),
     );
   }
 }
 
 export async function deleteBookRecord(id: number) {
   try {
-    return await requestJson<Book[]>(`/api/books/${id}`, {
-      method: "DELETE",
-    });
+    return applySiteRatingStats(
+      await requestJson<Book[]>(`/api/books/${id}`, {
+        method: "DELETE",
+      }),
+    );
   } catch (error) {
     if (!(error instanceof BackendUnavailableError)) {
       throw error;
@@ -824,7 +741,7 @@ export async function deleteBookRecord(id: number) {
       throw new Error("Book not found.");
     }
 
-    return writeLocalBooks(nextBooks);
+    return writeLocalBooks(applySiteRatingStats(nextBooks));
   }
 }
 
@@ -912,10 +829,12 @@ export async function renameGenreInBooks(oldGenre: string, newGenre: string) {
   const nextValue = normalizeGenreTag(newGenre);
 
   try {
-    return await requestJson<Book[]>("/api/books/genres/rename", {
-      method: "POST",
-      body: JSON.stringify({ oldGenre: oldValue, newGenre: nextValue }),
-    });
+    return applySiteRatingStats(
+      await requestJson<Book[]>("/api/books/genres/rename", {
+        method: "POST",
+        body: JSON.stringify({ oldGenre: oldValue, newGenre: nextValue }),
+      }),
+    );
   } catch (error) {
     if (!(error instanceof BackendUnavailableError)) {
       throw error;
@@ -923,10 +842,12 @@ export async function renameGenreInBooks(oldGenre: string, newGenre: string) {
 
     const books = readLocalBooks();
     return writeLocalBooks(
-      books.map((book) => ({
-        ...book,
-        genres: replaceTag(book.genres, oldValue, nextValue, normalizeGenreTag),
-      })),
+      applySiteRatingStats(
+        books.map((book) => ({
+          ...book,
+          genres: replaceTag(book.genres, oldValue, nextValue, normalizeGenreTag),
+        })),
+      ),
     );
   }
 }
@@ -1012,10 +933,12 @@ export async function renameAuthorExperience(
 
 export async function renameAuthorInBooks(oldAuthor: string, newAuthor: string) {
   try {
-    return await requestJson<Book[]>("/api/books/authors/rename", {
-      method: "POST",
-      body: JSON.stringify({ oldAuthor, newAuthor }),
-    });
+    return applySiteRatingStats(
+      await requestJson<Book[]>("/api/books/authors/rename", {
+        method: "POST",
+        body: JSON.stringify({ oldAuthor, newAuthor }),
+      }),
+    );
   } catch (error) {
     if (!(error instanceof BackendUnavailableError)) {
       throw error;
@@ -1023,10 +946,12 @@ export async function renameAuthorInBooks(oldAuthor: string, newAuthor: string) 
 
     const books = readLocalBooks();
     return writeLocalBooks(
-      books.map((book) => ({
-        ...book,
-        authors: replaceTag(book.authors, oldAuthor, newAuthor),
-      })),
+      applySiteRatingStats(
+        books.map((book) => ({
+          ...book,
+          authors: replaceTag(book.authors, oldAuthor, newAuthor),
+        })),
+      ),
     );
   }
 }
