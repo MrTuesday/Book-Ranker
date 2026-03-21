@@ -14,6 +14,9 @@ export type RecommendedBook = {
   title: string;
   authors: string[];
   genres: string[];
+  tags: string[];
+  moods: string[];
+  topics: string[];
   averageRating?: number;
   ratingsCount?: number;
   description?: string;

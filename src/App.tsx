@@ -44,6 +44,7 @@ import {
 import {
   requestPathRecommendation,
   type PathRecommendationResponse,
+  type RecommendedBook,
 } from "./lib/recommend-api";
 import {
   searchCatalog,
@@ -173,16 +174,30 @@ function resolvedSuggestion(
   return exactMatch ?? (suggestions.length === 1 ? suggestions[0] : null);
 }
 
-function buildCatalogGenres(result: CatalogSearchResult) {
+function buildCatalogGenres(
+  result: Pick<CatalogSearchResult, "genres" | "tags">,
+) {
   return uniqueTags([...result.genres, ...result.tags]).slice(
     0,
     MAX_AUTOFILL_TOPICS,
   );
 }
 
-function buildCatalogMoods(result: CatalogSearchResult) {
+function buildCatalogMoods(result: Pick<CatalogSearchResult, "moods">) {
   return uniqueTags(result.moods).slice(0, MAX_AUTOFILL_TOPICS);
 }
+
+type DraftAutofillSource = Pick<
+  CatalogSearchResult,
+  | "id"
+  | "title"
+  | "authors"
+  | "genres"
+  | "tags"
+  | "moods"
+  | "averageRating"
+  | "ratingsCount"
+>;
 
 function formatCatalogRating(value: number) {
   return String(Number(value.toFixed(2)));
@@ -1485,9 +1500,12 @@ export default function App() {
     useState<PathRecommendationResponse | null>(null);
   const [isLoadingRecs, setIsLoadingRecs] = useState(false);
   const [recError, setRecError] = useState<string | null>(null);
+  const [selectedRecommendationId, setSelectedRecommendationId] = useState<string | null>(
+    null,
+  );
   const [listSize, setListSize] = useState(5);
   const [showArchive, setShowArchive] = useState(false);
-  const [addedRecIds] = useState<Set<string>>(new Set());
+  const [addedRecIds, setAddedRecIds] = useState<Set<string>>(new Set());
   const [graphEditMode, setGraphEditMode] = useState(false);
   const [graphAddGenreInput, setGraphAddGenreInput] = useState("");
   const [graphAddGenreRating, setGraphAddGenreRating] = useState<number | null>(null);
@@ -1906,6 +1924,7 @@ export default function App() {
     setCatalogError(null);
     setIsTitleSuggestionActive(false);
     setSelectedCatalogBookId(null);
+    setSelectedRecommendationId(null);
     selectedCatalogTitleRef.current = "";
     setActiveSuggestionField(null);
     setActiveTagActionMenu(null);
@@ -1950,6 +1969,19 @@ export default function App() {
     document.addEventListener("pointerdown", handlePointerDown);
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [activeTagActionMenu]);
+
+  useEffect(() => {
+    if (
+      selectedRecommendationId == null ||
+      recommendations?.candidates.some(
+        (candidate) => candidate.id === selectedRecommendationId,
+      )
+    ) {
+      return;
+    }
+
+    setSelectedRecommendationId(null);
+  }, [recommendations, selectedRecommendationId]);
 
   const parsedDraftRating = draft.starRating.trim()
     ? Number(draft.starRating)
@@ -2034,6 +2066,7 @@ export default function App() {
   function updateDraft(field: DraftTextField, value: string) {
     if (field === "title") {
       setSelectedCatalogBookId(null);
+      setSelectedRecommendationId(null);
       setCatalogError(null);
       selectedCatalogTitleRef.current = "";
     }
@@ -2191,20 +2224,24 @@ export default function App() {
     setIsTitleSuggestionActive(false);
   }
 
-  function selectCatalogSuggestion(result: CatalogSearchResult) {
+  function populateDraftFromAutofill(
+    result: DraftAutofillSource,
+    options?: { resetDraft?: boolean },
+  ) {
     const catalogGenres = buildCatalogGenres(result);
     const catalogMoods = buildCatalogMoods(result);
 
     setDraft((current) => {
+      const baseDraft = options?.resetDraft ? createDraft() : current;
       const nextAuthors =
-        result.authors.length > 0 ? uniqueTags(result.authors) : current.authors;
+        result.authors.length > 0 ? uniqueTags(result.authors) : baseDraft.authors;
       const nextGenres =
-        catalogGenres.length > 0 ? catalogGenres : current.genres;
+        catalogGenres.length > 0 ? catalogGenres : baseDraft.genres;
       const nextMoods =
-        catalogMoods.length > 0 ? catalogMoods : current.moods;
+        catalogMoods.length > 0 ? catalogMoods : baseDraft.moods;
 
       return {
-        ...current,
+        ...baseDraft,
         title: result.title,
         authors: nextAuthors,
         authorInput: "",
@@ -2213,7 +2250,7 @@ export default function App() {
         authorScores:
           result.authors.length > 0
             ? buildDraftScores(nextAuthors, authorExperiences)
-            : current.authorScores,
+            : baseDraft.authorScores,
         genres: nextGenres,
         genreInput: "",
         genreInterest: "",
@@ -2221,17 +2258,17 @@ export default function App() {
         genreScores:
           catalogGenres.length > 0
             ? buildDraftScores(nextGenres, genreInterests)
-            : current.genreScores,
+            : baseDraft.genreScores,
         moods: nextMoods,
         moodInput: "",
         starRating:
           result.averageRating != null
             ? formatCatalogRating(result.averageRating)
-            : current.starRating,
+            : baseDraft.starRating,
         ratingCount:
           result.ratingsCount != null
             ? formatCatalogRatingCount(result.ratingsCount)
-            : current.ratingCount,
+            : baseDraft.ratingCount,
       };
     });
 
@@ -2239,6 +2276,32 @@ export default function App() {
     selectedCatalogTitleRef.current = result.title.trim();
     setTitleSuggestions([]);
     setCatalogError(null);
+  }
+
+  function scrollControlPanelIntoView() {
+    window.requestAnimationFrame(() => {
+      entryFormRef.current
+        ?.closest(".control-panel")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
+  function selectCatalogSuggestion(result: CatalogSearchResult) {
+    setSelectedRecommendationId(null);
+    populateDraftFromAutofill(result);
+  }
+
+  function selectRecommendedBook(result: RecommendedBook) {
+    setIsTitleSuggestionActive(false);
+    setEditingBookId(null);
+    setErrorMessage(null);
+    setActiveSuggestionField(null);
+    setActiveTagActionMenu(null);
+    setDraftTagDrag(null);
+    setDraftTagDropTarget(null);
+    setSelectedRecommendationId(result.id);
+    populateDraftFromAutofill(result, { resetDraft: true });
+    scrollControlPanelIntoView();
   }
 
   function selectSuggestedValue(field: SuggestionField, value: string) {
@@ -2562,6 +2625,7 @@ export default function App() {
     setCatalogError(null);
     setIsTitleSuggestionActive(false);
     setSelectedCatalogBookId(null);
+    setSelectedRecommendationId(null);
     selectedCatalogTitleRef.current = "";
     setActiveTagActionMenu(null);
     setDraft({
@@ -2626,6 +2690,7 @@ export default function App() {
       const parsedProgress = draft.progress.trim()
         ? Number(draft.progress)
         : undefined;
+      const sourceCatalogBookId = selectedCatalogBookId;
       const payload = {
         title: draft.title.trim(),
         authors: draft.authors,
@@ -2667,6 +2732,14 @@ export default function App() {
         ? null
         : nextBooks.find((book) => !books.some((existing) => existing.id === book.id))
             ?.id ?? null;
+
+      if (!isEditing && sourceCatalogBookId) {
+        setAddedRecIds((current) => {
+          const next = new Set(current);
+          next.add(sourceCatalogBookId);
+          return next;
+        });
+      }
 
       queueBookReveal(createdBookId);
       applyBooksUpdate(nextBooks);
@@ -3391,8 +3464,15 @@ export default function App() {
                     title={rec.title}
                     authors={rec.authors}
                     score={rec.score}
-                    className={addedRecIds.has(rec.id) ? "is-added" : undefined}
+                    className={[
+                      addedRecIds.has(rec.id) ? "is-added" : "",
+                      selectedRecommendationId === rec.id ? "is-selected" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
                     scoreOverride={addedRecIds.has(rec.id) ? "✓" : undefined}
+                    onToggle={() => selectRecommendedBook(rec)}
+                    isActive={selectedRecommendationId === rec.id}
                   />
                 ))}
               </div>

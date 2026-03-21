@@ -1197,6 +1197,12 @@ select:focus {
     box-shadow: 0 0 0 2px rgba(180, 83, 9, 0.22);
 }
 
+.ranking-row.is-selected {
+    border-color: rgba(180, 83, 9, 0.34);
+    background: rgba(255, 248, 240, 0.92);
+    box-shadow: 0 0 0 2px rgba(180, 83, 9, 0.16);
+}
+
 .ranking-row.is-added {
     opacity: 0.45;
 }
