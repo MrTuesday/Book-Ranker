@@ -1,7 +1,9 @@
 import type { Book } from "./books-api";
 
-export const GLOBAL_MEAN = 3;
-export const SMOOTHING_FACTOR = 1;
+export const GLOBAL_MEAN = 3.8;
+export const MIN_SMOOTHING_FACTOR = 50;
+export const MAX_SMOOTHING_FACTOR = 500;
+export const SMOOTHING_FACTOR = MIN_SMOOTHING_FACTOR;
 export const BAYESIAN_SIGNAL_WEIGHT = 1 / 3;
 export const AUTHOR_SIGNAL_WEIGHT = 1 / 3;
 export const GENRE_SIGNAL_WEIGHT = 1 / 3;
@@ -26,15 +28,59 @@ export function bayesianScore(R: number, v: number, C: number, m: number) {
   return (v / denominator) * R + (smoothingFactor / denominator) * C;
 }
 
+function clampSmoothingFactor(value: number) {
+  return Math.max(
+    MIN_SMOOTHING_FACTOR,
+    Math.min(MAX_SMOOTHING_FACTOR, value),
+  );
+}
+
 /**
- * Use a fixed smoothing factor for every saved book.
+ * Use the book's niche-est genre as the Bayesian smoothing factor.
  */
 export function buildTagSmoothingFactorMap(
   books: Pick<Book, "id" | "genres" | "ratingCount">[],
   fallback = SMOOTHING_FACTOR,
 ) {
-  const smoothingFactor = Math.max(0, fallback);
-  return new Map(books.map((book) => [book.id, smoothingFactor] as const));
+  const clampedFallback = clampSmoothingFactor(fallback);
+  const genreStats = new Map<string, { totalRatings: number; count: number }>();
+
+  for (const book of books) {
+    const ratingCount = book.ratingCount;
+
+    if (ratingCount == null || !Number.isFinite(ratingCount)) {
+      continue;
+    }
+
+    for (const genre of new Set(book.genres)) {
+      const current = genreStats.get(genre) ?? { totalRatings: 0, count: 0 };
+      current.totalRatings += ratingCount;
+      current.count += 1;
+      genreStats.set(genre, current);
+    }
+  }
+
+  const genreAverages = new Map<string, number>();
+
+  for (const [genre, stats] of genreStats) {
+    if (stats.count > 0) {
+      genreAverages.set(genre, stats.totalRatings / stats.count);
+    }
+  }
+
+  return new Map(
+    books.map((book) => {
+      const nicheGenreAverages = Array.from(new Set(book.genres))
+        .map((genre) => genreAverages.get(genre))
+        .filter((value): value is number => value != null && Number.isFinite(value));
+      const smoothingFactor =
+        nicheGenreAverages.length > 0
+          ? Math.min(...nicheGenreAverages)
+          : clampedFallback;
+
+      return [book.id, clampSmoothingFactor(smoothingFactor)] as const;
+    }),
+  );
 }
 
 export function compositeScore(bayesian: number, ...inputs: number[]) {
@@ -50,8 +96,8 @@ export type SignalWeights = {
 
 export type PredictiveWeightSample = {
   bayesian: number;
-  author: number;
-  genre: number;
+  author: number | null;
+  genre: number | null;
   target: number;
 };
 
@@ -147,30 +193,69 @@ export function learnSignalWeights(
 
 export function predictiveScore(
   bayesian: number,
-  authorPref: number,
-  genrePref: number,
+  authorPref: number | null,
+  genrePref: number | null,
   weights = DEFAULT_SIGNAL_WEIGHTS,
 ) {
-  const weightedTotal =
-    bayesian * weights.bayesian +
-    authorPref * weights.author +
-    genrePref * weights.genre;
-  const totalWeight = weights.bayesian + weights.author + weights.genre;
+  let weightedTotal = bayesian * weights.bayesian;
+  let totalWeight = weights.bayesian;
+
+  if (authorPref != null) {
+    weightedTotal += authorPref * weights.author;
+    totalWeight += weights.author;
+  }
+
+  if (genrePref != null) {
+    weightedTotal += genrePref * weights.genre;
+    totalWeight += weights.genre;
+  }
+
+  if (totalWeight <= 0) {
+    return bayesian;
+  }
 
   return weightedTotal / totalWeight;
 }
 
+type AverageTagPreferenceOptions = {
+  excludeMissing?: boolean;
+  fallback?: number | null;
+};
+
 export function averageTagPreference(
   tags: string[],
   scores: Record<string, number>,
+  options: AverageTagPreferenceOptions = {},
 ) {
+  const excludeMissing = options.excludeMissing ?? false;
+  const fallback =
+    options.fallback !== undefined ? options.fallback : excludeMissing ? null : 3;
+
   if (tags.length === 0) {
-    return 3;
+    return fallback;
   }
 
-  return (
-    tags.reduce((total, tag) => total + (scores[tag] ?? 3), 0) / tags.length
-  );
+  let total = 0;
+  let count = 0;
+
+  for (const tag of tags) {
+    if (scores[tag] != null) {
+      total += scores[tag];
+      count += 1;
+      continue;
+    }
+
+    if (!excludeMissing && fallback != null) {
+      total += fallback;
+      count += 1;
+    }
+  }
+
+  if (count === 0) {
+    return fallback;
+  }
+
+  return total / count;
 }
 
 export function tagPreferences(
@@ -294,8 +379,8 @@ export function archiveReadinessFromScores(
  */
 export function scoreBook(
   bayesian: number,
-  authorPref: number,
-  genrePref: number,
+  authorPref: number | null,
+  genrePref: number | null,
   myRating?: number,
   progress?: number,
   readCount = 0,

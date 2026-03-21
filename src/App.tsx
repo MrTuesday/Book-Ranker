@@ -23,6 +23,7 @@ import {
   type GenreInterestMap,
   type AuthorExperienceMap,
   normalizeGenreTag,
+  normalizeMoodTag,
   updateBookRecord,
   writeGenreInterest,
   writeAuthorExperience,
@@ -187,7 +188,10 @@ function buildCatalogGenres(
 }
 
 function buildCatalogMoods(result: Pick<CatalogSearchResult, "moods">) {
-  return uniqueTags(result.moods).slice(0, MAX_AUTOFILL_TOPICS);
+  return uniqueTags(result.moods.map(normalizeMoodTag)).slice(
+    0,
+    MAX_AUTOFILL_TOPICS,
+  );
 }
 
 function currentTranslateY(element: HTMLElement) {
@@ -731,7 +735,7 @@ function InterestMapView({
     const pairCounts = new Map<string, number>();
 
     for (const book of books) {
-      const tags = uniqueTags(book.genres);
+      const tags = uniqueTags(book.genres).filter((tag) => interests[tag] != null);
 
       for (const tag of tags) {
         tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
@@ -752,19 +756,6 @@ function InterestMapView({
       }
     }
 
-    // Default genre nodes shown when user has no books yet
-    const defaultGenres = [
-      "Science Fiction", "Fantasy", "Literary Fiction", "Mystery",
-      "Historical Fiction", "Romance", "Thriller", "Horror",
-      "Non-Fiction", "Philosophy", "Biography", "Self-Help",
-    ];
-
-    if (tagCounts.size === 0) {
-      for (const genre of defaultGenres) {
-        tagCounts.set(genre, 0);
-      }
-    }
-
     // Include genres from interest map that aren't on any book yet
     for (const genre of Object.keys(interests)) {
       if (!tagCounts.has(genre)) {
@@ -776,13 +767,13 @@ function InterestMapView({
       .sort(
         ([leftTag, leftCount], [rightTag, rightCount]) =>
           rightCount - leftCount ||
-          (interests[rightTag] ?? 3) - (interests[leftTag] ?? 3) ||
+          (interests[rightTag] ?? 0) - (interests[leftTag] ?? 0) ||
           leftTag.localeCompare(rightTag),
       )
       .map(([tag, count]) => ({
         tag,
         count,
-        interest: interests[tag] ?? 3,
+        interest: interests[tag] ?? 0,
       }));
 
     const selectedTags = new Set(nodes.map((node) => node.tag));
@@ -2022,6 +2013,12 @@ export default function App() {
     });
   }, []);
 
+  useEffect(() => {
+    setSelectedInterestPath((current) =>
+      current.filter((tag) => genreInterests[tag] != null),
+    );
+  }, [genreInterests]);
+
   const smoothingFactors = useMemo(
     () => buildTagSmoothingFactorMap(books),
     [books],
@@ -2036,7 +2033,9 @@ export default function App() {
           }
 
           const authorPref = averageTagPreference(book.authors, authorExperiences);
-          const genrePref = averageTagPreference(book.genres, genreInterests);
+          const genrePref = averageTagPreference(book.genres, genreInterests, {
+            excludeMissing: true,
+          });
           const R = book.starRating ?? GLOBAL_MEAN;
           const v = book.ratingCount ?? 0;
           const bScore = bayesianScore(
@@ -2064,7 +2063,9 @@ export default function App() {
       .filter((book) => !book.read)
       .map((book) => {
         const authorPref = averageTagPreference(book.authors, authorExperiences);
-        const genrePref = averageTagPreference(book.genres, genreInterests);
+        const genrePref = averageTagPreference(book.genres, genreInterests, {
+          excludeMissing: true,
+        });
         const R = book.starRating ?? GLOBAL_MEAN;
         const v = book.ratingCount ?? 0;
         const bScore = bayesianScore(
@@ -2104,7 +2105,9 @@ export default function App() {
       .filter((book) => book.read)
       .map((book) => {
         const authorPref = averageTagPreference(book.authors, authorExperiences);
-        const genrePref = averageTagPreference(book.genres, genreInterests);
+        const genrePref = averageTagPreference(book.genres, genreInterests, {
+          excludeMissing: true,
+        });
         const R = book.starRating ?? GLOBAL_MEAN;
         const v = book.ratingCount ?? 0;
         const bScore = bayesianScore(
@@ -2614,7 +2617,7 @@ export default function App() {
     if (field === "mood") {
       setDraft((current) => ({
         ...current,
-        moodInput: value,
+        moodInput: normalizeMoodTag(value),
       }));
       setActiveSuggestionField(null);
       return;
@@ -2670,7 +2673,7 @@ export default function App() {
     if (field === "mood") {
       setDraft((current) => ({
         ...current,
-        moodInput: tag,
+        moodInput: normalizeMoodTag(tag),
       }));
       setActiveSuggestionField(field);
       setActiveTagActionMenu(null);
@@ -2704,7 +2707,7 @@ export default function App() {
   function addDraftTag(field: SuggestionField, explicitValue?: string) {
     if (field === "mood") {
       setDraft((current) => {
-        const rawMood = (explicitValue ?? current.moodInput).trim();
+        const rawMood = normalizeMoodTag(explicitValue ?? current.moodInput);
 
         if (!rawMood) {
           return current;
@@ -3134,19 +3137,16 @@ export default function App() {
   }
 
   async function addGraphGenreInterest() {
-    const nextGenre = graphAddGenreInput.trim();
+    const nextGenre = normalizeGenreTag(graphAddGenreInput);
 
-    if (!nextGenre) {
+    if (!nextGenre || graphAddGenreRating == null) {
       return;
     }
 
     setErrorMessage(null);
 
     try {
-      const nextInterests = await writeGenreInterest(
-        nextGenre,
-        graphAddGenreRating ?? 3,
-      );
+      const nextInterests = await writeGenreInterest(nextGenre, graphAddGenreRating);
       setGenreInterests(nextInterests);
       setGraphAddGenreInput("");
       setGraphAddGenreRating(null);
@@ -3176,7 +3176,10 @@ export default function App() {
     setErrorMessage(null);
 
     try {
-      const nextInterests = await writeGenreInterest(tag, level ?? 3);
+      const nextInterests =
+        level == null
+          ? await deleteGenreInterest(tag)
+          : await writeGenreInterest(tag, level);
       setGenreInterests(nextInterests);
     } catch (error) {
       setErrorMessage(messageFromError(error));
@@ -3662,7 +3665,11 @@ export default function App() {
                     value={graphAddGenreInput}
                     onChange={(e) => setGraphAddGenreInput(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter" && graphAddGenreInput.trim()) {
+                      if (
+                        e.key === "Enter" &&
+                        graphAddGenreInput.trim() &&
+                        graphAddGenreRating != null
+                      ) {
                         void addGraphGenreInterest();
                       }
                     }}
@@ -3670,9 +3677,9 @@ export default function App() {
                   <button
                     type="button"
                     className="graph-add-btn"
-                    disabled={!graphAddGenreInput.trim()}
+                    disabled={!graphAddGenreInput.trim() || graphAddGenreRating == null}
                     onClick={() => {
-                      if (graphAddGenreInput.trim()) {
+                      if (graphAddGenreInput.trim() && graphAddGenreRating != null) {
                         void addGraphGenreInterest();
                       }
                     }}
@@ -4257,7 +4264,7 @@ export default function App() {
                     >
                       <input
                         type="text"
-                        placeholder="reflective"
+                        placeholder="Reflective"
                         value={draft.moodInput}
                         autoComplete="off"
                         aria-expanded={showMoodSuggestions}

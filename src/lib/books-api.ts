@@ -105,7 +105,7 @@ function requireStorage() {
   return storage;
 }
 
-export function normalizeGenreTag(value: string) {
+function normalizeTitledTag(value: string) {
   const trimmed = value.trim().replace(/\s+/g, " ");
 
   if (!trimmed) {
@@ -115,6 +115,14 @@ export function normalizeGenreTag(value: string) {
   return trimmed
     .toLocaleLowerCase()
     .replace(/(^|[\s/-])\p{L}/gu, (match) => match.toLocaleUpperCase());
+}
+
+export function normalizeGenreTag(value: string) {
+  return normalizeTitledTag(value);
+}
+
+export function normalizeMoodTag(value: string) {
+  return normalizeTitledTag(value);
 }
 
 function normalizeTagList(
@@ -227,7 +235,7 @@ function normalizeBook(value: unknown): Book | null {
   );
   const authors = normalizeTagList(book?.authors ?? book?.author);
   const genres = normalizeTagList(book?.genres ?? book?.genre, normalizeGenreTag);
-  const moods = normalizeTagList(book?.moods ?? book?.mood);
+  const moods = normalizeTagList(book?.moods ?? book?.mood, normalizeMoodTag);
 
   if (
     !title ||
@@ -376,6 +384,7 @@ function parseBookPayload(
   const moods = normalizeTagList(
     (value as Partial<{ moods: unknown; mood: unknown }>)?.moods ??
       (value as Partial<{ moods: unknown; mood: unknown }>)?.mood,
+    normalizeMoodTag,
   );
 
   return {

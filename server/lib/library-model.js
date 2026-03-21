@@ -18,7 +18,7 @@ export function cloneState(state) {
   };
 }
 
-export function normalizeGenreTag(value) {
+function normalizeTitledTag(value) {
   const trimmed = String(value ?? "").trim().replace(/\s+/g, " ");
 
   if (!trimmed) {
@@ -28,6 +28,14 @@ export function normalizeGenreTag(value) {
   return trimmed
     .toLocaleLowerCase()
     .replace(/(^|[\s/-])\p{L}/gu, (match) => match.toLocaleUpperCase());
+}
+
+export function normalizeGenreTag(value) {
+  return normalizeTitledTag(value);
+}
+
+export function normalizeMoodTag(value) {
+  return normalizeTitledTag(value);
 }
 
 function normalizeTagList(value, normalizeValue = (tag) => tag.trim()) {
@@ -127,7 +135,7 @@ export function normalizeBook(value) {
   const archivedAtYear = normalizeYear(book?.archivedAtYear);
   const authors = normalizeTagList(book?.authors ?? book?.author);
   const genres = normalizeTagList(book?.genres ?? book?.genre, normalizeGenreTag);
-  const moods = normalizeTagList(book?.moods ?? book?.mood);
+  const moods = normalizeTagList(book?.moods ?? book?.mood, normalizeMoodTag);
 
   if (
     !title ||
@@ -215,7 +223,7 @@ export function parseBookPayload(value) {
 
   const authors = normalizeTagList(value?.authors ?? value?.author);
   const genres = normalizeTagList(value?.genres ?? value?.genre, normalizeGenreTag);
-  const moods = normalizeTagList(value?.moods ?? value?.mood);
+  const moods = normalizeTagList(value?.moods ?? value?.mood, normalizeMoodTag);
 
   return {
     title,
