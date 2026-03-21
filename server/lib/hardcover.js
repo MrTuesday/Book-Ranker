@@ -1,12 +1,24 @@
 import { HttpError } from "./http.js";
 
 const DEFAULT_HARDCOVER_URL = "https://api.hardcover.app/v1/graphql";
-const DEFAULT_SEARCH_FIELDS =
-  "title,author_names,genres,tags,moods,series_names,alternative_titles";
-const DEFAULT_SEARCH_WEIGHTS = "5,2,4,4,3,1,1";
-const DEFAULT_SEARCH_SORT = "_text_match:desc,users_count:desc";
+const DEFAULT_SEARCH_BOOKS_QUERY = `
+  query SearchBooks(
+    $query: String!
+    $perPage: Int!
+    $page: Int!
+  ) {
+    search(
+      query: $query
+      query_type: "Book"
+      per_page: $perPage
+      page: $page
+    ) {
+      results
+    }
+  }
+`;
 
-const SEARCH_BOOKS_QUERY = `
+const CUSTOM_SEARCH_BOOKS_QUERY = `
   query SearchBooks(
     $query: String!
     $perPage: Int!
@@ -178,14 +190,30 @@ export function createHardcoverClient(options = {}) {
       return [];
     }
 
-    const data = await request(SEARCH_BOOKS_QUERY, {
-      query,
-      perPage: Math.max(1, Math.min(25, Number(options.perPage) || 10)),
-      page: Math.max(1, Number(options.page) || 1),
-      fields: options.fields ?? DEFAULT_SEARCH_FIELDS,
-      weights: options.weights ?? DEFAULT_SEARCH_WEIGHTS,
-      sort: options.sort ?? DEFAULT_SEARCH_SORT,
-    });
+    const perPage = Math.max(1, Math.min(25, Number(options.perPage) || 10));
+    const page = Math.max(1, Number(options.page) || 1);
+    const hasCustomSearchConfig =
+      typeof options.fields === "string" &&
+      typeof options.weights === "string" &&
+      typeof options.sort === "string";
+
+    const data = await request(
+      hasCustomSearchConfig ? CUSTOM_SEARCH_BOOKS_QUERY : DEFAULT_SEARCH_BOOKS_QUERY,
+      hasCustomSearchConfig
+        ? {
+            query,
+            perPage,
+            page,
+            fields: options.fields,
+            weights: options.weights,
+            sort: options.sort,
+          }
+        : {
+            query,
+            perPage,
+            page,
+          },
+    );
     const results = parseResults(data.search?.results);
 
     return dedupeResults(
