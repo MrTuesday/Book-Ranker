@@ -1254,33 +1254,19 @@ function InterestMapView({
         }
 
         const swaySeed = hashTag(node.tag);
-        const driftAmplitudeX = 18 + Math.min(node.degree, 12) * 1.8;
-        const driftAmplitudeY = 12 + Math.min(node.degree, 12) * 1.2;
-        const driftTargetX =
-          node.homeX +
-          Math.sin(
-            animationTimeRef.current * 0.16 + (swaySeed & 0xff) * 0.031,
-          ) * driftAmplitudeX;
-        const driftTargetY =
-          node.homeY +
-          Math.cos(
-            animationTimeRef.current * 0.13 + ((swaySeed >> 8) & 0xff) * 0.029,
-          ) * driftAmplitudeY;
-        node.restX += (driftTargetX - node.restX) * 0.028;
-        node.restY += (driftTargetY - node.restY) * 0.028;
         const swayX =
           Math.sin(animationTimeRef.current * 0.44 + (swaySeed & 0xff) * 0.027) *
-          0.012;
+          0.006;
         const swayY =
           Math.cos(
             animationTimeRef.current * 0.38 + ((swaySeed >> 8) & 0xff) * 0.025,
-          ) * 0.01;
+          ) * 0.005;
 
-        forceX[index] += (node.restX - node.x) * 0.006 + swayX;
-        forceY[index] += (node.restY - node.y) * 0.006 + swayY;
+        forceX[index] += (node.restX - node.x) * 0.01 + swayX;
+        forceY[index] += (node.restY - node.y) * 0.01 + swayY;
 
-        node.vx = (node.vx + forceX[index] * dt) * 0.9;
-        node.vy = (node.vy + forceY[index] * dt) * 0.9;
+        node.vx = (node.vx + forceX[index] * dt) * 0.88;
+        node.vy = (node.vy + forceY[index] * dt) * 0.88;
         node.x += node.vx * dt;
         node.y += node.vy * dt;
       }
@@ -1434,13 +1420,30 @@ function InterestMapView({
   const selectedPathSet = new Set(selectedPath);
   const centerX = initialLayout.width / 2;
   const centerY = initialLayout.height / 2;
+  const animationTime = animationTimeRef.current;
   const renderNodes = currentNodes.map((node, index) => {
     const labelText = editMode ? `\u270E ${shortenLabel(node.tag)}` : shortenLabel(node.tag);
     const labelWidth = estimateInterestLabelWidth(labelText);
     const orientation =
       preferredInterestLabelOrientation(node.restX - centerX, node.restY - centerY);
+    const isDragged = dragRef.current?.nodeIndex === index;
+    const driftSeed = hashTag(node.tag);
+    const visualDriftX =
+      compact || isDragged
+        ? 0
+        : Math.sin(animationTime * 0.18 + (driftSeed & 0xff) * 0.029) * 4.5;
+    const visualDriftY =
+      compact || isDragged
+        ? 0
+        : Math.cos(animationTime * 0.15 + ((driftSeed >> 8) & 0xff) * 0.031) *
+          3.2;
+    const displayNode = {
+      x: node.x + visualDriftX,
+      y: node.y + visualDriftY,
+      radius: node.radius,
+    };
     const placement = buildInterestBubblePlacement(
-      node,
+      displayNode,
       orientation,
       labelWidth,
     );
@@ -1448,6 +1451,8 @@ function InterestMapView({
     return {
       ...node,
       index,
+      x: displayNode.x,
+      y: displayNode.y,
       labelText,
       labelWidth,
       orientation,
