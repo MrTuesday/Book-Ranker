@@ -105,7 +105,22 @@ function requireStorage() {
   return storage;
 }
 
-function normalizeTagList(value: unknown) {
+export function normalizeGenreTag(value: string) {
+  const trimmed = value.trim().replace(/\s+/g, " ");
+
+  if (!trimmed) {
+    return "";
+  }
+
+  return trimmed
+    .toLocaleLowerCase()
+    .replace(/(^|[\s/-])\p{L}/gu, (match) => match.toLocaleUpperCase());
+}
+
+function normalizeTagList(
+  value: unknown,
+  normalizeValue: (value: string) => string = (tag) => tag.trim(),
+) {
   const rawValues = Array.isArray(value)
     ? value
     : typeof value === "string"
@@ -118,7 +133,7 @@ function normalizeTagList(value: unknown) {
       continue;
     }
 
-    const trimmed = rawValue.trim();
+    const trimmed = normalizeValue(rawValue);
 
     if (trimmed) {
       seen.add(trimmed);
@@ -211,7 +226,7 @@ function normalizeBook(value: unknown): Book | null {
     (book as Record<string, unknown>)?.archivedAtYear,
   );
   const authors = normalizeTagList(book?.authors ?? book?.author);
-  const genres = normalizeTagList(book?.genres ?? book?.genre);
+  const genres = normalizeTagList(book?.genres ?? book?.genre, normalizeGenreTag);
   const moods = normalizeTagList(book?.moods ?? book?.mood);
 
   if (
@@ -241,7 +256,10 @@ function normalizeBook(value: unknown): Book | null {
   };
 }
 
-function normalizeScoreMap(value: unknown) {
+function normalizeScoreMap(
+  value: unknown,
+  normalizeKey: (value: string) => string = (key) => key.trim(),
+) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return {};
   }
@@ -249,11 +267,13 @@ function normalizeScoreMap(value: unknown) {
   const result: Record<string, number> = {};
 
   for (const [key, rawValue] of Object.entries(value as Record<string, unknown>)) {
-    if (!key.trim() || !Number.isFinite(Number(rawValue))) {
+    const normalizedKey = normalizeKey(key);
+
+    if (!normalizedKey || !Number.isFinite(Number(rawValue))) {
       continue;
     }
 
-    result[key.trim()] = Math.max(0, Math.min(5, Number(rawValue)));
+    result[normalizedKey] = Math.max(0, Math.min(5, Number(rawValue)));
   }
 
   return result;
@@ -352,7 +372,7 @@ function parseBookPayload(
   );
 
   const authors = normalizeTagList(value?.authors ?? value?.author);
-  const genres = normalizeTagList(value?.genres ?? value?.genre);
+  const genres = normalizeTagList(value?.genres ?? value?.genre, normalizeGenreTag);
   const moods = normalizeTagList(
     (value as Partial<{ moods: unknown; mood: unknown }>)?.moods ??
       (value as Partial<{ moods: unknown; mood: unknown }>)?.mood,
@@ -381,9 +401,14 @@ function parseBookPayload(
   };
 }
 
-function replaceTag(tags: string[], oldValue: string, newValue: string) {
-  const oldTag = oldValue.trim();
-  const nextTag = newValue.trim();
+function replaceTag(
+  tags: string[],
+  oldValue: string,
+  newValue: string,
+  normalizeValue: (value: string) => string = (tag) => tag.trim(),
+) {
+  const oldTag = normalizeValue(oldValue);
+  const nextTag = normalizeValue(newValue);
 
   if (!oldTag) {
     return [...tags];
@@ -397,7 +422,7 @@ function replaceTag(tags: string[], oldValue: string, newValue: string) {
     return nextTag ? [nextTag] : [];
   });
 
-  return normalizeTagList(replaced);
+  return normalizeTagList(replaced, normalizeValue);
 }
 
 function readLegacyState(): Omit<LibraryState, "meta"> | null {
@@ -419,7 +444,7 @@ function readLegacyState(): Omit<LibraryState, "meta"> | null {
           .filter((book): book is Book => book !== null)
       : [];
     const genreInterests = rawGenreInterests
-      ? normalizeScoreMap(JSON.parse(rawGenreInterests))
+      ? normalizeScoreMap(JSON.parse(rawGenreInterests), normalizeGenreTag)
       : {};
     const authorExperiences = rawAuthorExperiences
       ? normalizeScoreMap(JSON.parse(rawAuthorExperiences))
@@ -635,9 +660,11 @@ export async function readGenreInterests() {
 }
 
 export async function writeGenreInterest(genre: string, interest: number) {
+  const nextGenre = normalizeGenreTag(genre);
+
   try {
     return await requestJson<GenreInterestMap>(
-      `/api/genre-interests/${encodeURIComponent(genre)}`,
+      `/api/genre-interests/${encodeURIComponent(nextGenre)}`,
       {
         method: "PUT",
         body: JSON.stringify({ interest }),
@@ -647,8 +674,6 @@ export async function writeGenreInterest(genre: string, interest: number) {
     if (!(error instanceof BackendUnavailableError)) {
       throw error;
     }
-
-    const nextGenre = genre.trim();
 
     if (!nextGenre) {
       throw new Error("Genre is required.");
@@ -661,9 +686,11 @@ export async function writeGenreInterest(genre: string, interest: number) {
 }
 
 export async function deleteGenreInterest(genre: string) {
+  const nextGenre = normalizeGenreTag(genre);
+
   try {
     return await requestJson<GenreInterestMap>(
-      `/api/genre-interests/${encodeURIComponent(genre)}`,
+      `/api/genre-interests/${encodeURIComponent(nextGenre)}`,
       {
         method: "DELETE",
       },
@@ -674,16 +701,19 @@ export async function deleteGenreInterest(genre: string) {
     }
 
     const map = readLocalGenreInterests();
-    delete map[genre.trim()];
+    delete map[nextGenre];
     return writeLocalMap(GENRE_INTEREST_KEY, map);
   }
 }
 
 export async function renameGenreInterest(oldGenre: string, newGenre: string) {
+  const oldValue = normalizeGenreTag(oldGenre);
+  const nextValue = normalizeGenreTag(newGenre);
+
   try {
     return await requestJson<GenreInterestMap>("/api/genre-interests/rename", {
       method: "POST",
-      body: JSON.stringify({ oldGenre, newGenre }),
+      body: JSON.stringify({ oldGenre: oldValue, newGenre: nextValue }),
     });
   } catch (error) {
     if (!(error instanceof BackendUnavailableError)) {
@@ -691,8 +721,6 @@ export async function renameGenreInterest(oldGenre: string, newGenre: string) {
     }
 
     const map = readLocalGenreInterests();
-    const oldValue = oldGenre.trim();
-    const nextValue = newGenre.trim();
 
     if (oldValue in map) {
       if (nextValue) {
@@ -706,10 +734,13 @@ export async function renameGenreInterest(oldGenre: string, newGenre: string) {
 }
 
 export async function renameGenreInBooks(oldGenre: string, newGenre: string) {
+  const oldValue = normalizeGenreTag(oldGenre);
+  const nextValue = normalizeGenreTag(newGenre);
+
   try {
     return await requestJson<Book[]>("/api/books/genres/rename", {
       method: "POST",
-      body: JSON.stringify({ oldGenre, newGenre }),
+      body: JSON.stringify({ oldGenre: oldValue, newGenre: nextValue }),
     });
   } catch (error) {
     if (!(error instanceof BackendUnavailableError)) {
@@ -720,7 +751,7 @@ export async function renameGenreInBooks(oldGenre: string, newGenre: string) {
     return writeLocalBooks(
       books.map((book) => ({
         ...book,
-        genres: replaceTag(book.genres, oldGenre, newGenre),
+        genres: replaceTag(book.genres, oldValue, nextValue, normalizeGenreTag),
       })),
     );
   }

@@ -22,6 +22,7 @@ import {
   type Book,
   type GenreInterestMap,
   type AuthorExperienceMap,
+  normalizeGenreTag,
   updateBookRecord,
   writeGenreInterest,
   writeAuthorExperience,
@@ -177,7 +178,9 @@ function resolvedSuggestion(
 function buildCatalogGenres(
   result: Pick<CatalogSearchResult, "genres" | "tags">,
 ) {
-  return uniqueTags([...result.genres, ...result.tags]).slice(
+  return uniqueTags(
+    [...result.genres, ...result.tags].map(normalizeGenreTag),
+  ).slice(
     0,
     MAX_AUTOFILL_TOPICS,
   );
@@ -2710,19 +2713,20 @@ export default function App() {
         : "genreInterestIsManual";
       const tagsKey = isAuthor ? "authors" : "genres";
       const scoresKey = isAuthor ? "authorScores" : "genreScores";
-      const rawTag = (explicitValue ?? current[inputKey]).trim();
+      const rawTag = explicitValue ?? current[inputKey];
+      const nextTag = isAuthor ? rawTag.trim() : normalizeGenreTag(rawTag);
 
-      if (!rawTag) {
+      if (!nextTag) {
         return current;
       }
 
       const globalScores = isAuthor ? authorExperiences : genreInterests;
       const ratingValue =
         current[ratingKey].trim() ||
-        (globalScores[rawTag] != null ? String(globalScores[rawTag]) : "");
+        (globalScores[nextTag] != null ? String(globalScores[nextTag]) : "");
 
-      if (current[tagsKey].includes(rawTag)) {
-        if (!ratingValue || current[scoresKey][rawTag] === ratingValue) {
+      if (current[tagsKey].includes(nextTag)) {
+        if (!ratingValue || current[scoresKey][nextTag] === ratingValue) {
           return {
             ...current,
             [inputKey]: "",
@@ -2735,7 +2739,7 @@ export default function App() {
           ...current,
           [scoresKey]: {
             ...current[scoresKey],
-            [rawTag]: ratingValue,
+            [nextTag]: ratingValue,
           },
           [inputKey]: "",
           [ratingKey]: "",
@@ -2743,7 +2747,7 @@ export default function App() {
         };
       }
 
-      const nextTags = uniqueTags([...current[tagsKey], rawTag]);
+      const nextTags = uniqueTags([...current[tagsKey], nextTag]);
 
       return {
         ...current,
@@ -2751,7 +2755,7 @@ export default function App() {
         [scoresKey]: ratingValue
           ? {
               ...current[scoresKey],
-              [rawTag]: ratingValue,
+              [nextTag]: ratingValue,
             }
           : current[scoresKey],
         [inputKey]: "",

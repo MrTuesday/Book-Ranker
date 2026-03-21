@@ -1,6 +1,7 @@
 import {
   markStateUpdated,
   normalizeImportedState,
+  normalizeGenreTag,
   parseBookPayload,
   replaceTag,
 } from "./library-model.js";
@@ -93,7 +94,7 @@ export async function deleteBookRecord(store, id) {
 }
 
 export async function writeGenreInterest(store, genre, interest) {
-  const nextGenre = String(genre ?? "").trim();
+  const nextGenre = normalizeGenreTag(genre);
   const nextInterest = Number(interest);
 
   if (!nextGenre) {
@@ -118,7 +119,7 @@ export async function writeGenreInterest(store, genre, interest) {
 }
 
 export async function deleteGenreInterest(store, genre) {
-  const nextGenre = String(genre ?? "").trim();
+  const nextGenre = normalizeGenreTag(genre);
   const state = await store.read();
   const nextMap = { ...state.genreInterests };
   delete nextMap[nextGenre];
@@ -133,8 +134,8 @@ export async function deleteGenreInterest(store, genre) {
 }
 
 export async function renameGenreInterest(store, oldGenre, newGenre) {
-  const oldValue = String(oldGenre ?? "").trim();
-  const nextValue = String(newGenre ?? "").trim();
+  const oldValue = normalizeGenreTag(oldGenre);
+  const nextValue = normalizeGenreTag(newGenre);
   const state = await store.read();
   const nextMap = { ...state.genreInterests };
 
@@ -155,13 +156,15 @@ export async function renameGenreInterest(store, oldGenre, newGenre) {
 }
 
 export async function renameGenreInBooks(store, oldGenre, newGenre) {
+  const oldValue = normalizeGenreTag(oldGenre);
+  const nextValue = normalizeGenreTag(newGenre);
   const state = await store.read();
   const writtenState = await store.write(
     markStateUpdated({
       ...state,
       books: state.books.map((book) => ({
         ...book,
-        genres: replaceTag(book.genres, oldGenre, newGenre),
+        genres: replaceTag(book.genres, oldValue, nextValue, normalizeGenreTag),
       })),
     }),
   );

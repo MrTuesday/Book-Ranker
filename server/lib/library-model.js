@@ -18,7 +18,19 @@ export function cloneState(state) {
   };
 }
 
-function normalizeTagList(value) {
+export function normalizeGenreTag(value) {
+  const trimmed = String(value ?? "").trim().replace(/\s+/g, " ");
+
+  if (!trimmed) {
+    return "";
+  }
+
+  return trimmed
+    .toLocaleLowerCase()
+    .replace(/(^|[\s/-])\p{L}/gu, (match) => match.toLocaleUpperCase());
+}
+
+function normalizeTagList(value, normalizeValue = (tag) => tag.trim()) {
   const rawValues = Array.isArray(value)
     ? value
     : typeof value === "string"
@@ -31,7 +43,7 @@ function normalizeTagList(value) {
       continue;
     }
 
-    const trimmed = rawValue.trim();
+    const trimmed = normalizeValue(rawValue);
 
     if (trimmed) {
       seen.add(trimmed);
@@ -114,7 +126,7 @@ export function normalizeBook(value) {
   );
   const archivedAtYear = normalizeYear(book?.archivedAtYear);
   const authors = normalizeTagList(book?.authors ?? book?.author);
-  const genres = normalizeTagList(book?.genres ?? book?.genre);
+  const genres = normalizeTagList(book?.genres ?? book?.genre, normalizeGenreTag);
   const moods = normalizeTagList(book?.moods ?? book?.mood);
 
   if (
@@ -202,7 +214,7 @@ export function parseBookPayload(value) {
   const archivedAtYear = normalizeYear(value?.archivedAtYear);
 
   const authors = normalizeTagList(value?.authors ?? value?.author);
-  const genres = normalizeTagList(value?.genres ?? value?.genre);
+  const genres = normalizeTagList(value?.genres ?? value?.genre, normalizeGenreTag);
   const moods = normalizeTagList(value?.moods ?? value?.mood);
 
   return {
@@ -228,7 +240,7 @@ export function parseBookPayload(value) {
   };
 }
 
-function normalizeScoreMap(value) {
+function normalizeScoreMap(value, normalizeKey = (key) => key.trim()) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return {};
   }
@@ -236,11 +248,13 @@ function normalizeScoreMap(value) {
   const result = {};
 
   for (const [key, rawValue] of Object.entries(value)) {
-    if (!key.trim() || !Number.isFinite(Number(rawValue))) {
+    const normalizedKey = normalizeKey(key);
+
+    if (!normalizedKey || !Number.isFinite(Number(rawValue))) {
       continue;
     }
 
-    result[key.trim()] = Math.max(0, Math.min(5, Number(rawValue)));
+    result[normalizedKey] = Math.max(0, Math.min(5, Number(rawValue)));
   }
 
   return result;
@@ -261,7 +275,7 @@ export function normalizeLibraryState(value) {
 
   return {
     books: hasBookList ? books : seedState.books,
-    genreInterests: normalizeScoreMap(value.genreInterests),
+    genreInterests: normalizeScoreMap(value.genreInterests, normalizeGenreTag),
     authorExperiences: normalizeScoreMap(value.authorExperiences),
     meta: {
       seeded: value.meta?.seeded === true,
@@ -290,14 +304,19 @@ export function normalizeImportedState(value) {
 
   return {
     books,
-    genreInterests: normalizeScoreMap(value.genreInterests),
+    genreInterests: normalizeScoreMap(value.genreInterests, normalizeGenreTag),
     authorExperiences: normalizeScoreMap(value.authorExperiences),
   };
 }
 
-export function replaceTag(tags, oldValue, newValue) {
-  const oldTag = oldValue.trim();
-  const nextTag = newValue.trim();
+export function replaceTag(
+  tags,
+  oldValue,
+  newValue,
+  normalizeValue = (tag) => tag.trim(),
+) {
+  const oldTag = normalizeValue(oldValue);
+  const nextTag = normalizeValue(newValue);
 
   if (!oldTag) {
     return [...tags];
@@ -311,7 +330,7 @@ export function replaceTag(tags, oldValue, newValue) {
     return nextTag ? [nextTag] : [];
   });
 
-  return normalizeTagList(replaced);
+  return normalizeTagList(replaced, normalizeValue);
 }
 
 export function markStateUpdated(state, overrides = {}) {
