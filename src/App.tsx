@@ -82,6 +82,7 @@ type RankedBook = Book & {
 };
 
 type SuggestionField = "author" | "genre" | "mood";
+type InterestKind = "genre" | "mood";
 type DraftTagDrag = {
   field: SuggestionField;
   tag: string;
@@ -285,6 +286,10 @@ function hashTag(value: string) {
   return hash >>> 0;
 }
 
+function buildInterestNodeId(kind: InterestKind, tag: string) {
+  return `${kind}\u0000${tag}`;
+}
+
 function sameStringList(left: string[], right: string[]) {
   if (left.length !== right.length) {
     return false;
@@ -299,8 +304,11 @@ function sameStringList(left: string[], right: string[]) {
   return true;
 }
 
-function normalizedGenreSignature(book: Book) {
-  return uniqueTags(book.genres).sort((left, right) => left.localeCompare(right));
+function normalizedInterestSignature(book: Book) {
+  return uniqueTags([
+    ...book.genres.map((tag) => buildInterestNodeId("genre", tag)),
+    ...book.moods.map((tag) => buildInterestNodeId("mood", tag)),
+  ]).sort((left, right) => left.localeCompare(right));
 }
 
 function sameGraphBooks(left: Book[], right: Book[]) {
@@ -317,8 +325,8 @@ function sameGraphBooks(left: Book[], right: Book[]) {
       return false;
     }
 
-    const leftGenres = normalizedGenreSignature(leftBook);
-    const rightGenres = normalizedGenreSignature(rightBook);
+    const leftGenres = normalizedInterestSignature(leftBook);
+    const rightGenres = normalizedInterestSignature(rightBook);
 
     if (!sameStringList(leftGenres, rightGenres)) {
       return false;
@@ -348,16 +356,16 @@ function sameInterestMap(
   return true;
 }
 
-function matchesSelectedGenres(
-  genres: string[],
-  selectedGenres: string[],
+function matchesSelectedInterests(
+  book: Pick<Book, "genres" | "moods">,
+  selectedInterests: string[],
 ) {
-  if (selectedGenres.length === 0) {
+  if (selectedInterests.length === 0) {
     return true;
   }
 
-  const genreSet = new Set(uniqueTags(genres));
-  return selectedGenres.every((genre) => genreSet.has(genre));
+  const interestSet = new Set(uniqueTags([...book.genres, ...book.moods]));
+  return selectedInterests.every((interest) => interestSet.has(interest));
 }
 
 function ProgressBar({
@@ -576,6 +584,30 @@ type InterestMapProps = {
   onEditingNodeChange?: (node: { tag: string; screenX: number; screenY: number } | null) => void;
 };
 
+type InterestMapNode =
+  | {
+      id: string;
+      tag: string;
+      kind: "genre";
+      count: number;
+      interest: number;
+    }
+  | {
+      id: string;
+      tag: string;
+      kind: "mood";
+      count: number;
+    };
+
+type PositionedInterestMapNode = InterestMapNode & {
+  degree: number;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  radius: number;
+};
+
 function InterestMapView({
   books,
   interests,
@@ -586,14 +618,26 @@ function InterestMapView({
   onEditingNodeChange,
 }: InterestMapProps) {
   const data = useMemo(() => {
-    const tagCounts = new Map<string, number>();
+    const genreCounts = new Map<string, number>();
+    const moodCounts = new Map<string, number>();
     const pairCounts = new Map<string, number>();
 
     for (const book of books) {
-      const tags = uniqueTags(book.genres);
+      const genreTags = uniqueTags(book.genres);
+      const moodTags = uniqueTags(book.moods);
+      const tags = [
+        ...genreTags.map((tag) => buildInterestNodeId("genre", tag)),
+        ...moodTags.map((tag) => buildInterestNodeId("mood", tag)),
+      ];
 
-      for (const tag of tags) {
-        tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
+      for (const tag of genreTags) {
+        const id = buildInterestNodeId("genre", tag);
+        genreCounts.set(id, (genreCounts.get(id) ?? 0) + 1);
+      }
+
+      for (const mood of moodTags) {
+        const id = buildInterestNodeId("mood", mood);
+        moodCounts.set(id, (moodCounts.get(id) ?? 0) + 1);
       }
 
       for (let index = 0; index < tags.length; index += 1) {
@@ -602,10 +646,8 @@ function InterestMapView({
           pairIndex < tags.length;
           pairIndex += 1
         ) {
-          const [left, right] = [tags[index], tags[pairIndex]].sort((a, b) =>
-            a.localeCompare(b),
-          );
-          const key = `${left}\u0000${right}`;
+          const [left, right] = [tags[index], tags[pairIndex]].sort();
+          const key = `${left}\u0001${right}`;
           pairCounts.set(key, (pairCounts.get(key) ?? 0) + 1);
         }
       }
@@ -618,51 +660,80 @@ function InterestMapView({
       "Non-Fiction", "Philosophy", "Biography", "Self-Help",
     ];
 
-    if (tagCounts.size === 0) {
+    if (genreCounts.size === 0 && moodCounts.size === 0) {
       for (const genre of defaultGenres) {
-        tagCounts.set(genre, 0);
+        genreCounts.set(buildInterestNodeId("genre", genre), 0);
       }
     }
 
     // Include genres from interest map that aren't on any book yet
     for (const genre of Object.keys(interests)) {
-      if (!tagCounts.has(genre)) {
-        tagCounts.set(genre, 0);
+      const id = buildInterestNodeId("genre", genre);
+
+      if (!genreCounts.has(id)) {
+        genreCounts.set(id, 0);
       }
     }
 
-    const nodes = Array.from(tagCounts.entries())
+    const nodes = [
+      ...Array.from(genreCounts.entries()).map(
+        ([id, count]) =>
+          ({
+            id,
+            tag: id.split("\u0000")[1] ?? "",
+            kind: "genre" as const,
+            count,
+            interest: interests[id.split("\u0000")[1] ?? ""] ?? 3,
+          }) satisfies InterestMapNode,
+      ),
+      ...Array.from(moodCounts.entries()).map(
+        ([id, count]) =>
+          ({
+            id,
+            tag: id.split("\u0000")[1] ?? "",
+            kind: "mood" as const,
+            count,
+          }) satisfies InterestMapNode,
+      ),
+    ]
       .sort(
-        ([leftTag, leftCount], [rightTag, rightCount]) =>
-          rightCount - leftCount ||
-          (interests[rightTag] ?? 3) - (interests[leftTag] ?? 3) ||
-          leftTag.localeCompare(rightTag),
-      )
-      .map(([tag, count]) => ({
-        tag,
-        count,
-        interest: interests[tag] ?? 3,
-      }));
+        (left, right) =>
+          (left.kind === right.kind
+            ? 0
+            : left.kind === "genre"
+              ? -1
+              : 1) ||
+          right.count - left.count ||
+          ((right.kind === "genre" ? right.interest : -1) -
+            (left.kind === "genre" ? left.interest : -1)) ||
+          left.tag.localeCompare(right.tag),
+      );
 
-    const selectedTags = new Set(nodes.map((node) => node.tag));
+    const selectedTags = new Set(nodes.map((node) => node.id));
     const links = Array.from(pairCounts.entries())
       .map(([key, count]) => {
-        const [source, target] = key.split("\u0000");
-        return { source, target, count };
+        const divider = key.indexOf("\u0001");
+        const sourceId = key.slice(0, divider);
+        const targetId = key.slice(divider + 1);
+        return { sourceId, targetId, count };
       })
       .filter(
-        ({ source, target }) =>
-          selectedTags.has(source) && selectedTags.has(target),
+        ({ sourceId, targetId }) =>
+          selectedTags.has(sourceId) && selectedTags.has(targetId),
       )
       .sort(
         (left, right) =>
           right.count - left.count ||
-          left.source.localeCompare(right.source) ||
-          left.target.localeCompare(right.target),
+          left.sourceId.localeCompare(right.sourceId) ||
+          left.targetId.localeCompare(right.targetId),
       );
 
     return { nodes, links };
   }, [books, interests]);
+
+  function interestValue(node: InterestMapNode | PositionedInterestMapNode) {
+    return node.kind === "genre" ? node.interest : -1;
+  }
 
   const initialLayout = useMemo(() => {
     if (data.nodes.length === 0) {
@@ -672,35 +743,35 @@ function InterestMapView({
     const degreeMap = new Map<string, number>();
 
     for (const node of data.nodes) {
-      degreeMap.set(node.tag, 0);
+      degreeMap.set(node.id, 0);
     }
 
     for (const link of data.links) {
       degreeMap.set(
-        link.source,
-        (degreeMap.get(link.source) ?? 0) + link.count,
+        link.sourceId,
+        (degreeMap.get(link.sourceId) ?? 0) + link.count,
       );
       degreeMap.set(
-        link.target,
-        (degreeMap.get(link.target) ?? 0) + link.count,
+        link.targetId,
+        (degreeMap.get(link.targetId) ?? 0) + link.count,
       );
     }
 
     const connectedNodes = [...data.nodes]
-      .filter((node) => (degreeMap.get(node.tag) ?? 0) > 0)
+      .filter((node) => (degreeMap.get(node.id) ?? 0) > 0)
       .sort(
         (left, right) =>
-          (degreeMap.get(right.tag) ?? 0) - (degreeMap.get(left.tag) ?? 0) ||
+          (degreeMap.get(right.id) ?? 0) - (degreeMap.get(left.id) ?? 0) ||
           right.count - left.count ||
-          right.interest - left.interest ||
+          interestValue(right) - interestValue(left) ||
           left.tag.localeCompare(right.tag),
       );
     const isolatedNodes = [...data.nodes]
-      .filter((node) => (degreeMap.get(node.tag) ?? 0) === 0)
+      .filter((node) => (degreeMap.get(node.id) ?? 0) === 0)
       .sort(
         (left, right) =>
           right.count - left.count ||
-          right.interest - left.interest ||
+          interestValue(right) - interestValue(left) ||
           left.tag.localeCompare(right.tag),
       );
     const rankedNodes = [...connectedNodes, ...isolatedNodes];
@@ -725,12 +796,18 @@ function InterestMapView({
     const padding = 80;
     const centerX = width / 2;
     const centerY = height / 2;
-    const maxNodeCount = Math.max(...data.nodes.map((node) => node.count), 1);
+    const maxGenreCount = Math.max(
+      ...data.nodes
+        .filter((node) => node.kind === "genre")
+        .map((node) => node.count),
+      1,
+    );
     const maxLinkCount = Math.max(...data.links.map((link) => link.count), 1);
 
     const positionedNodes = rankedNodes.map((node, index) => {
-      const seed = hashTag(node.tag);
-      const radius = 6 + (node.count / maxNodeCount) * 6;
+      const seed = hashTag(node.id);
+      const radius =
+        node.kind === "mood" ? 4 : 6 + (node.count / maxGenreCount) * 6;
       let x = centerX;
       let y = centerY;
 
@@ -756,18 +833,18 @@ function InterestMapView({
 
       return {
         ...node,
-        degree: degreeMap.get(node.tag) ?? 0,
+        degree: degreeMap.get(node.id) ?? 0,
         x,
         y,
         vx: 0,
         vy: 0,
         radius,
-      };
+      } satisfies PositionedInterestMapNode;
     });
 
     if (positionedNodes.length > 1) {
       const nodeIndex = new Map(
-        positionedNodes.map((node, index) => [node.tag, index] as const),
+        positionedNodes.map((node, index) => [node.id, index] as const),
       );
 
       for (let iteration = 0; iteration < 220; iteration += 1) {
@@ -813,8 +890,8 @@ function InterestMapView({
         }
 
         for (const link of data.links) {
-          const sourceIndex = nodeIndex.get(link.source) ?? -1;
-          const targetIndex = nodeIndex.get(link.target) ?? -1;
+          const sourceIndex = nodeIndex.get(link.sourceId) ?? -1;
+          const targetIndex = nodeIndex.get(link.targetId) ?? -1;
 
           if (sourceIndex === -1 || targetIndex === -1) {
             continue;
@@ -846,7 +923,7 @@ function InterestMapView({
           const edgeBias =
             node.degree > 0
               ? 0
-              : ((hashTag(`${node.tag}:edge`) % 3) - 1) * 0.015;
+              : ((hashTag(`${node.id}:edge`) % 3) - 1) * 0.015;
 
           node.vx =
             (node.vx +
@@ -902,7 +979,7 @@ function InterestMapView({
     }
 
     const nodeIndexMap = new Map(
-      positionedNodes.map((node, index) => [node.tag, index] as const),
+      positionedNodes.map((node, index) => [node.id, index] as const),
     );
 
     return {
@@ -916,19 +993,7 @@ function InterestMapView({
   }, [data]);
 
   // Simulation state
-  const simRef = useRef<
-    Array<{
-      tag: string;
-      count: number;
-      interest: number;
-      degree: number;
-      x: number;
-      y: number;
-      vx: number;
-      vy: number;
-      radius: number;
-    }>
-  >([]);
+  const simRef = useRef<PositionedInterestMapNode[]>([]);
   const dragRef = useRef<{
     nodeIndex: number;
     pointerId: number;
@@ -1031,8 +1096,8 @@ function InterestMapView({
 
       // Spring attraction
       for (const link of links) {
-        const si = nodeIndex.get(link.source) ?? -1;
-        const ti = nodeIndex.get(link.target) ?? -1;
+        const si = nodeIndex.get(link.sourceId) ?? -1;
+        const ti = nodeIndex.get(link.targetId) ?? -1;
 
         if (si === -1 || ti === -1) {
           continue;
@@ -1158,7 +1223,7 @@ function InterestMapView({
   if (!initialLayout) {
     return (
       <p className={`interest-map-empty${compact ? " is-compact" : ""}`}>
-        Add genre and topic tags to see how your interests connect.
+        Add genre, topic, and mood tags to see how your interests connect.
       </p>
     );
   }
@@ -1169,6 +1234,9 @@ function InterestMapView({
       ? simRef.current
       : initialLayout.nodes;
   const nodeMap = new Map(
+    currentNodes.map((node) => [node.id, node] as const),
+  );
+  const selectedNodeMap = new Map(
     currentNodes.map((node) => [node.tag, node] as const),
   );
 
@@ -1204,7 +1272,17 @@ function InterestMapView({
     data.links.length === 1 ? "1 link" : `${data.links.length} links`;
   const selectedPathSet = new Set(selectedPath);
   const highlightedLinks = data.links.filter(
-    (link) => selectedPathSet.has(link.source) && selectedPathSet.has(link.target),
+    (link) => {
+      const source = nodeMap.get(link.sourceId);
+      const target = nodeMap.get(link.targetId);
+
+      return (
+        source != null &&
+        target != null &&
+        selectedPathSet.has(source.tag) &&
+        selectedPathSet.has(target.tag)
+      );
+    },
   );
   const isSelectable = !compact && typeof onSelectTag === "function";
 
@@ -1222,7 +1300,15 @@ function InterestMapView({
     }
   }
 
-  function handleNodeClick(event: React.MouseEvent, tag: string) {
+  function handleNodeClick(
+    event: React.MouseEvent,
+    node: PositionedInterestMapNode & {
+      index: number;
+      labelX: number;
+      labelY: number;
+      labelAnchor: "middle" | "start" | "end";
+    },
+  ) {
     event.stopPropagation();
 
     if (wasDraggedRef.current) {
@@ -1231,11 +1317,14 @@ function InterestMapView({
     }
 
     if (editMode) {
+      if (node.kind !== "genre") {
+        setEditingNode(null);
+        return;
+      }
+
       // Convert SVG coordinates to screen coordinates for popover positioning
       const svg = svgRef.current;
       if (!svg) return;
-      const node = simRef.current.find((n) => n.tag === tag);
-      if (!node) return;
       const point = svg.createSVGPoint();
       point.x = node.x;
       point.y = node.y;
@@ -1243,14 +1332,14 @@ function InterestMapView({
       if (!ctm) return;
       const screenPoint = point.matrixTransform(ctm);
       setEditingNode({
-        tag,
+        tag: node.tag,
         screenX: screenPoint.x,
         screenY: screenPoint.y,
       });
       return;
     }
 
-    onSelectTag?.(tag);
+    onSelectTag?.(node.tag);
   }
 
   return (
@@ -1267,12 +1356,12 @@ function InterestMapView({
           className={`interest-map-chart${dragRef.current ? " is-dragging" : ""}`}
           preserveAspectRatio="xMidYMid slice"
           viewBox={`0 0 ${initialLayout.width} ${initialLayout.height}`}
-          aria-label="Interest graph showing how genre and topic tags connect across your books"
+          aria-label="Interest graph showing how genre, topic, and mood tags connect across your books"
           onClick={!compact ? handleSvgClick : undefined}
         >
           {data.links.map((link) => {
-            const source = nodeMap.get(link.source);
-            const target = nodeMap.get(link.target);
+            const source = nodeMap.get(link.sourceId);
+            const target = nodeMap.get(link.targetId);
 
             if (!source || !target) {
               return null;
@@ -1289,7 +1378,7 @@ function InterestMapView({
             const endY = target.y - unitY * (target.radius + 1);
 
             return (
-              <g key={`${link.source}-${link.target}`}>
+              <g key={`${link.sourceId}-${link.targetId}`}>
                 <line
                   x1={startX}
                   y1={startY}
@@ -1308,8 +1397,8 @@ function InterestMapView({
             );
           })}
           {highlightedLinks.map((link) => {
-            const source = nodeMap.get(link.source);
-            const target = nodeMap.get(link.target);
+            const source = nodeMap.get(link.sourceId);
+            const target = nodeMap.get(link.targetId);
 
             if (!source || !target) {
               return null;
@@ -1327,7 +1416,7 @@ function InterestMapView({
 
             return (
               <line
-                key={`highlight:${link.source}:${link.target}`}
+                key={`highlight:${link.sourceId}:${link.targetId}`}
                 x1={startX}
                 y1={startY}
                 x2={endX}
@@ -1342,8 +1431,8 @@ function InterestMapView({
           {selectedPath.length >= 2 &&
             selectedPath.flatMap((a, i) =>
               selectedPath.slice(i + 1).map((b) => {
-                const source = nodeMap.get(a);
-                const target = nodeMap.get(b);
+                const source = selectedNodeMap.get(a);
+                const target = selectedNodeMap.get(b);
                 if (!source || !target) return null;
 
                 const dx = target.x - source.x;
@@ -1372,11 +1461,11 @@ function InterestMapView({
             )}
           {renderNodes.map((node) => (
             <g
-              key={node.tag}
+              key={node.id}
               className={`interest-map-node${isSelectable ? " is-selectable" : ""}${selectedPathSet.has(node.tag) ? " is-selected" : ""}`}
               onClick={
                 onSelectTag
-                  ? (event: React.MouseEvent) => handleNodeClick(event, node.tag)
+                  ? (event: React.MouseEvent) => handleNodeClick(event, node)
                   : undefined
               }
               onPointerDown={
@@ -1390,14 +1479,26 @@ function InterestMapView({
                   : undefined
               }
             >
-              <title>{`${node.tag}: ${node.count} book${node.count === 1 ? "" : "s"}, interest ${node.interest}/5`}</title>
+              <title>
+                {node.kind === "genre"
+                  ? `${node.tag}: ${node.count} book${node.count === 1 ? "" : "s"}, interest ${node.interest}/5`
+                  : `${node.tag}: ${node.count} book${node.count === 1 ? "" : "s"}, mood`}
+              </title>
               {selectedPathSet.has(node.tag) ? (
                 <circle
                   cx={node.x}
                   cy={node.y}
-                  r={node.radius + 5}
-                  fill="rgba(180, 83, 9, 0.12)"
-                  stroke="rgba(180, 83, 9, 0.7)"
+                  r={node.radius + (node.kind === "mood" ? 3 : 5)}
+                  fill={
+                    node.kind === "mood"
+                      ? "rgba(180, 83, 9, 0.08)"
+                      : "rgba(180, 83, 9, 0.12)"
+                  }
+                  stroke={
+                    node.kind === "mood"
+                      ? "rgba(180, 83, 9, 0.46)"
+                      : "rgba(180, 83, 9, 0.7)"
+                  }
                   strokeWidth="2"
                 />
               ) : null}
@@ -1405,11 +1506,23 @@ function InterestMapView({
                 cx={node.x}
                 cy={node.y}
                 r={node.radius}
-                fill={selectedPathSet.has(node.tag) ? "rgba(180, 83, 9, 0.85)" : "rgba(180, 83, 9, 0.55)"}
-                stroke="rgba(180, 83, 9, 0.3)"
+                fill={
+                  node.kind === "mood"
+                    ? selectedPathSet.has(node.tag)
+                      ? "rgba(180, 83, 9, 0.42)"
+                      : "rgba(180, 83, 9, 0.22)"
+                    : selectedPathSet.has(node.tag)
+                      ? "rgba(180, 83, 9, 0.85)"
+                      : "rgba(180, 83, 9, 0.55)"
+                }
+                stroke={
+                  node.kind === "mood"
+                    ? "rgba(180, 83, 9, 0.14)"
+                    : "rgba(180, 83, 9, 0.3)"
+                }
                 strokeWidth="1"
               />
-              {node.count > 0 ? (
+              {node.kind === "genre" && node.count > 0 ? (
                 <text
                   className="interest-map-score"
                   x={node.x}
@@ -1426,7 +1539,7 @@ function InterestMapView({
               ) : null}
               {!compact ? (
                 <text
-                  className="interest-map-label"
+                  className={`interest-map-label${node.kind === "mood" ? " is-mood" : ""}`}
                   x={node.labelX}
                   y={node.labelY}
                   textAnchor={node.labelAnchor}
@@ -1441,7 +1554,7 @@ function InterestMapView({
       {!compact ? (
         <p className="interest-map-note">
           {hasLinks
-            ? "Lines connect interests that appear together on the same book. Drag nodes to rearrange."
+            ? "Lines connect genres, topics, and moods that appear together on the same book. Drag nodes to rearrange."
             : "Your current books do not connect any two interests yet."}
         </p>
       ) : null}
@@ -1845,7 +1958,7 @@ export default function App() {
   const visibleRankedBooks = useMemo(
     () =>
       rankedBooks.filter((book) =>
-        matchesSelectedGenres(book.genres, selectedInterestPath),
+        matchesSelectedInterests(book, selectedInterestPath),
       ),
     [rankedBooks, selectedInterestPath],
   );
@@ -1853,7 +1966,7 @@ export default function App() {
   const visibleReadBooks = useMemo(
     () =>
       readBooks.filter((book) =>
-        matchesSelectedGenres(book.genres, selectedInterestPath),
+        matchesSelectedInterests(book, selectedInterestPath),
       ),
     [readBooks, selectedInterestPath],
   );
@@ -3947,7 +4060,7 @@ export default function App() {
                     >
                       <input
                         type="text"
-                        placeholder="Melancholic"
+                        placeholder="reflective"
                         value={draft.moodInput}
                         autoComplete="off"
                         aria-expanded={showMoodSuggestions}
