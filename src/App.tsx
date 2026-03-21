@@ -742,13 +742,6 @@ function InterestMapView({
       }
     }
 
-    // Include genres from interest map that aren't on any book yet
-    for (const genre of Object.keys(interests)) {
-      if (!tagCounts.has(genre)) {
-        tagCounts.set(genre, 0);
-      }
-    }
-
     const nodes = Array.from(tagCounts.entries())
       .sort(
         ([leftTag, leftCount], [rightTag, rightCount]) =>
@@ -2000,10 +1993,16 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    setSelectedInterestPath((current) =>
-      current.filter((tag) => genreInterests[tag] != null),
+    const visibleGraphTags = new Set(
+      books.flatMap((book) =>
+        uniqueTags(book.genres).filter((tag) => genreInterests[tag] != null),
+      ),
     );
-  }, [genreInterests]);
+
+    setSelectedInterestPath((current) =>
+      current.filter((tag) => visibleGraphTags.has(tag)),
+    );
+  }, [books, genreInterests]);
 
   const smoothingFactors = useMemo(
     () => buildTagSmoothingFactorMap(books),
