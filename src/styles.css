@@ -1307,12 +1307,20 @@ select:focus {
 }
 
 .ranking-progress-row {
+    display: grid;
+    align-items: center;
     min-width: 0;
     grid-column: 1 / -1;
 }
 
-.ranking-row.is-read .ranking-progress-row.has-rank {
-    grid-column: 2 / -1;
+.ranking-progress-row.has-rank {
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: 6px;
+}
+
+.ranking-progress-spacer {
+    visibility: hidden;
+    pointer-events: none;
 }
 
 .ranking-info h3 {
@@ -1710,8 +1718,8 @@ select:focus {
     margin-top: 2px;
 }
 
-.ranking-row:not(.is-read) .ranking-body .reading-progress {
-    padding-left: 34px;
+.ranking-progress-row.has-rank .reading-progress {
+    grid-column: 2;
 }
 
 .reading-progress-track {

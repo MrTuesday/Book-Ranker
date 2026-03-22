@@ -2825,6 +2825,14 @@ export default function App() {
   }, [draft.genreInput, draft.genres, knownGenres]);
 
   const resetDraft = useCallback(() => {
+    const activeElement = document.activeElement;
+    if (
+      activeElement instanceof HTMLElement &&
+      activeElement.closest(".ranking-row")
+    ) {
+      activeElement.blur();
+    }
+
     titleSearchRequestRef.current += 1;
     setDraft(createDraft());
     setEditingBookId(null);

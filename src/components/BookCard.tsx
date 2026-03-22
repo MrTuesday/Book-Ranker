@@ -143,6 +143,11 @@ export function BookCard({
             <div
               className={`ranking-progress-row${rank != null ? " has-rank" : ""}`}
             >
+              {rank != null ? (
+                <div className="rank-badge ranking-progress-spacer" aria-hidden="true">
+                  #{rank}
+                </div>
+              ) : null}
               {progressBar}
             </div>
           ) : null}
