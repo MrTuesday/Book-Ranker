@@ -1,3 +1,4 @@
+import { buildCatalogIdentityKey, type CatalogBook } from "./catalog-memory";
 import type { Book } from "./books-api";
 import { buildSiteBookAggregates, type SiteBookAggregate } from "./site-books";
 
@@ -34,6 +35,12 @@ function normalizeSearchValue(value: string) {
   return value.trim().toLocaleLowerCase().replace(/\s+/g, " ");
 }
 
+function uniqueStrings(values: string[]) {
+  return Array.from(
+    new Set(values.map((value) => value.trim()).filter((value) => value.length > 0)),
+  );
+}
+
 function toSiteCatalogResult(book: SiteBookAggregate): SiteCatalogResult {
   return {
     id: book.id,
@@ -50,6 +57,53 @@ function toSiteCatalogResult(book: SiteBookAggregate): SiteCatalogResult {
     usersCount: book.sourceBookIds.length,
     hasUnreadEntry: book.hasUnreadEntry,
     sourceBookIds: [...book.sourceBookIds],
+  };
+}
+
+function toMemoryCatalogResult(book: CatalogBook): SiteCatalogResult {
+  const identityKey = buildCatalogIdentityKey(book);
+
+  return {
+    id: `site:${identityKey}`,
+    title: book.title,
+    ...(book.series ? { series: book.series } : {}),
+    ...(book.seriesNumber != null ? { seriesNumber: book.seriesNumber } : {}),
+    authors: [...book.authors],
+    genres: [...book.genres],
+    tags: [],
+    moods: [],
+    topics: [...book.genres],
+    hasUnreadEntry: false,
+    sourceBookIds: [],
+  };
+}
+
+function mergeCatalogResult(
+  current: SiteCatalogResult,
+  incoming: SiteCatalogResult,
+): SiteCatalogResult {
+  return {
+    ...current,
+    title: incoming.title,
+    ...(incoming.series || current.series
+      ? { series: incoming.series ?? current.series }
+      : {}),
+    ...(incoming.seriesNumber != null || current.seriesNumber != null
+      ? { seriesNumber: incoming.seriesNumber ?? current.seriesNumber }
+      : {}),
+    authors:
+      incoming.authors.length > 0
+        ? uniqueStrings(incoming.authors)
+        : uniqueStrings(current.authors),
+    genres: uniqueStrings([...current.genres, ...incoming.genres]),
+    topics: uniqueStrings([...current.topics, ...incoming.topics]),
+    averageRating: current.averageRating ?? incoming.averageRating,
+    ratingsCount: current.ratingsCount ?? incoming.ratingsCount,
+    usersCount: current.usersCount ?? incoming.usersCount,
+    hasUnreadEntry: current.hasUnreadEntry || incoming.hasUnreadEntry,
+    sourceBookIds: Array.from(
+      new Set([...current.sourceBookIds, ...incoming.sourceBookIds]),
+    ),
   };
 }
 
@@ -93,10 +147,40 @@ export function buildSiteCatalogResults(books: Book[]) {
   return buildSiteBookAggregates(books).map(toSiteCatalogResult);
 }
 
+export function buildCatalogResults(
+  books: Book[],
+  catalogBooks: CatalogBook[] = [],
+) {
+  const byIdentity = new Map<string, SiteCatalogResult>();
+
+  for (const result of buildSiteCatalogResults(books)) {
+    const identityKey = buildCatalogIdentityKey({
+      title: result.title,
+      authors: result.authors,
+    });
+
+    byIdentity.set(identityKey, result);
+  }
+
+  for (const catalogBook of catalogBooks) {
+    const identityKey = buildCatalogIdentityKey(catalogBook);
+    const nextResult = toMemoryCatalogResult(catalogBook);
+    const current = byIdentity.get(identityKey);
+
+    byIdentity.set(
+      identityKey,
+      current ? mergeCatalogResult(current, nextResult) : nextResult,
+    );
+  }
+
+  return Array.from(byIdentity.values());
+}
+
 export function searchCatalog(
   books: Book[],
   query: string,
   limit = 10,
+  catalogBooks: CatalogBook[] = [],
 ): CatalogSearchResponse {
   const normalizedQuery = normalizeSearchValue(query);
 
@@ -108,7 +192,7 @@ export function searchCatalog(
     };
   }
 
-  const results = buildSiteCatalogResults(books)
+  const results = buildCatalogResults(books, catalogBooks)
     .map((result) => ({
       result,
       matchScore: catalogMatchScore(result, normalizedQuery),

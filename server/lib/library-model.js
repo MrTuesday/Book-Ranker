@@ -1,4 +1,9 @@
 import { createSeedState } from "./seed-state.js";
+import {
+  cloneCatalogBooks,
+  normalizeCatalogBook,
+  upsertCatalogBooks,
+} from "./catalog-memory.js";
 
 function cloneBooks(books) {
   return books.map((book) => ({
@@ -12,6 +17,7 @@ function cloneBooks(books) {
 export function cloneState(state) {
   return {
     books: cloneBooks(state.books),
+    catalogBooks: cloneCatalogBooks(state.catalogBooks ?? []),
     genreInterests: { ...state.genreInterests },
     authorExperiences: { ...state.authorExperiences },
     seriesExperiences: { ...(state.seriesExperiences ?? {}) },
@@ -331,9 +337,20 @@ export function normalizeLibraryState(value) {
   const books = rawBooks
     .map(normalizeBook)
     .filter((book) => book !== null);
+  const rawCatalogBooks = Array.isArray(value.catalogBooks) ? value.catalogBooks : [];
+  const catalogBooks = upsertCatalogBooks(
+    rawCatalogBooks
+      .map(normalizeCatalogBook)
+      .filter((book) => book !== null),
+    books,
+  );
 
   return {
     books: hasBookList ? books : seedState.books,
+    catalogBooks:
+      rawCatalogBooks.length > 0 || hasBookList
+        ? catalogBooks
+        : seedState.catalogBooks,
     genreInterests: normalizeScoreMap(value.genreInterests, normalizeGenreTag),
     authorExperiences: normalizeScoreMap(value.authorExperiences),
     seriesExperiences: normalizeScoreMap(value.seriesExperiences),
@@ -357,6 +374,7 @@ export function normalizeImportedState(value) {
   const books = rawBooks
     .map(normalizeBook)
     .filter((book) => book !== null);
+  const rawCatalogBooks = Array.isArray(value.catalogBooks) ? value.catalogBooks : [];
 
   if (books.length === 0) {
     throw new Error("Library import payload must include at least one book.");
@@ -364,6 +382,7 @@ export function normalizeImportedState(value) {
 
   return {
     books,
+    catalogBooks: upsertCatalogBooks(rawCatalogBooks, books),
     genreInterests: normalizeScoreMap(value.genreInterests, normalizeGenreTag),
     authorExperiences: normalizeScoreMap(value.authorExperiences),
     seriesExperiences: normalizeScoreMap(value.seriesExperiences),

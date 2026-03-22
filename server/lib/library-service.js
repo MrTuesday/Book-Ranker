@@ -5,6 +5,7 @@ import {
   parseBookPayload,
   replaceTag,
 } from "./library-model.js";
+import { upsertCatalogBooks } from "./catalog-memory.js";
 
 export async function getLibraryState(store) {
   return store.read();
@@ -20,6 +21,7 @@ export async function importLibraryState(store, payload) {
       genres: [...book.genres],
       moods: [...book.moods],
     })),
+    catalogBooks: imported.catalogBooks,
     genreInterests: { ...imported.genreInterests },
     authorExperiences: { ...imported.authorExperiences },
     seriesExperiences: { ...(imported.seriesExperiences ?? {}) },
@@ -38,6 +40,7 @@ export async function createBookRecord(store, payload) {
 
   const nextState = markStateUpdated({
     ...state,
+    catalogBooks: upsertCatalogBooks(state.catalogBooks ?? [], [nextBook]),
     books: [
       ...state.books,
       {
@@ -65,6 +68,7 @@ export async function updateBookRecord(store, id, payload) {
 
   const nextState = markStateUpdated({
     ...state,
+    catalogBooks: upsertCatalogBooks(state.catalogBooks ?? [], [nextBook]),
     books: state.books.map((book) =>
       book.id === id ? { id: book.id, ...nextBook } : book,
     ),
@@ -88,6 +92,7 @@ export async function deleteBookRecord(store, id) {
   const writtenState = await store.write(
     markStateUpdated({
       ...state,
+      catalogBooks: [...(state.catalogBooks ?? [])],
       books: nextBooks,
     }),
   );
@@ -160,13 +165,15 @@ export async function renameGenreInBooks(store, oldGenre, newGenre) {
   const oldValue = normalizeGenreTag(oldGenre);
   const nextValue = normalizeGenreTag(newGenre);
   const state = await store.read();
+  const nextBooks = state.books.map((book) => ({
+    ...book,
+    genres: replaceTag(book.genres, oldValue, nextValue, normalizeGenreTag),
+  }));
   const writtenState = await store.write(
     markStateUpdated({
       ...state,
-      books: state.books.map((book) => ({
-        ...book,
-        genres: replaceTag(book.genres, oldValue, nextValue, normalizeGenreTag),
-      })),
+      catalogBooks: upsertCatalogBooks(state.catalogBooks ?? [], nextBooks),
+      books: nextBooks,
     }),
   );
   return writtenState.books;
@@ -276,13 +283,15 @@ export async function renameAuthorExperience(store, oldAuthor, newAuthor) {
 
 export async function renameAuthorInBooks(store, oldAuthor, newAuthor) {
   const state = await store.read();
+  const nextBooks = state.books.map((book) => ({
+    ...book,
+    authors: replaceTag(book.authors, oldAuthor, newAuthor),
+  }));
   const writtenState = await store.write(
     markStateUpdated({
       ...state,
-      books: state.books.map((book) => ({
-        ...book,
-        authors: replaceTag(book.authors, oldAuthor, newAuthor),
-      })),
+      catalogBooks: upsertCatalogBooks(state.catalogBooks ?? [], nextBooks),
+      books: nextBooks,
     }),
   );
   return writtenState.books;

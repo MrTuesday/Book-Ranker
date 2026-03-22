@@ -1,3 +1,5 @@
+import { upsertCatalogBooks } from "./catalog-memory.js";
+
 const seededBooks = [
   {
     id: 1,
@@ -150,6 +152,7 @@ function cloneBooks(books) {
 export function createSeedState() {
   return {
     books: cloneBooks(seededBooks),
+    catalogBooks: upsertCatalogBooks([], seededBooks),
     genreInterests: {},
     authorExperiences: {},
     seriesExperiences: {},

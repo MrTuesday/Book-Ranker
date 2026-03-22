@@ -54,6 +54,7 @@ import {
   searchCatalog,
   type CatalogSearchResult,
 } from "./lib/catalog-api";
+import { type CatalogBook, upsertCatalogBooks } from "./lib/catalog-memory";
 import { BookCard } from "./components/BookCard";
 
 type BookDraft = {
@@ -2160,6 +2161,7 @@ const InterestMap = memo(
 export default function App() {
   const currentYear = new Date().getFullYear();
   const [books, setBooks] = useState<Book[]>([]);
+  const [catalogBooks, setCatalogBooks] = useState<CatalogBook[]>([]);
   const [draft, setDraft] = useState<BookDraft>(createDraft());
   const [editingBookId, setEditingBookId] = useState<number | null>(null);
   const [scrollToForm, setScrollToForm] = useState(false);
@@ -2241,6 +2243,7 @@ export default function App() {
     (nextBooks: Book[]) => {
       pendingBookRectsRef.current = captureVisibleBookRects();
       setBooks(nextBooks);
+      setCatalogBooks((current) => upsertCatalogBooks(current, nextBooks));
     },
     [captureVisibleBookRects],
   );
@@ -2427,6 +2430,7 @@ export default function App() {
         const savedLibrary = await fetchLibraryState();
         if (isActive) {
           setBooks(savedLibrary.books);
+          setCatalogBooks(savedLibrary.catalogBooks);
           setGenreInterests(savedLibrary.genreInterests);
           setAuthorExperiences(savedLibrary.authorExperiences);
           setSeriesExperiences(savedLibrary.seriesExperiences ?? {});
@@ -2882,7 +2886,12 @@ export default function App() {
     setCatalogError(null);
 
     const debounce = window.setTimeout(async () => {
-      const response = searchCatalog(books, query, TITLE_SUGGESTION_FETCH_LIMIT);
+      const response = searchCatalog(
+        books,
+        query,
+        TITLE_SUGGESTION_FETCH_LIMIT,
+        catalogBooks,
+      );
 
       if (cancelled || titleSearchRequestRef.current !== requestId) {
         return;
@@ -2900,7 +2909,13 @@ export default function App() {
       cancelled = true;
       window.clearTimeout(debounce);
     };
-  }, [books, draft.title, isTitleSuggestionActive, selectedCatalogBookId]);
+  }, [
+    books,
+    catalogBooks,
+    draft.title,
+    isTitleSuggestionActive,
+    selectedCatalogBookId,
+  ]);
 
   function updateDraft(field: DraftTextField, value: string) {
     if (field === "title" || field === "subtitle") {
@@ -3230,11 +3245,11 @@ export default function App() {
         starRating:
           result.averageRating != null
             ? formatCatalogRating(result.averageRating)
-            : baseDraft.starRating,
+            : "",
         ratingCount:
           result.ratingsCount != null
             ? formatCatalogRatingCount(result.ratingsCount)
-            : baseDraft.ratingCount,
+            : "",
       };
     });
 

@@ -1,3 +1,9 @@
+import {
+  cloneCatalogBooks,
+  normalizeCatalogBook,
+  type CatalogBook,
+  upsertCatalogBooks,
+} from "./catalog-memory";
 import { applySiteRatingStats } from "./site-books";
 
 export type Book = {
@@ -29,6 +35,7 @@ export type SeriesExperienceMap = Record<string, number>;
 
 export type LibraryState = {
   books: Book[];
+  catalogBooks: CatalogBook[];
   genreInterests: GenreInterestMap;
   authorExperiences: AuthorExperienceMap;
   seriesExperiences: SeriesExperienceMap;
@@ -67,6 +74,7 @@ function normalizeSeriesNumber(value: unknown) {
 }
 
 const STORAGE_KEY = "book-ranker.books.v1";
+const CATALOG_STORAGE_KEY = "book-ranker.catalog-books.v1";
 const GENRE_INTEREST_KEY = "book-ranker.genre-interests.v1";
 const AUTHOR_EXP_KEY = "book-ranker.author-experiences.v1";
 const SERIES_EXP_KEY = "book-ranker.series-experiences.v1";
@@ -359,8 +367,10 @@ function cloneBooks(books: Book[]) {
 function localLibraryState(
   overrides: Partial<Omit<LibraryState, "meta">> = {},
 ): LibraryState {
+  const books = cloneBooks(overrides.books ?? []);
   return {
-    books: cloneBooks(overrides.books ?? []),
+    books,
+    catalogBooks: upsertCatalogBooks(overrides.catalogBooks ?? [], books),
     genreInterests: { ...(overrides.genreInterests ?? {}) },
     authorExperiences: { ...(overrides.authorExperiences ?? {}) },
     seriesExperiences: { ...(overrides.seriesExperiences ?? {}) },
@@ -519,6 +529,7 @@ function readLegacyState(): Omit<LibraryState, "meta"> | null {
 
   try {
     const rawBooks = storage.getItem(STORAGE_KEY);
+    const rawCatalogBooks = storage.getItem(CATALOG_STORAGE_KEY);
     const rawGenreInterests = storage.getItem(GENRE_INTEREST_KEY);
     const rawAuthorExperiences = storage.getItem(AUTHOR_EXP_KEY);
     const rawSeriesExperiences = storage.getItem(SERIES_EXP_KEY);
@@ -529,6 +540,17 @@ function readLegacyState(): Omit<LibraryState, "meta"> | null {
           .map(normalizeBook)
           .filter((book): book is Book => book !== null)
       : [];
+    const parsedCatalogBooks = rawCatalogBooks
+      ? (JSON.parse(rawCatalogBooks) as unknown)
+      : [];
+    const catalogBooks = upsertCatalogBooks(
+      Array.isArray(parsedCatalogBooks)
+        ? parsedCatalogBooks
+            .map(normalizeCatalogBook)
+            .filter((book): book is CatalogBook => book !== null)
+        : [],
+      books,
+    );
     const genreInterests = rawGenreInterests
       ? normalizeScoreMap(JSON.parse(rawGenreInterests), normalizeGenreTag)
       : {};
@@ -541,6 +563,7 @@ function readLegacyState(): Omit<LibraryState, "meta"> | null {
 
     if (
       books.length === 0 &&
+      catalogBooks.length === 0 &&
       Object.keys(genreInterests).length === 0 &&
       Object.keys(authorExperiences).length === 0 &&
       Object.keys(seriesExperiences).length === 0
@@ -550,6 +573,7 @@ function readLegacyState(): Omit<LibraryState, "meta"> | null {
 
     return {
       books,
+      catalogBooks,
       genreInterests,
       authorExperiences,
       seriesExperiences,
@@ -567,11 +591,16 @@ function sameLibraryData(
   left: Omit<LibraryState, "meta">,
   right: Pick<
     LibraryState,
-    "books" | "genreInterests" | "authorExperiences" | "seriesExperiences"
+    | "books"
+    | "catalogBooks"
+    | "genreInterests"
+    | "authorExperiences"
+    | "seriesExperiences"
   >,
 ) {
   return (
     JSON.stringify(left.books) === JSON.stringify(right.books) &&
+    JSON.stringify(left.catalogBooks) === JSON.stringify(right.catalogBooks) &&
     JSON.stringify(stableMapEntries(left.genreInterests)) ===
       JSON.stringify(stableMapEntries(right.genreInterests)) &&
     JSON.stringify(stableMapEntries(left.authorExperiences)) ===
@@ -598,8 +627,19 @@ function writeLocalBooks(books: Book[]) {
   return nextBooks;
 }
 
+function writeLocalCatalogBooks(catalogBooks: CatalogBook[]) {
+  const storage = requireStorage();
+  const nextCatalogBooks = cloneCatalogBooks(catalogBooks);
+  storage.setItem(CATALOG_STORAGE_KEY, JSON.stringify(nextCatalogBooks));
+  return nextCatalogBooks;
+}
+
 function readLocalBooks() {
   return readLocalLibraryState().books;
+}
+
+function readLocalCatalogBooks() {
+  return readLocalLibraryState().catalogBooks;
 }
 
 function writeLocalMap(storageKey: string, nextMap: Record<string, number>) {
@@ -665,6 +705,7 @@ function withNativeRatingStats(
 
   if (options.persistLocal && getStorage()) {
     writeLocalBooks(nextBooks);
+    writeLocalCatalogBooks(libraryState.catalogBooks);
   }
 
   return {
@@ -722,7 +763,10 @@ export async function createBookRecord(payload: BookPayload) {
 
     const nextBook = parseBookPayload(sanitizedPayload);
     const books = readLocalBooks();
+    const catalogBooks = readLocalCatalogBooks();
     const nextId = books.reduce((maxId, book) => Math.max(maxId, book.id), 0) + 1;
+    const nextCatalogBooks = upsertCatalogBooks(catalogBooks, [nextBook]);
+    writeLocalCatalogBooks(nextCatalogBooks);
 
     return writeLocalBooks(
       applySiteRatingStats([
@@ -757,11 +801,14 @@ export async function updateBookRecord(id: number, payload: BookPayload) {
 
     const nextBook = parseBookPayload(sanitizedPayload);
     const books = readLocalBooks();
+    const catalogBooks = readLocalCatalogBooks();
     const hasMatch = books.some((book) => book.id === id);
 
     if (!hasMatch) {
       throw new Error("Book not found.");
     }
+
+    writeLocalCatalogBooks(upsertCatalogBooks(catalogBooks, [nextBook]));
 
     return writeLocalBooks(
       applySiteRatingStats(
@@ -794,6 +841,7 @@ export async function deleteBookRecord(id: number) {
       throw new Error("Book not found.");
     }
 
+    writeLocalCatalogBooks(readLocalCatalogBooks());
     return writeLocalBooks(applySiteRatingStats(nextBooks));
   }
 }
@@ -894,14 +942,12 @@ export async function renameGenreInBooks(oldGenre: string, newGenre: string) {
     }
 
     const books = readLocalBooks();
-    return writeLocalBooks(
-      applySiteRatingStats(
-        books.map((book) => ({
-          ...book,
-          genres: replaceTag(book.genres, oldValue, nextValue, normalizeGenreTag),
-        })),
-      ),
-    );
+    const nextBooks = books.map((book) => ({
+      ...book,
+      genres: replaceTag(book.genres, oldValue, nextValue, normalizeGenreTag),
+    }));
+    writeLocalCatalogBooks(upsertCatalogBooks(readLocalCatalogBooks(), nextBooks));
+    return writeLocalBooks(applySiteRatingStats(nextBooks));
   }
 }
 
@@ -1050,13 +1096,11 @@ export async function renameAuthorInBooks(oldAuthor: string, newAuthor: string) 
     }
 
     const books = readLocalBooks();
-    return writeLocalBooks(
-      applySiteRatingStats(
-        books.map((book) => ({
-          ...book,
-          authors: replaceTag(book.authors, oldAuthor, newAuthor),
-        })),
-      ),
-    );
+    const nextBooks = books.map((book) => ({
+      ...book,
+      authors: replaceTag(book.authors, oldAuthor, newAuthor),
+    }));
+    writeLocalCatalogBooks(upsertCatalogBooks(readLocalCatalogBooks(), nextBooks));
+    return writeLocalBooks(applySiteRatingStats(nextBooks));
   }
 }
