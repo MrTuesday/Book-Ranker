@@ -1200,11 +1200,6 @@ select:focus {
     opacity: 0.45;
 }
 
-.ranking-row.is-leader {
-    border-color: rgba(180, 83, 9, 0.18);
-    background: rgba(255, 251, 245, 0.82);
-}
-
 .ranking-row.is-recently-added {
     animation: rankingRowReveal 2.4s ease;
     scroll-margin-block: 32px;

@@ -4190,7 +4190,6 @@ export default function App() {
                     rankClass={rankClass}
                     className={[
                       isEditingBook ? "is-editing" : "",
-                      book.rank === 1 ? "is-leader" : "",
                       highlightedBookId === book.id ? "is-recently-added" : "",
                     ]
                       .filter(Boolean)
