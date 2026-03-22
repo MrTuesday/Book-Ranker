@@ -1908,10 +1908,40 @@ function InterestMapView({
     data.nodes.length === 1 ? "1 interest" : `${data.nodes.length} interests`;
   const connectionLabel =
     data.links.length === 1 ? "1 link" : `${data.links.length} links`;
-  const highlightedLinks = data.links.filter(
-    (link) => selectedPathSet.has(link.source) && selectedPathSet.has(link.target),
-  );
+  const hasActiveSelection = selectedPathSet.size > 0;
+  const connectedNodeTags = new Set(selectedPath);
+  const connectedLinks = hasActiveSelection
+    ? data.links.filter((link) => {
+        const touchesSelection =
+          selectedPathSet.has(link.source) || selectedPathSet.has(link.target);
+
+        if (touchesSelection) {
+          connectedNodeTags.add(link.source);
+          connectedNodeTags.add(link.target);
+        }
+
+        return touchesSelection;
+      })
+    : [];
   const isSelectable = !compact && typeof onSelectTag === "function";
+
+  function buildLinkSegment(
+    source: { x: number; y: number; radius: number },
+    target: { x: number; y: number; radius: number },
+  ) {
+    const dx = target.x - source.x;
+    const dy = target.y - source.y;
+    const distance = Math.max(1, Math.hypot(dx, dy));
+    const unitX = dx / distance;
+    const unitY = dy / distance;
+
+    return {
+      startX: source.x + unitX * (source.radius + 1),
+      startY: source.y + unitY * (source.radius + 1),
+      endX: target.x - unitX * (target.radius + 1),
+      endY: target.y - unitY * (target.radius + 1),
+    };
+  }
 
   function handleNodeKeyDown(
     event: ReactKeyboardEvent<SVGGElement>,
@@ -1995,26 +2025,20 @@ function InterestMapView({
               return null;
             }
 
-            const dx = target.x - source.x;
-            const dy = target.y - source.y;
-            const distance = Math.max(1, Math.hypot(dx, dy));
-            const unitX = dx / distance;
-            const unitY = dy / distance;
-            const startX = source.x + unitX * (source.radius + 1);
-            const startY = source.y + unitY * (source.radius + 1);
-            const endX = target.x - unitX * (target.radius + 1);
-            const endY = target.y - unitY * (target.radius + 1);
+            const segment = buildLinkSegment(source, target);
 
             return (
               <g key={`${link.source}-${link.target}`}>
                 <line
-                  x1={startX}
-                  y1={startY}
-                  x2={endX}
-                  y2={endY}
+                  x1={segment.startX}
+                  y1={segment.startY}
+                  x2={segment.endX}
+                  y2={segment.endY}
                   stroke="rgba(180, 83, 9, 0.22)"
                   strokeOpacity={
-                    0.2 + (link.count / initialLayout.maxLinkCount) * 0.2
+                    hasActiveSelection
+                      ? 0.05 + (link.count / initialLayout.maxLinkCount) * 0.06
+                      : 0.2 + (link.count / initialLayout.maxLinkCount) * 0.2
                   }
                   strokeWidth={
                     0.8 + (link.count / initialLayout.maxLinkCount) * 1.1
@@ -2024,7 +2048,7 @@ function InterestMapView({
               </g>
             );
           })}
-          {highlightedLinks.map((link) => {
+          {connectedLinks.map((link) => {
             const source = nodeMap.get(link.source);
             const target = nodeMap.get(link.target);
 
@@ -2032,65 +2056,30 @@ function InterestMapView({
               return null;
             }
 
-            const dx = target.x - source.x;
-            const dy = target.y - source.y;
-            const distance = Math.max(1, Math.hypot(dx, dy));
-            const unitX = dx / distance;
-            const unitY = dy / distance;
-            const startX = source.x + unitX * (source.radius + 1);
-            const startY = source.y + unitY * (source.radius + 1);
-            const endX = target.x - unitX * (target.radius + 1);
-            const endY = target.y - unitY * (target.radius + 1);
+            const segment = buildLinkSegment(source, target);
 
             return (
               <line
-                key={`highlight:${link.source}:${link.target}`}
-                x1={startX}
-                y1={startY}
-                x2={endX}
-                y2={endY}
-                stroke="rgba(180, 83, 9, 0.74)"
-                strokeWidth="2.2"
+                key={`connected:${link.source}:${link.target}`}
+                x1={segment.startX}
+                y1={segment.startY}
+                x2={segment.endX}
+                y2={segment.endY}
+                stroke="rgba(180, 83, 9, 0.78)"
+                strokeWidth={1.8 + (link.count / initialLayout.maxLinkCount) * 1.6}
                 strokeLinecap="round"
               />
             );
           })}
-          {/* Selection web: connect all selected path nodes */}
-          {selectedPath.length >= 2 &&
-            selectedPath.flatMap((a, i) =>
-              selectedPath.slice(i + 1).map((b) => {
-                const source = nodeMap.get(a);
-                const target = nodeMap.get(b);
-                if (!source || !target) return null;
-
-                const dx = target.x - source.x;
-                const dy = target.y - source.y;
-                const distance = Math.max(1, Math.hypot(dx, dy));
-                const unitX = dx / distance;
-                const unitY = dy / distance;
-                const startX = source.x + unitX * (source.radius + 1);
-                const startY = source.y + unitY * (source.radius + 1);
-                const endX = target.x - unitX * (target.radius + 1);
-                const endY = target.y - unitY * (target.radius + 1);
-
-                return (
-                  <line
-                    key={`selection-web:${a}:${b}`}
-                    x1={startX}
-                    y1={startY}
-                    x2={endX}
-                    y2={endY}
-                    stroke="rgba(180, 83, 9, 0.6)"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                );
-              }),
-            )}
           {renderNodes.map((node) => (
             <g
               key={node.tag}
               className={`interest-map-node${isSelectable ? " is-selectable" : ""}${selectedPathSet.has(node.tag) ? " is-selected" : ""}`}
+              opacity={
+                hasActiveSelection && !connectedNodeTags.has(node.tag)
+                  ? 0.22
+                  : 1
+              }
               onClick={
                 onSelectTag
                   ? (event: React.MouseEvent) => handleNodeClick(event, node)
