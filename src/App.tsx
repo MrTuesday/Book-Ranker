@@ -1909,19 +1909,11 @@ function InterestMapView({
   const connectionLabel =
     data.links.length === 1 ? "1 link" : `${data.links.length} links`;
   const hasActiveSelection = selectedPathSet.size > 0;
-  const connectedNodeTags = new Set(selectedPath);
   const connectedLinks = hasActiveSelection
-    ? data.links.filter((link) => {
-        const touchesSelection =
-          selectedPathSet.has(link.source) || selectedPathSet.has(link.target);
-
-        if (touchesSelection) {
-          connectedNodeTags.add(link.source);
-          connectedNodeTags.add(link.target);
-        }
-
-        return touchesSelection;
-      })
+    ? data.links.filter(
+        (link) =>
+          selectedPathSet.has(link.source) || selectedPathSet.has(link.target),
+      )
     : [];
   const isSelectable = !compact && typeof onSelectTag === "function";
 
@@ -2036,9 +2028,7 @@ function InterestMapView({
                   y2={segment.endY}
                   stroke="rgba(180, 83, 9, 0.22)"
                   strokeOpacity={
-                    hasActiveSelection
-                      ? 0.05 + (link.count / initialLayout.maxLinkCount) * 0.06
-                      : 0.2 + (link.count / initialLayout.maxLinkCount) * 0.2
+                    0.2 + (link.count / initialLayout.maxLinkCount) * 0.2
                   }
                   strokeWidth={
                     0.8 + (link.count / initialLayout.maxLinkCount) * 1.1
@@ -2075,11 +2065,6 @@ function InterestMapView({
             <g
               key={node.tag}
               className={`interest-map-node${isSelectable ? " is-selectable" : ""}${selectedPathSet.has(node.tag) ? " is-selected" : ""}`}
-              opacity={
-                hasActiveSelection && !connectedNodeTags.has(node.tag)
-                  ? 0.22
-                  : 1
-              }
               onClick={
                 onSelectTag
                   ? (event: React.MouseEvent) => handleNodeClick(event, node)
