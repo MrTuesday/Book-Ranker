@@ -4169,13 +4169,11 @@ export default function App() {
                 const editActionDisabled =
                   isSaving || isDeleting || (isEditingBook && !canSubmit);
                 const rankClass =
-                  book.rank === 1
-                    ? "rank-gold"
-                    : book.rank === 2
-                      ? "rank-silver"
-                      : book.rank === 3
-                        ? "rank-bronze"
-                        : "";
+                  book.rank === 2
+                    ? "rank-silver"
+                    : book.rank === 3
+                      ? "rank-bronze"
+                      : "";
 
                 return (
                   <BookCard
@@ -4286,9 +4284,7 @@ export default function App() {
                     const editActionDisabled =
                       isSaving || isDeleting || (isEditingBook && !canSubmit);
                     const rankClass =
-                      book.rank === 1
-                        ? "rank-gold"
-                        : book.rank === 2
+                      book.rank === 2
                           ? "rank-silver"
                           : book.rank === 3
                             ? "rank-bronze"
