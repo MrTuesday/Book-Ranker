@@ -2512,13 +2512,18 @@ export default function App() {
             return [];
           }
 
-          const authorPref = averageTagPreference(displayBook.authors, authorExperiences);
+          const authorPref = averageTagPreference(displayBook.authors, authorExperiences, {
+            excludeMissing: true,
+          });
           const genrePref = averageTagPreference(displayBook.genres, genreInterests, {
             excludeMissing: true,
           });
           const seriesPref = averageTagPreference(
             displayBook.series ? [displayBook.series] : [],
             seriesExperiences,
+            {
+              excludeMissing: true,
+            },
           );
           const R = book.starRating ?? GLOBAL_MEAN;
           const v = book.ratingCount ?? 0;
@@ -2555,13 +2560,18 @@ export default function App() {
       .filter((book) => !book.read)
       .map((book) => {
         const predictiveBook = predictiveBooksById.get(book.id) ?? book;
-        const authorPref = averageTagPreference(book.authors, authorExperiences);
+        const authorPref = averageTagPreference(book.authors, authorExperiences, {
+          excludeMissing: true,
+        });
         const genrePref = averageTagPreference(book.genres, genreInterests, {
           excludeMissing: true,
         });
         const seriesPref = averageTagPreference(
           book.series ? [book.series] : [],
           seriesExperiences,
+          {
+            excludeMissing: true,
+          },
         );
         const R = predictiveBook.starRating ?? GLOBAL_MEAN;
         const v = predictiveBook.ratingCount ?? 0;
@@ -2616,13 +2626,18 @@ export default function App() {
       .filter((book) => book.read)
       .map((book) => {
         const predictiveBook = predictiveBooksById.get(book.id) ?? book;
-        const authorPref = averageTagPreference(book.authors, authorExperiences);
+        const authorPref = averageTagPreference(book.authors, authorExperiences, {
+          excludeMissing: true,
+        });
         const genrePref = averageTagPreference(book.genres, genreInterests, {
           excludeMissing: true,
         });
         const seriesPref = averageTagPreference(
           book.series ? [book.series] : [],
           seriesExperiences,
+          {
+            excludeMissing: true,
+          },
         );
         const R = predictiveBook.starRating ?? GLOBAL_MEAN;
         const v = predictiveBook.ratingCount ?? 0;

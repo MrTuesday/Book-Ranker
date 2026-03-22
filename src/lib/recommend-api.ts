@@ -56,6 +56,10 @@ function average(values: number[], fallback = 3) {
     : fallback;
 }
 
+function averageOrNull(values: number[]) {
+  return values.length > 0 ? average(values) : null;
+}
+
 function labelMatches(candidateLabels: string[], rawLabel: string) {
   const normalizedLabel = normalizeForMatch(rawLabel);
 
@@ -99,21 +103,23 @@ function scoreCandidate(
     GLOBAL_MEAN,
     0,
   );
-  const authorScore = average(
-    matchedAuthors.map(
-      (author) =>
-        authorExperiences[
-          Object.keys(authorExperiences).find(
-            (knownAuthor) => normalizeForMatch(knownAuthor) === normalizeForMatch(author),
-          ) ?? author
-        ] ?? 3,
-    ),
+  const authorScore = averageOrNull(
+    matchedAuthors.flatMap((author) => {
+      const matchedAuthorKey = Object.keys(authorExperiences).find(
+        (knownAuthor) => normalizeForMatch(knownAuthor) === normalizeForMatch(author),
+      );
+      const score =
+        matchedAuthorKey != null ? authorExperiences[matchedAuthorKey] : undefined;
+      return score != null ? [score] : [];
+    }),
   );
   const seriesScore =
     candidate.series && seriesExperiences[candidate.series] != null
       ? seriesExperiences[candidate.series]
-      : 3;
-  const genreMatches = matchedProfileGenres.map((tag) => genreInterests[tag] ?? 3);
+      : null;
+  const genreMatches = matchedProfileGenres.flatMap((tag) =>
+    genreInterests[tag] != null ? [genreInterests[tag]] : [],
+  );
   const pathCoverage =
     selectedTags.length > 0
       ? (matchedSelectedTags.length / selectedTags.length) * 5
@@ -122,14 +128,15 @@ function scoreCandidate(
     matchedSelectedTags.map((tag) => genreInterests[tag] ?? 4),
     matchedSelectedTags.length > 0 ? 4 : 0,
   );
-  const score = average([
+  const scoreInputs = [
     bayesian,
-    authorScore,
-    seriesScore,
     pathCoverage,
     pathInterest,
-    ...(genreMatches.length > 0 ? genreMatches : [3]),
-  ]);
+    ...(authorScore != null ? [authorScore] : []),
+    ...(seriesScore != null ? [seriesScore] : []),
+    ...genreMatches,
+  ];
+  const score = average(scoreInputs);
 
   return {
     ...candidate,
