@@ -560,6 +560,10 @@ function estimateInterestLabelWidth(label: string) {
   return Math.max(44, label.length * 7.2 + 10);
 }
 
+function interestNodeScoreFontSize(radius: number) {
+  return Math.max(8, Math.min(15, radius * 1.2));
+}
+
 function buildInterestLabelBox(
   x: number,
   y: number,
@@ -2134,7 +2138,7 @@ function InterestMapView({
                   y={node.y}
                   textAnchor="middle"
                   dominantBaseline="central"
-                  fontSize={Math.max(9, node.radius * 0.7)}
+                  fontSize={interestNodeScoreFontSize(node.radius)}
                   fill="white"
                   fontWeight="600"
                   pointerEvents="none"
