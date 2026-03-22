@@ -337,6 +337,24 @@ function buildDraftScores(tags: string[], scores: Record<string, number>) {
   );
 }
 
+function countScoredTagsForBook(
+  book: Pick<Book, "authors" | "genres" | "series">,
+  authorExperiences: AuthorExperienceMap,
+  genreInterests: GenreInterestMap,
+  seriesExperiences: SeriesExperienceMap,
+) {
+  const scoredAuthors = new Set(
+    book.authors.filter((author) => authorExperiences[author] != null),
+  ).size;
+  const scoredGenres = new Set(
+    book.genres.filter((genre) => genreInterests[genre] != null),
+  ).size;
+  const scoredSeries =
+    book.series && seriesExperiences[book.series] != null ? 1 : 0;
+
+  return scoredAuthors + scoredGenres + scoredSeries;
+}
+
 function hasDraftTagScore(scores: Record<string, string>, tag: string) {
   return Object.prototype.hasOwnProperty.call(scores, tag);
 }
@@ -2585,6 +2603,12 @@ export default function App() {
           ...book,
           predictiveStarRating: predictiveBook.starRating ?? 0,
           predictiveRatingCount: predictiveBook.ratingCount ?? 0,
+          scoredTagCount: countScoredTagsForBook(
+            book,
+            authorExperiences,
+            genreInterests,
+            seriesExperiences,
+          ),
           score: scoreBook(
             bScore,
             authorPref,
@@ -2602,15 +2626,28 @@ export default function App() {
         if (b.score !== a.score) {
           return b.score - a.score;
         }
+        if (b.scoredTagCount !== a.scoredTagCount) {
+          return b.scoredTagCount - a.scoredTagCount;
+        }
         if (b.predictiveStarRating !== a.predictiveStarRating) {
           return b.predictiveStarRating - a.predictiveStarRating;
         }
         return b.predictiveRatingCount - a.predictiveRatingCount;
       })
-      .map(({ predictiveStarRating: _predictiveStarRating, predictiveRatingCount: _predictiveRatingCount, ...book }, index) => ({
-        ...book,
-        rank: index + 1,
-      }));
+      .map(
+        (
+          {
+            predictiveStarRating: _predictiveStarRating,
+            predictiveRatingCount: _predictiveRatingCount,
+            scoredTagCount: _scoredTagCount,
+            ...book
+          },
+          index,
+        ) => ({
+          ...book,
+          rank: index + 1,
+        }),
+      );
   }, [
     books,
     predictiveBooksById,
@@ -2668,6 +2705,12 @@ export default function App() {
           ...book,
           predictiveStarRating: predictiveBook.starRating ?? 0,
           predictiveRatingCount: predictiveBook.ratingCount ?? 0,
+          scoredTagCount: countScoredTagsForBook(
+            book,
+            authorExperiences,
+            genreInterests,
+            seriesExperiences,
+          ),
           score,
           archiveLabel: archiveReadiness.label,
           rank: 0,
@@ -2677,15 +2720,28 @@ export default function App() {
         if (b.score !== a.score) {
           return b.score - a.score;
         }
+        if (b.scoredTagCount !== a.scoredTagCount) {
+          return b.scoredTagCount - a.scoredTagCount;
+        }
         if (b.predictiveStarRating !== a.predictiveStarRating) {
           return b.predictiveStarRating - a.predictiveStarRating;
         }
         return b.predictiveRatingCount - a.predictiveRatingCount;
       })
-      .map(({ predictiveStarRating: _predictiveStarRating, predictiveRatingCount: _predictiveRatingCount, ...book }, index) => ({
-        ...book,
-        rank: index + 1,
-      }));
+      .map(
+        (
+          {
+            predictiveStarRating: _predictiveStarRating,
+            predictiveRatingCount: _predictiveRatingCount,
+            scoredTagCount: _scoredTagCount,
+            ...book
+          },
+          index,
+        ) => ({
+          ...book,
+          rank: index + 1,
+        }),
+      );
   }, [
     books,
     predictiveBooksById,
