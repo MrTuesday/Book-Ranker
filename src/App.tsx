@@ -556,8 +556,12 @@ type LabelBox = {
   bottom: number;
 };
 
-function estimateInterestLabelWidth(label: string) {
-  return Math.max(44, label.length * 7.2 + 10);
+function interestNodeLabelFontSize(radius: number) {
+  return Math.max(11, Math.min(18, radius * 1.15));
+}
+
+function estimateInterestLabelWidth(label: string, fontSize: number) {
+  return Math.max(fontSize * 3.2, label.length * fontSize * 0.52 + 10);
 }
 
 function interestNodeScoreFontSize(radius: number) {
@@ -569,6 +573,7 @@ function buildInterestLabelBox(
   y: number,
   anchor: LabelAnchor,
   width: number,
+  fontSize: number,
 ): LabelBox {
   const left =
     anchor === "start" ? x : anchor === "end" ? x - width : x - width / 2;
@@ -576,8 +581,8 @@ function buildInterestLabelBox(
   return {
     left: left - 4,
     right: left + width + 4,
-    top: y - 15,
-    bottom: y + 5,
+    top: y - fontSize * 0.82,
+    bottom: y + fontSize * 0.26,
   };
 }
 
@@ -630,6 +635,7 @@ function buildInterestBubblePlacement(
   node: { x: number; y: number; radius: number },
   orientation: LabelOrientation,
   labelWidth: number,
+  labelFontSize: number,
 ) {
   const labelX =
     orientation === "left"
@@ -639,10 +645,10 @@ function buildInterestBubblePlacement(
         : node.x;
   const labelY =
     orientation === "top"
-      ? node.y - node.radius - 10
+      ? node.y - node.radius - Math.max(10, labelFontSize * 0.65)
       : orientation === "bottom"
-        ? node.y + node.radius + 14
-        : node.y + 4;
+        ? node.y + node.radius + Math.max(12, labelFontSize * 0.95)
+        : node.y + labelFontSize * 0.26;
   const labelAnchor: LabelAnchor =
     orientation === "left"
       ? "end"
@@ -654,6 +660,7 @@ function buildInterestBubblePlacement(
     labelY,
     labelAnchor,
     labelWidth,
+    labelFontSize,
   );
   const bubbleBox = padInterestBox(
     mergeInterestBoxes(labelBox, buildInterestNodeBox(node)),
@@ -1347,12 +1354,14 @@ function InterestMapView({
       const forceY = new Array(nodes.length).fill(0);
       const placements = nodes.map((node) => {
         const labelText = shortenLabel(node.tag);
-        const labelWidth = estimateInterestLabelWidth(labelText);
+        const labelFontSize = interestNodeLabelFontSize(node.radius);
+        const labelWidth = estimateInterestLabelWidth(labelText, labelFontSize);
 
         return buildInterestBubblePlacement(
           node,
           nodeOrientation(node),
           labelWidth,
+          labelFontSize,
         );
       });
 
@@ -1462,7 +1471,11 @@ function InterestMapView({
         const placement = buildInterestBubblePlacement(
           node,
           nodeOrientation(node),
-          estimateInterestLabelWidth(shortenLabel(node.tag)),
+          estimateInterestLabelWidth(
+            shortenLabel(node.tag),
+            interestNodeLabelFontSize(node.radius),
+          ),
+          interestNodeLabelFontSize(node.radius),
         );
 
         if (placement.bubbleBox.left < boundaryPadding) {
@@ -1864,19 +1877,22 @@ function InterestMapView({
   const centerY = initialLayout.height / 2;
   const renderNodes = currentNodes.map((node, index) => {
     const labelText = shortenLabel(node.tag);
-    const labelWidth = estimateInterestLabelWidth(labelText);
+    const labelFontSize = interestNodeLabelFontSize(node.radius);
+    const labelWidth = estimateInterestLabelWidth(labelText, labelFontSize);
     const orientation =
       preferredInterestLabelOrientation(node.restX - centerX, node.restY - centerY);
     const placement = buildInterestBubblePlacement(
       node,
       orientation,
       labelWidth,
+      labelFontSize,
     );
 
     return {
       ...node,
       index,
       labelText,
+      labelFontSize,
       labelWidth,
       orientation,
       labelX: placement.labelX,
@@ -2152,6 +2168,7 @@ function InterestMapView({
                   x={node.labelX}
                   y={node.labelY}
                   textAnchor={node.labelAnchor}
+                  fontSize={node.labelFontSize}
                 >
                   {node.labelText}
                 </text>
