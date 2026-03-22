@@ -557,7 +557,7 @@ type LabelBox = {
 };
 
 function interestNodeLabelFontSize(radius: number) {
-  return Math.max(11, Math.min(18, radius * 1.15));
+  return Math.max(10, Math.min(20, radius * 1.6));
 }
 
 function estimateInterestLabelWidth(label: string, fontSize: number) {
@@ -2168,7 +2168,7 @@ function InterestMapView({
                   x={node.labelX}
                   y={node.labelY}
                   textAnchor={node.labelAnchor}
-                  fontSize={node.labelFontSize}
+                  style={{ fontSize: `${node.labelFontSize}px` }}
                 >
                   {node.labelText}
                 </text>
