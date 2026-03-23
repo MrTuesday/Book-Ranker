@@ -1,3 +1,10 @@
+import {
+  isCatalogDbAvailable,
+  searchCatalogDb,
+  searchCatalogDbBySubject,
+  searchCatalogDbBySubjects,
+} from "./catalog-db.js";
+
 const DEFAULT_OPEN_LIBRARY_URL = "https://openlibrary.org/search.json";
 const DEFAULT_RESULT_LIMIT = 6;
 const MAX_RESULT_LIMIT = 10;
@@ -230,6 +237,40 @@ function normalizeSearchResult(rawResult) {
   };
 }
 
+function normalizeDbResult(row) {
+  const title = normalizeString(row.title);
+
+  if (!title) {
+    return null;
+  }
+
+  const authors = (row.authors ?? []).map(normalizeString).filter(Boolean);
+  const rawSubjects = (row.subjects ?? [])
+    .map(toDisplayLabel)
+    .filter(isUsefulSubject);
+  const subjects = uniqueStrings(rawSubjects);
+  const genres = subjects.filter(isGenreLikeSubject).slice(0, MAX_GENRE_COUNT);
+  const tags = subjects.slice(0, MAX_TAG_COUNT);
+  const topics = subjects.slice(0, MAX_TOPIC_COUNT);
+  const key = normalizeString(row.key);
+  const description =
+    row.publishYear != null ? `First published ${row.publishYear}.` : undefined;
+
+  return {
+    id: key ? `openlibrary:${key}` : `openlibrary:${title}::${authors[0] ?? ""}`,
+    title,
+    authors,
+    genres,
+    tags,
+    moods: [],
+    topics,
+    ...(row.series ? { series: normalizeString(row.series) } : {}),
+    ...(row.seriesNumber != null ? { seriesNumber: row.seriesNumber } : {}),
+    ...(description ? { description } : {}),
+    ...(key ? { infoLink: `https://openlibrary.org${key}` } : {}),
+  };
+}
+
 function mergeNormalizedSearchResult(current, incoming) {
   return {
     ...current,
@@ -375,11 +416,6 @@ async function fetchOpenLibraryDocs(url, userAgent) {
 export async function searchOpenLibraryCatalog(query, options = {}) {
   const trimmedQuery = normalizeString(query);
   const limit = clampLimit(options.limit);
-  const endpoint = options.endpoint ?? DEFAULT_OPEN_LIBRARY_URL;
-  const userAgent =
-    options.userAgent ??
-    process.env.OPEN_LIBRARY_USER_AGENT ??
-    "book-ranker/0.1.0 openlibrary-lookup";
 
   if (!trimmedQuery) {
     return {
@@ -389,6 +425,24 @@ export async function searchOpenLibraryCatalog(query, options = {}) {
     };
   }
 
+  if (isCatalogDbAvailable()) {
+    const rows = searchCatalogDb(trimmedQuery, limit);
+
+    return {
+      provider: "openlibrary",
+      query,
+      results: rows
+        .map(normalizeDbResult)
+        .filter((result) => result !== null)
+        .slice(0, limit),
+    };
+  }
+
+  const endpoint = options.endpoint ?? DEFAULT_OPEN_LIBRARY_URL;
+  const userAgent =
+    options.userAgent ??
+    process.env.OPEN_LIBRARY_USER_AGENT ??
+    "book-ranker/0.1.0 openlibrary-lookup";
   const url = new URL(endpoint);
   url.searchParams.set("title", buildTitleSearchTerm(trimmedQuery));
   url.searchParams.set("fields", SEARCH_FIELDS);
@@ -412,11 +466,6 @@ export async function searchOpenLibraryRecommendations(selectedTags, options = {
       : [],
   ).slice(0, MAX_RECOMMENDATION_TAGS);
   const limit = clampRecommendationLimit(options.limit);
-  const endpoint = options.endpoint ?? DEFAULT_OPEN_LIBRARY_URL;
-  const userAgent =
-    options.userAgent ??
-    process.env.OPEN_LIBRARY_USER_AGENT ??
-    "book-ranker/0.1.0 openlibrary-lookup";
 
   if (tags.length === 0) {
     return {
@@ -425,6 +474,16 @@ export async function searchOpenLibraryRecommendations(selectedTags, options = {
       results: [],
     };
   }
+
+  if (isCatalogDbAvailable()) {
+    return searchRecommendationsFromDb(tags, limit);
+  }
+
+  const endpoint = options.endpoint ?? DEFAULT_OPEN_LIBRARY_URL;
+  const userAgent =
+    options.userAgent ??
+    process.env.OPEN_LIBRARY_USER_AGENT ??
+    "book-ranker/0.1.0 openlibrary-lookup";
 
   const prioritizedTags = sortRecommendationTags(tags);
   const exactTags = prioritizedTags.slice(0, MAX_RECOMMENDATION_EXACT_TAGS);
@@ -579,6 +638,104 @@ export async function searchOpenLibraryRecommendations(selectedTags, options = {
           _queryTagCount,
           ...result
         }) => result,
+      ),
+  };
+}
+
+function searchRecommendationsFromDb(tags, limit) {
+  const prioritizedTags = sortRecommendationTags(tags);
+  const requiredTags = prioritizedTags.filter(
+    (tag) => !isBroadRecommendationTag(tag),
+  );
+  const byIdentity = new Map();
+
+  // Try multi-tag search first
+  if (prioritizedTags.length > 1) {
+    const multiResults = searchCatalogDbBySubjects(
+      prioritizedTags.slice(0, MAX_RECOMMENDATION_EXACT_TAGS),
+      limit,
+    );
+
+    for (const row of multiResults) {
+      const result = normalizeDbResult(row);
+
+      if (result) {
+        byIdentity.set(normalizeIdentityKey(result.title, result.authors), {
+          result,
+          subjects: row.subjects ?? [],
+        });
+      }
+    }
+  }
+
+  // Fill with single-tag searches
+  for (const tag of prioritizedTags.slice(0, MAX_RECOMMENDATION_FALLBACK_TAGS)) {
+    if (byIdentity.size >= limit * 2) {
+      break;
+    }
+
+    const rows = searchCatalogDbBySubject(
+      tag,
+      Math.max(MIN_RECOMMENDATION_RESULTS_PER_TAG, limit),
+    );
+
+    for (const row of rows) {
+      const result = normalizeDbResult(row);
+
+      if (!result) {
+        continue;
+      }
+
+      const identityKey = normalizeIdentityKey(result.title, result.authors);
+
+      if (!byIdentity.has(identityKey)) {
+        byIdentity.set(identityKey, {
+          result,
+          subjects: row.subjects ?? [],
+        });
+      }
+    }
+  }
+
+  let rankedResults = Array.from(byIdentity.values()).map((entry) => {
+    const matchedTags = tags.filter(
+      (tag) => subjectMatchScore(entry.subjects, tag) > 0,
+    );
+    const matchedRequiredTags = requiredTags.filter((tag) =>
+      matchedTags.includes(tag),
+    );
+
+    return {
+      ...entry.result,
+      _matchedTagCount: matchedTags.length,
+      _matchedRequiredTagCount: matchedRequiredTags.length,
+    };
+  });
+
+  if (requiredTags.length > 0) {
+    const requiredMatches = rankedResults.filter(
+      (result) => result._matchedRequiredTagCount > 0,
+    );
+
+    if (requiredMatches.length > 0) {
+      rankedResults = requiredMatches;
+    }
+  }
+
+  return {
+    provider: "openlibrary",
+    query: tags.join(", "),
+    results: rankedResults
+      .sort((left, right) => {
+        return (
+          right._matchedRequiredTagCount - left._matchedRequiredTagCount ||
+          right._matchedTagCount - left._matchedTagCount ||
+          left.title.localeCompare(right.title)
+        );
+      })
+      .slice(0, limit)
+      .map(
+        ({ _matchedTagCount, _matchedRequiredTagCount, ...result }) => result,
       ),
   };
 }

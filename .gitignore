@@ -7,4 +7,8 @@ vite.config.d.ts
 .vercel
 .env
 data/*.json
+data/*.db
+data/*.db-wal
+data/*.db-shm
+dumps/
 !data/.gitkeep
