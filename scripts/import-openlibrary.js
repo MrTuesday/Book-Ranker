@@ -3,15 +3,23 @@
 /**
  * Import Open Library bulk data dumps into a local SQLite database.
  *
- * Usage:
+ * Usage (single combined dump):
+ *   node scripts/import-openlibrary.js \
+ *     --dump ./dumps/ol_dump_latest.txt.gz \
+ *     [--output ./data/openlibrary.db]
+ *
+ * Usage (separate dump files):
  *   node scripts/import-openlibrary.js \
  *     --works ./dumps/ol_dump_works_latest.txt.gz \
  *     --editions ./dumps/ol_dump_editions_latest.txt.gz \
  *     --authors ./dumps/ol_dump_authors_latest.txt.gz \
- *     --output ./data/openlibrary.db
+ *     [--output ./data/openlibrary.db]
  *
  * Each dump file is a gzipped TSV where each line is:
  *   type \t key \t revision \t last_modified \t json
+ *
+ * The combined dump has all types interleaved; this script routes
+ * each line by its type prefix (/type/work, /type/edition, /type/author).
  *
  * Downloads available at: https://openlibrary.org/developers/dumps
  */
@@ -23,11 +31,12 @@ import { resolve } from "node:path";
 import Database from "better-sqlite3";
 
 const BATCH_SIZE = 10_000;
-const PROGRESS_INTERVAL = 100_000;
+const PROGRESS_INTERVAL = 500_000;
 
 function parseArgs() {
   const args = process.argv.slice(2);
   const parsed = {
+    dump: null,
     works: null,
     editions: null,
     authors: null,
@@ -43,18 +52,21 @@ function parseArgs() {
     }
   }
 
-  if (!parsed.works || !parsed.editions || !parsed.authors) {
+  const hasSeparateFiles = parsed.works && parsed.editions && parsed.authors;
+
+  if (!parsed.dump && !hasSeparateFiles) {
     console.error(
-      "Usage: node scripts/import-openlibrary.js \\\n" +
-        "  --works <works_dump.txt.gz> \\\n" +
-        "  --editions <editions_dump.txt.gz> \\\n" +
-        "  --authors <authors_dump.txt.gz> \\\n" +
-        "  [--output <output.db>]",
+      "Usage (combined dump):\n" +
+        "  node scripts/import-openlibrary.js --dump <dump.txt.gz> [--output <output.db>]\n\n" +
+        "Usage (separate files):\n" +
+        "  node scripts/import-openlibrary.js \\\n" +
+        "    --works <works.txt.gz> --editions <editions.txt.gz> --authors <authors.txt.gz> \\\n" +
+        "    [--output <output.db>]",
     );
     process.exit(1);
   }
 
-  return parsed;
+  return { ...parsed, combined: !!parsed.dump };
 }
 
 function createSchema(db) {
@@ -107,8 +119,11 @@ function createIndexes(db) {
 }
 
 function openLineReader(filePath) {
-  const gunzip = createGunzip();
-  const stream = createReadStream(filePath).pipe(gunzip);
+  const isGzipped =
+    filePath.endsWith(".gz") || filePath.endsWith(".gzip");
+  const stream = isGzipped
+    ? createReadStream(filePath).pipe(createGunzip())
+    : createReadStream(filePath);
 
   return createInterface({
     input: stream,
@@ -229,6 +244,22 @@ function extractWorkKey(json) {
 
   return null;
 }
+
+function extractSeries(json) {
+  const rawSeries = json?.series;
+
+  if (typeof rawSeries === "string" && rawSeries.trim()) {
+    return rawSeries.trim();
+  }
+
+  if (Array.isArray(rawSeries) && typeof rawSeries[0] === "string") {
+    return rawSeries[0].trim() || null;
+  }
+
+  return null;
+}
+
+// --- Single-file import (separate dumps) ---
 
 async function importAuthors(db, filePath) {
   console.log("Importing authors...");
@@ -383,19 +414,11 @@ async function importEditions(db, filePath) {
     const title =
       typeof parsed.json?.title === "string" ? parsed.json.title.trim() : null;
 
-    const rawSeries = parsed.json?.series;
-    const series =
-      typeof rawSeries === "string" && rawSeries.trim()
-        ? rawSeries.trim()
-        : Array.isArray(rawSeries) && typeof rawSeries[0] === "string"
-          ? rawSeries[0].trim()
-          : null;
-
     batch.push({
       key: parsed.key,
       workKey,
       title,
-      series: series || null,
+      series: extractSeries(parsed.json),
       seriesNumber: extractSeriesNumber(parsed.json?.series_number),
       publishYear: extractYear(parsed.json),
       isbn13: extractIsbn(parsed.json, "isbn_13"),
@@ -424,6 +447,176 @@ async function importEditions(db, filePath) {
   console.log(`  Editions: ${count.toLocaleString()} imported.`);
 }
 
+// --- Combined dump import (single file, all types interleaved) ---
+
+async function importCombinedDump(db, filePath) {
+  console.log(`Importing combined dump: ${filePath}`);
+
+  const insertAuthor = db.prepare(
+    "INSERT OR IGNORE INTO authors (key, name) VALUES (?, ?)",
+  );
+  const insertWork = db.prepare(
+    "INSERT OR IGNORE INTO works (key, title, subjects) VALUES (?, ?, ?)",
+  );
+  const insertWorkAuthor = db.prepare(
+    "INSERT OR IGNORE INTO work_authors (work_key, author_key) VALUES (?, ?)",
+  );
+  const insertEdition = db.prepare(
+    `INSERT OR IGNORE INTO editions
+      (key, work_key, title, series, series_number, publish_year, isbn_13, isbn_10, number_of_pages)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+
+  const authorBatch = [];
+  const workBatch = [];
+  const editionBatch = [];
+
+  const flushAuthors = db.transaction((rows) => {
+    for (const row of rows) {
+      insertAuthor.run(row.key, row.name);
+    }
+  });
+
+  const flushWorks = db.transaction((rows) => {
+    for (const row of rows) {
+      insertWork.run(row.key, row.title, row.subjects);
+
+      for (const authorKey of row.authorKeys) {
+        insertWorkAuthor.run(row.key, authorKey);
+      }
+    }
+  });
+
+  const flushEditions = db.transaction((rows) => {
+    for (const row of rows) {
+      insertEdition.run(
+        row.key,
+        row.workKey,
+        row.title,
+        row.series,
+        row.seriesNumber,
+        row.publishYear,
+        row.isbn13,
+        row.isbn10,
+        row.numberOfPages,
+      );
+    }
+  });
+
+  function flushAll() {
+    if (authorBatch.length > 0) {
+      flushAuthors(authorBatch.splice(0));
+    }
+
+    if (workBatch.length > 0) {
+      flushWorks(workBatch.splice(0));
+    }
+
+    if (editionBatch.length > 0) {
+      flushEditions(editionBatch.splice(0));
+    }
+  }
+
+  const counts = { authors: 0, works: 0, editions: 0, skipped: 0 };
+  let totalLines = 0;
+  const reader = openLineReader(filePath);
+
+  for await (const line of reader) {
+    const parsed = parseDumpLine(line);
+
+    if (!parsed) {
+      counts.skipped += 1;
+      continue;
+    }
+
+    const typeLower = parsed.type.toLowerCase();
+
+    if (typeLower.includes("/type/author")) {
+      const name =
+        typeof parsed.json?.name === "string" ? parsed.json.name.trim() : "";
+
+      if (name) {
+        authorBatch.push({ key: parsed.key, name });
+        counts.authors += 1;
+      }
+    } else if (typeLower.includes("/type/work")) {
+      const title =
+        typeof parsed.json?.title === "string"
+          ? parsed.json.title.trim()
+          : "";
+
+      if (title) {
+        workBatch.push({
+          key: parsed.key,
+          title,
+          subjects: extractSubjects(parsed.json),
+          authorKeys: extractAuthorKeys(parsed.json),
+        });
+        counts.works += 1;
+      }
+    } else if (typeLower.includes("/type/edition")) {
+      const workKey = extractWorkKey(parsed.json);
+
+      if (workKey) {
+        const title =
+          typeof parsed.json?.title === "string"
+            ? parsed.json.title.trim()
+            : null;
+
+        editionBatch.push({
+          key: parsed.key,
+          workKey,
+          title,
+          series: extractSeries(parsed.json),
+          seriesNumber: extractSeriesNumber(parsed.json?.series_number),
+          publishYear: extractYear(parsed.json),
+          isbn13: extractIsbn(parsed.json, "isbn_13"),
+          isbn10: extractIsbn(parsed.json, "isbn_10"),
+          numberOfPages:
+            typeof parsed.json?.number_of_pages === "number"
+              ? parsed.json.number_of_pages
+              : null,
+        });
+        counts.editions += 1;
+      }
+    } else {
+      counts.skipped += 1;
+    }
+
+    totalLines += 1;
+
+    if (
+      authorBatch.length >= BATCH_SIZE ||
+      workBatch.length >= BATCH_SIZE ||
+      editionBatch.length >= BATCH_SIZE
+    ) {
+      flushAll();
+    }
+
+    if (totalLines % PROGRESS_INTERVAL === 0) {
+      const millions = (totalLines / 1_000_000).toFixed(1);
+      console.log(
+        `  ${millions}M lines — ` +
+          `authors: ${counts.authors.toLocaleString()}, ` +
+          `works: ${counts.works.toLocaleString()}, ` +
+          `editions: ${counts.editions.toLocaleString()}`,
+      );
+    }
+  }
+
+  flushAll();
+
+  console.log(
+    `  Done — ` +
+      `authors: ${counts.authors.toLocaleString()}, ` +
+      `works: ${counts.works.toLocaleString()}, ` +
+      `editions: ${counts.editions.toLocaleString()}, ` +
+      `skipped: ${counts.skipped.toLocaleString()}`,
+  );
+}
+
+// --- Main ---
+
 async function main() {
   const args = parseArgs();
   console.log(`Output database: ${args.output}`);
@@ -437,9 +630,14 @@ async function main() {
 
   const start = Date.now();
 
-  await importAuthors(db, args.authors);
-  await importWorks(db, args.works);
-  await importEditions(db, args.editions);
+  if (args.combined) {
+    await importCombinedDump(db, args.dump);
+  } else {
+    await importAuthors(db, args.authors);
+    await importWorks(db, args.works);
+    await importEditions(db, args.editions);
+  }
+
   createIndexes(db);
 
   const elapsed = ((Date.now() - start) / 1000 / 60).toFixed(1);
