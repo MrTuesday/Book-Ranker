@@ -1105,6 +1105,67 @@ export async function createProfile(name: string) {
   }
 }
 
+export async function updateProfile(profileId: string, name: string) {
+  const nextProfileId = profileId.trim();
+  const nextName = name.trim().replace(/\s+/g, " ");
+
+  try {
+    return withNativeRatingStats(
+      await requestJson<LibraryState>(`/api/profiles/${encodeURIComponent(nextProfileId)}`, {
+        method: "PUT",
+        body: JSON.stringify({ name: nextName }),
+      }),
+    );
+  } catch (error) {
+    if (!(error instanceof BackendUnavailableError)) {
+      throw error;
+    }
+
+    if (!nextProfileId) {
+      throw new Error("Profile id is required.");
+    }
+
+    if (!nextName) {
+      throw new Error("Profile name is required.");
+    }
+
+    const state = readStoredLocalLibraryState();
+    const currentProfile = state.profiles.find(
+      (profile) => profile.id === nextProfileId,
+    );
+
+    if (!currentProfile) {
+      throw new Error("Profile not found.");
+    }
+
+    const nameTaken = state.profiles.some(
+      (profile) =>
+        profile.id !== nextProfileId &&
+        profile.name.toLocaleLowerCase() === nextName.toLocaleLowerCase(),
+    );
+
+    if (nameTaken) {
+      throw new Error("A profile with that name already exists.");
+    }
+
+    const nextState = writeStoredLocalLibraryState({
+      profiles: state.profiles.map((profile) =>
+        profile.id === nextProfileId
+          ? createStoredProfile({
+              ...profile,
+              name: nextName,
+            })
+          : profile,
+      ),
+      activeProfileId: state.activeProfileId,
+    });
+
+    return withNativeRatingStats(toLibraryState(nextState), {
+      persistLocal: true,
+    });
+  }
+}
+
 export async function setActiveProfile(profileId: string) {
   const nextProfileId = profileId.trim();
 
@@ -1133,6 +1194,57 @@ export async function setActiveProfile(profileId: string) {
     const nextState = writeStoredLocalLibraryState({
       profiles: state.profiles,
       activeProfileId: nextProfileId,
+    });
+
+    return withNativeRatingStats(toLibraryState(nextState), {
+      persistLocal: true,
+    });
+  }
+}
+
+export async function deleteProfile(profileId: string) {
+  const nextProfileId = profileId.trim();
+
+  try {
+    return withNativeRatingStats(
+      await requestJson<LibraryState>(`/api/profiles/${encodeURIComponent(nextProfileId)}`, {
+        method: "DELETE",
+      }),
+    );
+  } catch (error) {
+    if (!(error instanceof BackendUnavailableError)) {
+      throw error;
+    }
+
+    if (!nextProfileId) {
+      throw new Error("Profile id is required.");
+    }
+
+    const state = readStoredLocalLibraryState();
+
+    if (state.profiles.length <= 1) {
+      throw new Error("You need at least one profile.");
+    }
+
+    const profileIndex = state.profiles.findIndex(
+      (profile) => profile.id === nextProfileId,
+    );
+
+    if (profileIndex === -1) {
+      throw new Error("Profile not found.");
+    }
+
+    const nextProfiles = state.profiles.filter(
+      (profile) => profile.id !== nextProfileId,
+    );
+    const fallbackProfile =
+      nextProfiles[profileIndex] ?? nextProfiles[Math.max(0, profileIndex - 1)];
+    const nextState = writeStoredLocalLibraryState({
+      profiles: nextProfiles,
+      activeProfileId:
+        state.activeProfileId === nextProfileId
+          ? fallbackProfile.id
+          : state.activeProfileId,
     });
 
     return withNativeRatingStats(toLibraryState(nextState), {

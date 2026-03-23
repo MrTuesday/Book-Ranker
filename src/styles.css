@@ -1673,6 +1673,13 @@ select:focus {
     border-bottom: 1px solid var(--line);
 }
 
+.profile-menu-actions {
+    display: grid;
+    gap: 4px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--line);
+}
+
 .profile-menu-item,
 .profile-menu-link {
     width: 100%;

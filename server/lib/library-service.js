@@ -60,6 +60,47 @@ export async function createProfile(store, payload) {
   return serializeLibraryState(writtenState);
 }
 
+export async function updateProfile(store, profileId, payload) {
+  const nextProfileId = String(profileId ?? "").trim();
+  const nextName = String(payload?.name ?? "")
+    .trim()
+    .replace(/\s+/g, " ");
+
+  if (!nextProfileId) {
+    throw new Error("Profile id is required.");
+  }
+
+  if (!nextName) {
+    throw new Error("Profile name is required.");
+  }
+
+  const state = await store.read();
+  const profile = state.profiles.find((entry) => entry.id === nextProfileId);
+
+  if (!profile) {
+    throw new Error("Profile not found.");
+  }
+
+  const nameTaken = state.profiles.some(
+    (entry) =>
+      entry.id !== nextProfileId &&
+      entry.name.toLocaleLowerCase() === nextName.toLocaleLowerCase(),
+  );
+
+  if (nameTaken) {
+    throw new Error("A profile with that name already exists.");
+  }
+
+  const nextState = {
+    ...state,
+    profiles: state.profiles.map((entry) =>
+      entry.id === nextProfileId ? { ...entry, name: nextName } : entry,
+    ),
+  };
+  const writtenState = await store.write(nextState);
+  return serializeLibraryState(writtenState);
+}
+
 export async function setActiveProfile(store, profileId) {
   const nextProfileId = String(profileId ?? "").trim();
 
@@ -69,6 +110,53 @@ export async function setActiveProfile(store, profileId) {
 
   const state = await store.read();
   const writtenState = await store.write(activateProfileState(state, nextProfileId));
+  return serializeLibraryState(writtenState);
+}
+
+export async function deleteProfile(store, profileId) {
+  const nextProfileId = String(profileId ?? "").trim();
+
+  if (!nextProfileId) {
+    throw new Error("Profile id is required.");
+  }
+
+  const state = await store.read();
+
+  if (state.profiles.length <= 1) {
+    throw new Error("You need at least one profile.");
+  }
+
+  const profileIndex = state.profiles.findIndex(
+    (entry) => entry.id === nextProfileId,
+  );
+
+  if (profileIndex === -1) {
+    throw new Error("Profile not found.");
+  }
+
+  const nextProfiles = state.profiles.filter((entry) => entry.id !== nextProfileId);
+  const fallbackProfile =
+    nextProfiles[profileIndex] ?? nextProfiles[Math.max(0, profileIndex - 1)];
+  const nextActiveProfileId =
+    state.activeProfileId === nextProfileId
+      ? fallbackProfile.id
+      : state.activeProfileId;
+
+  const nextState =
+    state.activeProfileId === nextProfileId
+      ? activateProfileState(
+          {
+            ...state,
+            profiles: nextProfiles,
+          },
+          nextActiveProfileId,
+        )
+      : {
+          ...state,
+          profiles: nextProfiles,
+        };
+
+  const writtenState = await store.write(nextState);
   return serializeLibraryState(writtenState);
 }
 

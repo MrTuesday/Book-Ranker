@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import {
   createBookRecord,
   createProfile,
+  deleteProfile,
   deleteAuthorExperience,
   deleteBookRecord,
   deleteGenreInterest,
@@ -18,6 +19,7 @@ import {
   renameGenreInBooks,
   renameGenreInterest,
   setActiveProfile,
+  updateProfile,
   updateBookRecord,
   writeAuthorExperience,
   writeGenreInterest,
@@ -148,6 +150,24 @@ async function handleApi(request, response, url) {
       200,
       await setActiveProfile(stateStore, body?.profileId),
     );
+  }
+
+  const profileMatch = path.match(/^\/api\/profiles\/(.+)$/);
+  if (profileMatch) {
+    const profileId = decodePathSegment(profileMatch[1]);
+
+    if (request.method === "PUT") {
+      const body = await readJson(request);
+      return sendJson(
+        response,
+        200,
+        await updateProfile(stateStore, profileId, body),
+      );
+    }
+
+    if (request.method === "DELETE") {
+      return sendJson(response, 200, await deleteProfile(stateStore, profileId));
+    }
   }
 
   const bookMatch = path.match(/^\/api\/books\/(\d+)$/);

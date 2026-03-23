@@ -16,6 +16,7 @@ import { createPortal } from "react-dom";
 import {
   createProfile,
   createBookRecord,
+  deleteProfile,
   deleteAuthorExperience,
   deleteBookRecord,
   deleteGenreInterest,
@@ -30,6 +31,7 @@ import {
   type SeriesExperienceMap,
   normalizeGenreTag,
   setActiveProfile,
+  updateProfile,
   updateBookRecord,
   writeGenreInterest,
   writeAuthorExperience,
@@ -792,6 +794,7 @@ export default function App() {
   const displayedProfileName = isSignedOut
     ? "Signed out"
     : activeProfile?.name ?? "Profile";
+  const canDeleteActiveProfile = profiles.length > 1 && activeProfile != null;
   const profileControlDisabled = isLoading || isSaving || isManagingProfiles;
 
   const isEditing = editingBookId !== null;
@@ -945,6 +948,61 @@ export default function App() {
     setErrorMessage(null);
     resetProfileWorkspace();
     persistSignedOutState(true);
+  }
+
+  async function handleRenameActiveProfile() {
+    if (!activeProfile) {
+      return;
+    }
+
+    setIsProfileMenuOpen(false);
+    const nextName = window.prompt("Rename profile", activeProfile.name);
+
+    if (nextName == null) {
+      return;
+    }
+
+    setIsManagingProfiles(true);
+    setErrorMessage(null);
+
+    try {
+      applyLibraryState(await updateProfile(activeProfile.id, nextName));
+      persistSignedOutState(false);
+    } catch (error) {
+      setErrorMessage(messageFromError(error));
+    } finally {
+      setIsManagingProfiles(false);
+    }
+  }
+
+  async function handleDeleteActiveProfile() {
+    if (!activeProfile || !canDeleteActiveProfile) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete profile "${activeProfile.name}"? This removes its saved lists.`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setIsProfileMenuOpen(false);
+    setIsManagingProfiles(true);
+    setIsLoading(true);
+    setErrorMessage(null);
+    resetProfileWorkspace();
+
+    try {
+      applyLibraryState(await deleteProfile(activeProfile.id));
+      persistSignedOutState(false);
+    } catch (error) {
+      setErrorMessage(messageFromError(error));
+    } finally {
+      setIsManagingProfiles(false);
+      setIsLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -2448,6 +2506,30 @@ export default function App() {
 	                          ) : null}
 	                        </button>
 	                      ))}
+	                    </div>
+	                    <div className="profile-menu-actions">
+	                      <button
+	                        type="button"
+	                        className="profile-menu-link"
+	                        onClick={() => {
+	                          void handleRenameActiveProfile();
+	                        }}
+	                        disabled={profileControlDisabled || activeProfile == null}
+	                        role="menuitem"
+	                      >
+	                        Rename profile
+	                      </button>
+	                      <button
+	                        type="button"
+	                        className="profile-menu-link is-danger"
+	                        onClick={() => {
+	                          void handleDeleteActiveProfile();
+	                        }}
+	                        disabled={profileControlDisabled || !canDeleteActiveProfile}
+	                        role="menuitem"
+	                      >
+	                        Delete profile
+	                      </button>
 	                    </div>
 	                    <button
 	                      type="button"
