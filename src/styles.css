@@ -1592,13 +1592,14 @@ select:focus {
 
 .profile-menu-shell {
     position: relative;
-    flex-shrink: 0;
+    min-width: 0;
 }
 
-.profile-avatar-btn {
+.profile-trigger {
     display: flex;
     align-items: center;
-    justify-content: center;
+    gap: 8px;
+    min-width: 0;
     padding: 0;
     background: transparent;
     cursor: pointer;
@@ -1618,19 +1619,20 @@ select:focus {
     letter-spacing: 0.02em;
 }
 
-.profile-avatar-btn:focus-visible {
+.profile-trigger:focus-visible {
     outline: none;
 }
 
-.profile-avatar-btn:focus-visible .profile-avatar {
+.profile-trigger:focus-visible .profile-avatar {
     box-shadow: 0 0 0 3px rgba(180, 83, 9, 0.12);
 }
 
-.profile-avatar-btn:disabled {
+.profile-trigger:disabled {
     cursor: not-allowed;
 }
 
-.profile-avatar-btn:disabled .profile-avatar {
+.profile-trigger:disabled .profile-avatar,
+.profile-trigger:disabled .profile-name {
     opacity: 0.55;
 }
 

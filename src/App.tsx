@@ -2411,7 +2411,7 @@ export default function App() {
 	              <div className="profile-menu-shell">
 	                <button
 	                  type="button"
-	                  className="profile-avatar-btn"
+	                  className="profile-trigger"
 	                  onClick={() => {
 	                    setIsProfileMenuOpen((current) => !current);
 	                  }}
@@ -2423,6 +2423,9 @@ export default function App() {
 	                >
 	                  <div className="profile-avatar">
 	                    {profileInitials(activeProfile?.name ?? "Book Ranker")}
+	                  </div>
+	                  <div className="profile-text">
+	                    <span className="profile-name">{displayedProfileName}</span>
 	                  </div>
 	                </button>
 	                {isProfileMenuOpen ? (
@@ -2448,17 +2451,6 @@ export default function App() {
 	                    </div>
 	                    <button
 	                      type="button"
-	                      className="profile-menu-link"
-	                      onClick={() => {
-	                        void handleCreateProfile();
-	                      }}
-	                      disabled={profileControlDisabled}
-	                      role="menuitem"
-	                    >
-	                      Create profile
-	                    </button>
-	                    <button
-	                      type="button"
 	                      className="profile-menu-link is-danger"
 	                      onClick={handleLogout}
 	                      disabled={profileControlDisabled || isSignedOut}
@@ -2468,9 +2460,6 @@ export default function App() {
 	                    </button>
 	                  </div>
 	                ) : null}
-	              </div>
-	              <div className="profile-text">
-	                <span className="profile-name">{displayedProfileName}</span>
 	              </div>
 	            </div>
 	            <div className="footer-actions">
