@@ -3185,7 +3185,7 @@ export default function App() {
                   </div>
                 </div>
                 {isTitleSuggestionActive && isSearchingCatalog ? (
-                  <p className="field-note">Searching Open Library + local catalog…</p>
+                  <p className="field-note">Searching…</p>
                 ) : null}
                 {isTitleSuggestionActive && catalogError ? (
                   <p className="field-note is-error">{catalogError}</p>
