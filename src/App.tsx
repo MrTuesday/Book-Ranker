@@ -3137,7 +3137,7 @@ export default function App() {
                   >
                     <input
                       type="text"
-                      placeholder="The Decline and Fall of the Roman Empire: Volume I"
+                      placeholder="The Path to Power"
                       value={draft.title}
                       autoComplete="off"
                       aria-expanded={showTitleSuggestions}
@@ -3196,7 +3196,7 @@ export default function App() {
                   <div className="tag-entry-row">
                     <input
                       type="text"
-                      placeholder="The Decline and Fall of the Roman Empire"
+                      placeholder="The Years of Lyndon Johnson"
                       value={draft.series}
                       onChange={(event) =>
                         updateDraft("series", event.target.value)
@@ -3243,7 +3243,7 @@ export default function App() {
                     >
                       <input
                         type="text"
-                        placeholder="Edward Gibbon"
+                        placeholder="Robert A. Caro"
                         value={draft.authorInput}
                         autoComplete="off"
                         aria-expanded={showAuthorSuggestions}
