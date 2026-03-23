@@ -39,7 +39,7 @@ import {
   renameAuthorInBooks,
 } from "./lib/books-api";
 import {
-  requestPathRecommendation,
+  fetchPathRecommendations,
   type PathRecommendationResponse,
   type RecommendedBook,
 } from "./lib/recommend-api";
@@ -137,6 +137,18 @@ function createDraft(): BookDraft {
     lastReadYear: "",
     markAsRead: false,
   };
+}
+
+function recommendationSourceLabel(provider: string) {
+  if (provider === "openlibrary+book-ranker") {
+    return "Open Library + your library";
+  }
+
+  if (provider.includes("openlibrary")) {
+    return "Open Library";
+  }
+
+  return "Your library";
 }
 
 function splitDraftTitle(value: string) {
@@ -2114,12 +2126,15 @@ export default function App() {
     }
 
     let cancelled = false;
-    const debounce = setTimeout(() => {
+    let controller: AbortController | null = null;
+    const debounce = setTimeout(async () => {
       setIsLoadingRecs(true);
       setRecError(null);
+      controller = new AbortController();
 
       try {
-        const result = requestPathRecommendation({
+        const result = await fetchPathRecommendations(
+          {
           selectedTags: selectedInterestPath,
           profile: {
             books: predictiveBooks,
@@ -2127,9 +2142,18 @@ export default function App() {
             authorExperiences,
             seriesExperiences,
           },
-        });
+          },
+          controller.signal,
+        );
         if (!cancelled) setRecommendations(result);
       } catch (error) {
+        if (
+          cancelled ||
+          (error instanceof DOMException && error.name === "AbortError")
+        ) {
+          return;
+        }
+
         if (!cancelled) {
           setRecError(
             error instanceof Error ? error.message : "Failed to get recommendations.",
@@ -2142,6 +2166,7 @@ export default function App() {
 
     return () => {
       cancelled = true;
+      controller?.abort();
       clearTimeout(debounce);
     };
   }, [
@@ -2295,28 +2320,30 @@ export default function App() {
               </div>
               <div className="profile-text">
                 <span className="profile-label">Active profile</span>
-                <div className="profile-picker-row">
-                  <label className="sr-only" htmlFor="profile-select">
-                    Active profile
-                  </label>
-                  <select
-                    id="profile-select"
-                    className="profile-select"
-                    value={activeProfileId ?? ""}
-                    onChange={(event) => {
-                      void handleProfileChange(event.target.value);
-                    }}
-                    disabled={profileControlDisabled}
-                  >
-                    {profiles.map((profile) => (
-                      <option key={profile.id} value={profile.id}>
-                        {profile.name}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    className="profile-create-btn"
+	                <div className="profile-picker-row">
+	                  <label className="sr-only" htmlFor="profile-select">
+	                    Active profile
+	                  </label>
+	                  <div className="profile-select-shell">
+	                    <select
+	                      id="profile-select"
+	                      className="profile-select"
+	                      value={activeProfileId ?? ""}
+	                      onChange={(event) => {
+	                        void handleProfileChange(event.target.value);
+	                      }}
+	                      disabled={profileControlDisabled}
+	                    >
+	                      {profiles.map((profile) => (
+	                        <option key={profile.id} value={profile.id}>
+	                          {profile.name}
+	                        </option>
+	                      ))}
+	                    </select>
+	                  </div>
+	                  <button
+	                    type="button"
+	                    className="profile-create-btn"
                     onClick={() => {
                       void handleCreateProfile();
                     }}
@@ -2510,6 +2537,13 @@ export default function App() {
                       .filter(Boolean)
                       .join(" ")}
                     scoreOverride={addedRecIds.has(rec.id) ? "✓" : undefined}
+                    subMeta={
+                      <span
+                        className={`recommendation-source${rec.provider.includes("openlibrary") ? " is-openlibrary" : ""}`}
+                      >
+                        {recommendationSourceLabel(rec.provider)}
+                      </span>
+                    }
                     onToggle={() => selectRecommendedBook(rec)}
                     isActive={selectedRecommendationId === rec.id}
                   />
@@ -2518,7 +2552,7 @@ export default function App() {
             </>
           ) : recommendations && recommendations.candidates.length === 0 ? (
             <div className="right-column-status">
-              <p>No matching site books found for these interests.</p>
+              <p>No matching books found for these interests.</p>
             </div>
           ) : null}
           <section className="panel control-panel">

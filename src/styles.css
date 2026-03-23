@@ -1317,6 +1317,29 @@ select:focus {
     grid-column: 1 / -1;
 }
 
+.recommendation-source {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.14);
+    color: #475569;
+    font-size: 0.64rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    line-height: 1.2;
+    text-transform: uppercase;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.recommendation-source.is-openlibrary {
+    background: rgba(180, 83, 9, 0.12);
+    color: #92400e;
+}
+
 .ranking-progress-row {
     display: grid;
     align-items: center;
@@ -1552,6 +1575,7 @@ select:focus {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 12px;
     padding: 12px 16px;
     border-top: 1px solid var(--line);
     background: var(--surface);
@@ -1561,6 +1585,7 @@ select:focus {
     display: flex;
     align-items: center;
     gap: 10px;
+    flex: 1 1 auto;
     min-width: 0;
 }
 
@@ -1587,9 +1612,9 @@ select:focus {
 }
 
 .profile-label {
-    font-size: 0.68rem;
+    font-size: 0.62rem;
     font-weight: 700;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--muted);
 }
@@ -1601,25 +1626,61 @@ select:focus {
     min-width: 0;
 }
 
-.profile-select {
+.profile-select-shell {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: 0 1 180px;
     min-width: 0;
-    max-width: 150px;
-    height: 32px;
-    padding: 0 10px;
+    height: 36px;
     border: 1px solid var(--line);
     border-radius: 999px;
     background: var(--surface-strong);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.profile-select-shell::after {
+    content: "";
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    width: 8px;
+    height: 8px;
+    border-right: 1.6px solid currentColor;
+    border-bottom: 1.6px solid currentColor;
+    color: var(--muted);
+    pointer-events: none;
+    transform: translateY(-60%) rotate(45deg);
+}
+
+.profile-select {
+    width: 100%;
+    min-width: 0;
+    height: 100%;
+    padding: 0 34px 0 14px;
+    border: 0;
+    border-radius: 999px;
+    appearance: none;
+    -webkit-appearance: none;
+    background: transparent;
     color: var(--text);
+    font-size: 0.92rem;
+    font-weight: 500;
+    line-height: 1;
+    outline: none;
+    box-shadow: none;
 }
 
 .profile-create-btn {
     flex-shrink: 0;
-    height: 32px;
-    padding: 0 10px;
+    height: 36px;
+    padding: 0 14px;
     border: 1px solid var(--line);
     border-radius: 999px;
     background: var(--surface-strong);
     color: var(--accent);
+    font-size: 0.86rem;
+    font-weight: 500;
     cursor: pointer;
     transition: color 160ms ease, border-color 160ms ease, background 160ms ease;
 }
@@ -1631,13 +1692,38 @@ select:focus {
 
 .profile-plan {
     font-size: 0.7rem;
+    line-height: 1.1;
     color: var(--muted);
+}
+
+.profile-select-shell:focus-within {
+    border-color: rgba(180, 83, 9, 0.45);
+    box-shadow: 0 0 0 3px rgba(180, 83, 9, 0.08);
+}
+
+.profile-select-shell:has(.profile-select:disabled) {
+    opacity: 0.55;
 }
 
 .profile-select:disabled,
 .profile-create-btn:disabled {
     opacity: 0.55;
     cursor: not-allowed;
+}
+
+@media (max-width: 720px) {
+    .column-footer {
+        align-items: flex-end;
+    }
+
+    .profile-picker-row {
+        flex-wrap: wrap;
+    }
+
+    .profile-select-shell {
+        flex-basis: 100%;
+        max-width: 100%;
+    }
 }
 
 .archive-toggle {

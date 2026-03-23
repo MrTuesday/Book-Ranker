@@ -23,7 +23,10 @@ import {
   writeGenreInterest,
   writeSeriesExperience,
 } from "./lib/library-service.js";
-import { searchOpenLibraryCatalog } from "./lib/open-library.js";
+import {
+  searchOpenLibraryCatalog,
+  searchOpenLibraryRecommendations,
+} from "./lib/open-library.js";
 import { createSeedState } from "./lib/seed-state.js";
 import { JsonStateStore } from "./lib/state-store.js";
 import { HttpError, notFound, readJson, sendJson } from "./lib/http.js";
@@ -108,6 +111,17 @@ async function handleApi(request, response, url) {
       200,
       await searchOpenLibraryCatalog(url.searchParams.get("query") ?? url.searchParams.get("q") ?? "", {
         limit: url.searchParams.get("limit"),
+      }),
+    );
+  }
+
+  if (request.method === "POST" && path === "/api/recommendations/path") {
+    const body = await readJson(request);
+    return sendJson(
+      response,
+      200,
+      await searchOpenLibraryRecommendations(body?.selectedTags, {
+        limit: body?.limit,
       }),
     );
   }
