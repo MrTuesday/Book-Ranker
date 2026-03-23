@@ -3430,7 +3430,7 @@ export default function App() {
                     >
                       <input
                         type="text"
-                        placeholder="History"
+                        placeholder="Biography"
                         value={draft.genreInput}
                         autoComplete="off"
                         aria-expanded={showGenreSuggestions}
