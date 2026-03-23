@@ -3137,7 +3137,7 @@ export default function App() {
                   >
                     <input
                       type="text"
-                      placeholder="The Power Broker"
+                      placeholder="The Power Broker: Robert Moses and the Fall of New York"
                       value={draft.title}
                       autoComplete="off"
                       aria-expanded={showTitleSuggestions}
