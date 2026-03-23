@@ -335,6 +335,8 @@ export async function renameGenreInBooks(store, oldGenre, newGenre) {
   const nextBooks = state.books.map((book) => ({
     ...book,
     genres: replaceTag(book.genres, oldValue, nextValue, normalizeGenreTag),
+    genreAdded: replaceTag(book.genreAdded ?? [], oldValue, nextValue, normalizeGenreTag),
+    genreRemoved: replaceTag(book.genreRemoved ?? [], oldValue, nextValue, normalizeGenreTag),
   }));
   const writtenState = await store.write(
     syncActiveProfileState(

@@ -15,6 +15,8 @@ function cloneBooks(books) {
     authors: [...book.authors],
     genres: [...book.genres],
     moods: [...book.moods],
+    ...(book.genreAdded ? { genreAdded: [...book.genreAdded] } : {}),
+    ...(book.genreRemoved ? { genreRemoved: [...book.genreRemoved] } : {}),
   }));
 }
 
@@ -201,6 +203,8 @@ export function normalizeBook(value) {
   const authors = normalizeTagList(book?.authors ?? book?.author);
   const genres = normalizeTagList(book?.genres ?? book?.genre, normalizeGenreTag);
   const moods = normalizeTagList(book?.moods ?? book?.mood, normalizeMoodTag);
+  const genreAdded = normalizeTagList(book?.genreAdded, normalizeGenreTag);
+  const genreRemoved = normalizeTagList(book?.genreRemoved, normalizeGenreTag);
 
   if (
     !title ||
@@ -230,6 +234,8 @@ export function normalizeBook(value) {
     ...(archivedAtYear != null ? { archivedAtYear } : {}),
     ...(catalogInfoLink ? { catalogInfoLink } : {}),
     ...(statsUpdatedAt ? { statsUpdatedAt } : {}),
+    ...(genreAdded.length > 0 ? { genreAdded } : {}),
+    ...(genreRemoved.length > 0 ? { genreRemoved } : {}),
   };
 }
 
@@ -298,6 +304,8 @@ export function parseBookPayload(value) {
   const authors = normalizeTagList(value?.authors ?? value?.author);
   const genres = normalizeTagList(value?.genres ?? value?.genre, normalizeGenreTag);
   const moods = normalizeTagList(value?.moods ?? value?.mood, normalizeMoodTag);
+  const genreAdded = normalizeTagList(value?.genreAdded, normalizeGenreTag);
+  const genreRemoved = normalizeTagList(value?.genreRemoved, normalizeGenreTag);
 
   return {
     title,
@@ -323,6 +331,8 @@ export function parseBookPayload(value) {
       : archivedAtYear != null
         ? { archivedAtYear }
         : {}),
+    ...(genreAdded.length > 0 ? { genreAdded } : {}),
+    ...(genreRemoved.length > 0 ? { genreRemoved } : {}),
   };
 }
 

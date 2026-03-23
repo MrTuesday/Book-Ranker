@@ -25,6 +25,8 @@ export type Book = {
   readCount?: number;
   lastReadYear?: number;
   archivedAtYear?: number;
+  genreAdded?: string[];
+  genreRemoved?: string[];
 };
 
 export type BookPayload = Omit<Book, "id" | "moods"> & {
@@ -287,6 +289,46 @@ function normalizeTagList(
   return Array.from(seen);
 }
 
+export function resolveBookGenres(
+  catalogGenres: string[],
+  allowedGenres: Set<string>,
+  added: string[] = [],
+  removed: string[] = [],
+): string[] {
+  const removedSet = new Set(removed.map(normalizeGenreTag));
+  const filtered = catalogGenres
+    .map(normalizeGenreTag)
+    .filter((g) => g && allowedGenres.has(g) && !removedSet.has(g));
+  const extra = added
+    .map(normalizeGenreTag)
+    .filter((g) => g && !removedSet.has(g));
+  return Array.from(new Set([...filtered, ...extra])).filter(Boolean);
+}
+
+export function computeGenreOverrides(
+  draftGenres: string[],
+  catalogGenres: string[],
+  allowedGenres: Set<string>,
+): { genreAdded: string[]; genreRemoved: string[] } {
+  const normalizedDraft = new Set(
+    draftGenres.map(normalizeGenreTag).filter(Boolean),
+  );
+  const catalogFiltered = catalogGenres
+    .map(normalizeGenreTag)
+    .filter((g) => g && allowedGenres.has(g));
+  const catalogFilteredSet = new Set(catalogFiltered);
+
+  const genreAdded = draftGenres
+    .map(normalizeGenreTag)
+    .filter((g) => g && !catalogFilteredSet.has(g));
+  const genreRemoved = catalogFiltered.filter((g) => !normalizedDraft.has(g));
+
+  return {
+    genreAdded: Array.from(new Set(genreAdded)),
+    genreRemoved: Array.from(new Set(genreRemoved)),
+  };
+}
+
 function normalizeYear(value: unknown) {
   const currentYear = new Date().getFullYear();
   const parsed =
@@ -397,6 +439,8 @@ function normalizeBook(value: unknown): Book | null {
   const authors = normalizeTagList(book?.authors ?? book?.author);
   const genres = normalizeTagList(book?.genres ?? book?.genre, normalizeGenreTag);
   const moods = normalizeTagList(book?.moods ?? book?.mood, normalizeMoodTag);
+  const genreAdded = normalizeTagList((book as Record<string, unknown>)?.genreAdded, normalizeGenreTag);
+  const genreRemoved = normalizeTagList((book as Record<string, unknown>)?.genreRemoved, normalizeGenreTag);
 
   if (
     !title ||
@@ -426,6 +470,8 @@ function normalizeBook(value: unknown): Book | null {
     ...(archivedAtYear != null ? { archivedAtYear } : {}),
     ...(catalogInfoLink ? { catalogInfoLink } : {}),
     ...(statsUpdatedAt ? { statsUpdatedAt } : {}),
+    ...(genreAdded.length > 0 ? { genreAdded } : {}),
+    ...(genreRemoved.length > 0 ? { genreRemoved } : {}),
   };
 }
 
@@ -458,6 +504,8 @@ function cloneBooks(books: Book[]) {
     authors: [...book.authors],
     genres: [...book.genres],
     moods: [...book.moods],
+    ...(book.genreAdded ? { genreAdded: [...book.genreAdded] } : {}),
+    ...(book.genreRemoved ? { genreRemoved: [...book.genreRemoved] } : {}),
   }));
 }
 
@@ -945,6 +993,8 @@ function parseBookPayload(
       (value as Partial<{ moods: unknown; mood: unknown }>)?.mood,
     normalizeMoodTag,
   );
+  const genreAdded = normalizeTagList((value as Record<string, unknown>)?.genreAdded, normalizeGenreTag);
+  const genreRemoved = normalizeTagList((value as Record<string, unknown>)?.genreRemoved, normalizeGenreTag);
 
   return {
     title,
@@ -970,6 +1020,8 @@ function parseBookPayload(
       : archivedAtYear != null
         ? { archivedAtYear }
         : {}),
+    ...(genreAdded.length > 0 ? { genreAdded } : {}),
+    ...(genreRemoved.length > 0 ? { genreRemoved } : {}),
   };
 }
 
@@ -2156,6 +2208,8 @@ export async function renameGenreInBooks(oldGenre: string, newGenre: string) {
       const nextBooks = activeProfile.books.map((book) => ({
         ...book,
         genres: replaceTag(book.genres, oldValue, nextValue, normalizeGenreTag),
+        genreAdded: replaceTag(book.genreAdded ?? [], oldValue, nextValue, normalizeGenreTag),
+        genreRemoved: replaceTag(book.genreRemoved ?? [], oldValue, nextValue, normalizeGenreTag),
       }));
       const nextProfile = createStoredProfile({
         ...activeProfile,
@@ -2195,6 +2249,8 @@ export async function renameGenreInBooks(oldGenre: string, newGenre: string) {
     const nextBooks = books.map((book) => ({
       ...book,
       genres: replaceTag(book.genres, oldValue, nextValue, normalizeGenreTag),
+      genreAdded: replaceTag(book.genreAdded ?? [], oldValue, nextValue, normalizeGenreTag),
+      genreRemoved: replaceTag(book.genreRemoved ?? [], oldValue, nextValue, normalizeGenreTag),
     }));
     writeLocalCatalogBooks(upsertCatalogBooks(readLocalCatalogBooks(), nextBooks));
     return writeLocalBooks(applySiteRatingStats(nextBooks));

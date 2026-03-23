@@ -37,6 +37,8 @@ import {
   renameGenreInBooks,
   renameGenreInterest,
   renameAuthorInBooks,
+  resolveBookGenres,
+  computeGenreOverrides,
 } from "./lib/books-api";
 import {
   getAuthSession,
@@ -247,18 +249,7 @@ function resolvedSuggestion(
 function buildCatalogGenres(
   result: Pick<CatalogSearchResult, "title" | "authors" | "genres" | "tags">,
   knownGenres: string[],
-  savedGenresByIdentity: Map<string, string[]>,
 ) {
-  const identityKey = buildCatalogIdentityKey({
-    title: result.title,
-    authors: result.authors,
-  });
-  const savedGenres = savedGenresByIdentity.get(identityKey);
-
-  if (savedGenres && savedGenres.length > 0) {
-    return savedGenres.slice(0, MAX_AUTOFILL_TOPICS);
-  }
-
   const knownGenreSet = new Set(knownGenres.map(normalizeGenreTag));
 
   return uniqueTags(
@@ -552,7 +543,12 @@ export default function App() {
     (nextBooks: Book[]) => {
       pendingBookRectsRef.current = captureVisibleBookRects();
       setBooks(nextBooks);
-      setCatalogBooks((current) => upsertCatalogBooks(current, nextBooks));
+      setCatalogBooks((current) =>
+        upsertCatalogBooks(
+          current,
+          nextBooks.map((book) => ({ ...book, genres: [] })),
+        ),
+      );
     },
     [captureVisibleBookRects],
   );
@@ -785,13 +781,46 @@ export default function App() {
     });
   }, []);
 
+  const resolvedBooks = useMemo(() => {
+    const allowedGenres = new Set(
+      Object.keys(genreInterests).map(normalizeGenreTag).filter(Boolean),
+    );
+    const catalogByIdentity = new Map<string, CatalogBook>();
+    for (const cb of catalogBooks) {
+      catalogByIdentity.set(buildCatalogIdentityKey(cb), cb);
+    }
+
+    return books.map((book) => {
+      if (!book.genreAdded && !book.genreRemoved) {
+        return book;
+      }
+
+      const catalogKey = buildCatalogIdentityKey({
+        title: book.title,
+        authors: book.authors,
+      });
+      const catalogBook = catalogByIdentity.get(catalogKey);
+      const catGenres = catalogBook?.genres ?? [];
+
+      return {
+        ...book,
+        genres: resolveBookGenres(
+          catGenres,
+          allowedGenres,
+          book.genreAdded,
+          book.genreRemoved,
+        ),
+      };
+    });
+  }, [books, catalogBooks, genreInterests]);
+
   const visibleGraphGenres = useMemo(() => {
     return uniqueTags(
-      books.flatMap((book) =>
+      resolvedBooks.flatMap((book) =>
         uniqueTags(book.genres).filter((tag) => genreInterests[tag] != null),
       ),
     ).sort((left, right) => left.localeCompare(right));
-  }, [books, genreInterests]);
+  }, [resolvedBooks, genreInterests]);
 
   useEffect(() => {
     const visibleGraphTags = new Set(visibleGraphGenres);
@@ -814,12 +843,12 @@ export default function App() {
   const { predictiveBooks, rankedBooks, readBooks } = useMemo(
     () =>
       buildBookAnalytics({
-        books,
+        books: resolvedBooks,
         genreInterests,
         authorExperiences,
         seriesExperiences,
       }),
-    [books, genreInterests, authorExperiences, seriesExperiences],
+    [resolvedBooks, genreInterests, authorExperiences, seriesExperiences],
   );
 
   const visibleRankedBooks = useMemo(
@@ -874,7 +903,7 @@ export default function App() {
     const nextAuthors = new Set<string>();
     const nextSeries = new Set<string>();
 
-    for (const book of books) {
+    for (const book of resolvedBooks) {
       for (const genre of book.genres) {
         nextGenres.add(genre);
       }
@@ -905,23 +934,8 @@ export default function App() {
       knownAuthors: Array.from(nextAuthors).sort((a, b) => a.localeCompare(b)),
       knownSeries: Array.from(nextSeries).sort((a, b) => a.localeCompare(b)),
     };
-  }, [books, genreInterests, authorExperiences, seriesExperiences]);
+  }, [resolvedBooks, genreInterests, authorExperiences, seriesExperiences]);
 
-  const savedGenresByIdentity = useMemo(() => {
-    const nextMap = new Map<string, string[]>();
-
-    for (const book of books) {
-      nextMap.set(
-        buildCatalogIdentityKey({
-          title: book.title,
-          authors: book.authors,
-        }),
-        uniqueTags(book.genres.map(normalizeGenreTag)),
-      );
-    }
-
-    return nextMap;
-  }, [books]);
 
   const authorSuggestions = useMemo(() => {
     return matchingSuggestions(draft.authorInput, draft.authors, knownAuthors);
@@ -1679,7 +1693,6 @@ export default function App() {
     const catalogGenres = buildCatalogGenres(
       result,
       knownGenres,
-      savedGenresByIdentity,
     );
     const nextTitleParts = splitDraftTitle(result.title);
 
@@ -2142,14 +2155,33 @@ export default function App() {
         ? Number(draft.progress)
         : undefined;
       const sourceCatalogBookId = selectedCatalogBookId;
+      const draftTitle = buildDraftTitle(draft.title, draft.subtitle);
+      const catalogKey = buildCatalogIdentityKey({
+        title: draftTitle,
+        authors: draft.authors,
+      });
+      const catalogBook = catalogBooks.find(
+        (cb) => buildCatalogIdentityKey(cb) === catalogKey,
+      );
+      const allowedGenres = new Set(
+        Object.keys(genreInterests).map(normalizeGenreTag).filter(Boolean),
+      );
+      const { genreAdded, genreRemoved } = computeGenreOverrides(
+        draft.genres,
+        catalogBook?.genres ?? [],
+        allowedGenres,
+      );
+
       const payload = {
-        title: buildDraftTitle(draft.title, draft.subtitle),
+        title: draftTitle,
         ...(draft.series.trim() ? { series: draft.series.trim() } : {}),
         ...(draft.series.trim() && draft.seriesNumber.trim()
           ? { seriesNumber: Number(draft.seriesNumber) }
           : {}),
         authors: draft.authors,
         genres: draft.genres,
+        genreAdded,
+        genreRemoved,
         progress: parsedProgress,
         myRating: draft.myRating ?? undefined,
         readCount: draft.readCount,
