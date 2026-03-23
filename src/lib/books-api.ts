@@ -32,6 +32,11 @@ export type BookPayload = Omit<Book, "id" | "moods"> & {
 export type GenreInterestMap = Record<string, number>;
 export type AuthorExperienceMap = Record<string, number>;
 export type SeriesExperienceMap = Record<string, number>;
+export type ProfileSummary = {
+  id: string;
+  name: string;
+  createdAt: string;
+};
 
 export type LibraryState = {
   books: Book[];
@@ -39,6 +44,8 @@ export type LibraryState = {
   genreInterests: GenreInterestMap;
   authorExperiences: AuthorExperienceMap;
   seriesExperiences: SeriesExperienceMap;
+  profiles: ProfileSummary[];
+  activeProfileId: string;
   meta: {
     seeded: boolean;
     migratedLocalState: boolean;
@@ -78,7 +85,30 @@ const CATALOG_STORAGE_KEY = "book-ranker.catalog-books.v1";
 const GENRE_INTEREST_KEY = "book-ranker.genre-interests.v1";
 const AUTHOR_EXP_KEY = "book-ranker.author-experiences.v1";
 const SERIES_EXP_KEY = "book-ranker.series-experiences.v1";
+const PROFILES_STORAGE_KEY = "book-ranker.profiles.v1";
+const ACTIVE_PROFILE_STORAGE_KEY = "book-ranker.active-profile-id.v1";
 const BACKEND_MIGRATION_KEY = "book-ranker.backend-migrated.v1";
+const DEFAULT_PROFILE_ID = "profile-default";
+const DEFAULT_PROFILE_NAME = "My Profile";
+
+type StoredProfile = ProfileSummary & {
+  books: Book[];
+  catalogBooks: CatalogBook[];
+  genreInterests: GenreInterestMap;
+  authorExperiences: AuthorExperienceMap;
+  seriesExperiences: SeriesExperienceMap;
+  meta: LibraryState["meta"];
+};
+
+type StoredLibraryState = {
+  profiles: StoredProfile[];
+  activeProfileId: string;
+};
+
+type LegacyLibraryData = Omit<
+  LibraryState,
+  "meta" | "profiles" | "activeProfileId"
+>;
 
 class BackendUnavailableError extends Error {
   constructor(message = "Backend is unavailable.") {
@@ -364,21 +394,124 @@ function cloneBooks(books: Book[]) {
   }));
 }
 
-function localLibraryState(
-  overrides: Partial<Omit<LibraryState, "meta">> = {},
-): LibraryState {
-  const books = cloneBooks(overrides.books ?? []);
+function cloneStoredProfile(profile: StoredProfile): StoredProfile {
   return {
+    id: profile.id,
+    name: profile.name,
+    createdAt: profile.createdAt,
+    books: cloneBooks(profile.books),
+    catalogBooks: cloneCatalogBooks(profile.catalogBooks),
+    genreInterests: { ...profile.genreInterests },
+    authorExperiences: { ...profile.authorExperiences },
+    seriesExperiences: { ...profile.seriesExperiences },
+    meta: { ...profile.meta },
+  };
+}
+
+function createProfileId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `profile-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createStoredProfile(
+  overrides: Partial<StoredProfile> & Pick<StoredProfile, "id" | "name">,
+): StoredProfile {
+  const updatedAt =
+    normalizeTimestamp(overrides.meta?.updatedAt) ??
+    normalizeTimestamp(overrides.createdAt) ??
+    new Date().toISOString();
+  const createdAt = normalizeTimestamp(overrides.createdAt) ?? updatedAt;
+  const books = cloneBooks(overrides.books ?? []);
+
+  return {
+    id: overrides.id,
+    name: overrides.name.trim().replace(/\s+/g, " "),
+    createdAt,
     books,
     catalogBooks: upsertCatalogBooks(overrides.catalogBooks ?? [], books),
     genreInterests: { ...(overrides.genreInterests ?? {}) },
     authorExperiences: { ...(overrides.authorExperiences ?? {}) },
     seriesExperiences: { ...(overrides.seriesExperiences ?? {}) },
     meta: {
-      seeded: false,
-      migratedLocalState: false,
-      updatedAt: new Date().toISOString(),
+      seeded: overrides.meta?.seeded === true,
+      migratedLocalState: overrides.meta?.migratedLocalState === true,
+      updatedAt,
     },
+  };
+}
+
+function createDefaultStoredProfile(
+  overrides: Partial<StoredProfile> = {},
+): StoredProfile {
+  return createStoredProfile({
+    id: overrides.id ?? DEFAULT_PROFILE_ID,
+    name: overrides.name ?? DEFAULT_PROFILE_NAME,
+    ...overrides,
+  });
+}
+
+function findActiveStoredProfile(state: StoredLibraryState) {
+  return (
+    state.profiles.find((profile) => profile.id === state.activeProfileId) ??
+    state.profiles[0] ??
+    createDefaultStoredProfile()
+  );
+}
+
+function replaceActiveStoredProfile(
+  state: StoredLibraryState,
+  nextProfile: StoredProfile,
+): StoredLibraryState {
+  const profiles = state.profiles.some((profile) => profile.id === nextProfile.id)
+    ? state.profiles.map((profile) =>
+        profile.id === nextProfile.id ? cloneStoredProfile(nextProfile) : profile,
+      )
+    : [...state.profiles, cloneStoredProfile(nextProfile)];
+
+  return {
+    profiles,
+    activeProfileId: nextProfile.id,
+  };
+}
+
+function toLibraryState(state: StoredLibraryState): LibraryState {
+  const activeProfile = findActiveStoredProfile(state);
+
+  return {
+    books: cloneBooks(activeProfile.books),
+    catalogBooks: cloneCatalogBooks(activeProfile.catalogBooks),
+    genreInterests: { ...activeProfile.genreInterests },
+    authorExperiences: { ...activeProfile.authorExperiences },
+    seriesExperiences: { ...activeProfile.seriesExperiences },
+    profiles: state.profiles.map(({ id, name, createdAt }) => ({
+      id,
+      name,
+      createdAt,
+    })),
+    activeProfileId: activeProfile.id,
+    meta: { ...activeProfile.meta },
+  };
+}
+
+function createStoredLibraryState(
+  overrides: Partial<StoredLibraryState> = {},
+): StoredLibraryState {
+  const profiles =
+    overrides.profiles && overrides.profiles.length > 0
+      ? overrides.profiles.map(cloneStoredProfile)
+      : [createDefaultStoredProfile()];
+  const activeProfileId =
+    overrides.activeProfileId &&
+    profiles.some((profile) => profile.id === overrides.activeProfileId)
+      ? overrides.activeProfileId
+      : profiles[0].id;
+
+  return {
+    profiles,
+    activeProfileId,
   };
 }
 
@@ -520,7 +653,7 @@ function replaceTag(
   return normalizeTagList(replaced, normalizeValue);
 }
 
-function readLegacyState(): Omit<LibraryState, "meta"> | null {
+function readLegacyState(): LegacyLibraryData | null {
   const storage = getStorage();
 
   if (!storage) {
@@ -588,7 +721,7 @@ function stableMapEntries(value: Record<string, number>) {
 }
 
 function sameLibraryData(
-  left: Omit<LibraryState, "meta">,
+  left: LegacyLibraryData,
   right: Pick<
     LibraryState,
     | "books"
@@ -610,54 +743,242 @@ function sameLibraryData(
   );
 }
 
-function readLocalLibraryState(): LibraryState {
+function readStoredLocalLibraryState(): StoredLibraryState {
+  const storage = getStorage();
+
+  if (!storage) {
+    return createStoredLibraryState();
+  }
+
+  try {
+    const rawProfiles = storage.getItem(PROFILES_STORAGE_KEY);
+    const rawActiveProfileId = storage.getItem(ACTIVE_PROFILE_STORAGE_KEY);
+
+    if (rawProfiles) {
+      const parsedProfiles = JSON.parse(rawProfiles) as unknown;
+
+      if (Array.isArray(parsedProfiles) && parsedProfiles.length > 0) {
+        const profiles = parsedProfiles
+          .map((profile, index) => {
+            const rawProfile =
+              profile && typeof profile === "object"
+                ? (profile as Partial<StoredProfile>)
+                : null;
+            const fallback = createDefaultStoredProfile({
+              id:
+                typeof rawProfile?.id === "string" && rawProfile.id.trim()
+                  ? rawProfile.id.trim()
+                  : `profile-${index + 1}`,
+              name:
+                typeof rawProfile?.name === "string" && rawProfile.name.trim()
+                  ? rawProfile.name.trim()
+                  : `Profile ${index + 1}`,
+              createdAt:
+                typeof rawProfile?.createdAt === "string"
+                  ? rawProfile.createdAt
+                  : undefined,
+            });
+
+            return createStoredProfile({
+              id:
+                typeof rawProfile?.id === "string" && rawProfile.id.trim()
+                  ? rawProfile.id.trim()
+                  : fallback.id,
+              name:
+                typeof rawProfile?.name === "string" && rawProfile.name.trim()
+                  ? rawProfile.name
+                  : fallback.name,
+              createdAt: rawProfile?.createdAt ?? fallback.createdAt,
+              books: Array.isArray(rawProfile?.books)
+                ? rawProfile.books
+                    .map(normalizeBook)
+                    .filter((book): book is Book => book !== null)
+                : fallback.books,
+              catalogBooks: Array.isArray(rawProfile?.catalogBooks)
+                ? rawProfile.catalogBooks
+                    .map(normalizeCatalogBook)
+                    .filter((book): book is CatalogBook => book !== null)
+                : fallback.catalogBooks,
+              genreInterests:
+                rawProfile?.genreInterests != null
+                  ? normalizeScoreMap(rawProfile.genreInterests, normalizeGenreTag)
+                  : fallback.genreInterests,
+              authorExperiences:
+                rawProfile?.authorExperiences != null
+                  ? normalizeScoreMap(rawProfile.authorExperiences)
+                  : fallback.authorExperiences,
+              seriesExperiences:
+                rawProfile?.seriesExperiences != null
+                  ? normalizeScoreMap(rawProfile.seriesExperiences)
+                  : fallback.seriesExperiences,
+              meta: {
+                seeded: rawProfile?.meta?.seeded === true,
+                migratedLocalState: rawProfile?.meta?.migratedLocalState === true,
+                updatedAt:
+                  normalizeTimestamp(rawProfile?.meta?.updatedAt) ??
+                  fallback.meta.updatedAt,
+              },
+            });
+          })
+          .filter(
+            (profile, index, allProfiles) =>
+              allProfiles.findIndex((entry) => entry.id === profile.id) === index,
+          );
+
+        if (profiles.length > 0) {
+          return createStoredLibraryState({
+            profiles,
+            activeProfileId:
+              rawActiveProfileId &&
+              profiles.some((profile) => profile.id === rawActiveProfileId)
+                ? rawActiveProfileId
+                : profiles[0].id,
+          });
+        }
+      }
+    }
+  } catch {
+    // Ignore invalid storage and fall back to legacy/local defaults.
+  }
+
   const legacyState = readLegacyState();
 
   if (!legacyState) {
-    return localLibraryState();
+    return createStoredLibraryState();
   }
 
-  return localLibraryState(legacyState);
+  const createdAt = new Date().toISOString();
+  return createStoredLibraryState({
+    profiles: [
+      createDefaultStoredProfile({
+        createdAt,
+        books: legacyState.books,
+        catalogBooks: legacyState.catalogBooks,
+        genreInterests: legacyState.genreInterests,
+        authorExperiences: legacyState.authorExperiences,
+        seriesExperiences: legacyState.seriesExperiences,
+      }),
+    ],
+    activeProfileId: DEFAULT_PROFILE_ID,
+  });
+}
+
+function writeStoredLocalLibraryState(state: StoredLibraryState) {
+  const storage = requireStorage();
+  const nextState = createStoredLibraryState(state);
+  const activeProfile = findActiveStoredProfile(nextState);
+
+  storage.setItem(
+    PROFILES_STORAGE_KEY,
+    JSON.stringify(nextState.profiles.map(cloneStoredProfile)),
+  );
+  storage.setItem(ACTIVE_PROFILE_STORAGE_KEY, nextState.activeProfileId);
+  storage.setItem(STORAGE_KEY, JSON.stringify(cloneBooks(activeProfile.books)));
+  storage.setItem(
+    CATALOG_STORAGE_KEY,
+    JSON.stringify(cloneCatalogBooks(activeProfile.catalogBooks)),
+  );
+  storage.setItem(GENRE_INTEREST_KEY, JSON.stringify(activeProfile.genreInterests));
+  storage.setItem(
+    AUTHOR_EXP_KEY,
+    JSON.stringify(activeProfile.authorExperiences),
+  );
+  storage.setItem(
+    SERIES_EXP_KEY,
+    JSON.stringify(activeProfile.seriesExperiences),
+  );
+
+  return nextState;
+}
+
+function readLocalLibraryState(): LibraryState {
+  return toLibraryState(readStoredLocalLibraryState());
 }
 
 function writeLocalBooks(books: Book[]) {
-  const storage = requireStorage();
+  const state = readStoredLocalLibraryState();
+  const activeProfile = findActiveStoredProfile(state);
   const nextBooks = cloneBooks(books);
-  storage.setItem(STORAGE_KEY, JSON.stringify(nextBooks));
+  const nextProfile = createStoredProfile({
+    ...activeProfile,
+    books: nextBooks,
+    catalogBooks: upsertCatalogBooks(activeProfile.catalogBooks, nextBooks),
+    meta: {
+      ...activeProfile.meta,
+      seeded: false,
+      updatedAt: new Date().toISOString(),
+    },
+  });
+
+  writeStoredLocalLibraryState(replaceActiveStoredProfile(state, nextProfile));
   return nextBooks;
 }
 
 function writeLocalCatalogBooks(catalogBooks: CatalogBook[]) {
-  const storage = requireStorage();
+  const state = readStoredLocalLibraryState();
+  const activeProfile = findActiveStoredProfile(state);
   const nextCatalogBooks = cloneCatalogBooks(catalogBooks);
-  storage.setItem(CATALOG_STORAGE_KEY, JSON.stringify(nextCatalogBooks));
+  const nextProfile = createStoredProfile({
+    ...activeProfile,
+    catalogBooks: nextCatalogBooks,
+    meta: {
+      ...activeProfile.meta,
+      seeded: false,
+      updatedAt: new Date().toISOString(),
+    },
+  });
+
+  writeStoredLocalLibraryState(replaceActiveStoredProfile(state, nextProfile));
   return nextCatalogBooks;
 }
 
 function readLocalBooks() {
-  return readLocalLibraryState().books;
+  return cloneBooks(findActiveStoredProfile(readStoredLocalLibraryState()).books);
 }
 
 function readLocalCatalogBooks() {
-  return readLocalLibraryState().catalogBooks;
+  return cloneCatalogBooks(
+    findActiveStoredProfile(readStoredLocalLibraryState()).catalogBooks,
+  );
 }
 
 function writeLocalMap(storageKey: string, nextMap: Record<string, number>) {
-  const storage = requireStorage();
-  storage.setItem(storageKey, JSON.stringify(nextMap));
+  const state = readStoredLocalLibraryState();
+  const activeProfile = findActiveStoredProfile(state);
+  const nextProfile = createStoredProfile({
+    ...activeProfile,
+    ...(storageKey === GENRE_INTEREST_KEY
+      ? { genreInterests: { ...nextMap } }
+      : storageKey === AUTHOR_EXP_KEY
+        ? { authorExperiences: { ...nextMap } }
+        : { seriesExperiences: { ...nextMap } }),
+    meta: {
+      ...activeProfile.meta,
+      seeded: false,
+      updatedAt: new Date().toISOString(),
+    },
+  });
+
+  writeStoredLocalLibraryState(replaceActiveStoredProfile(state, nextProfile));
   return { ...nextMap };
 }
 
 function readLocalGenreInterests() {
-  return readLocalLibraryState().genreInterests;
+  return {
+    ...findActiveStoredProfile(readStoredLocalLibraryState()).genreInterests,
+  };
 }
 
 function readLocalAuthorExperiences() {
-  return readLocalLibraryState().authorExperiences;
+  return {
+    ...findActiveStoredProfile(readStoredLocalLibraryState()).authorExperiences,
+  };
 }
 
 function readLocalSeriesExperiences() {
-  return readLocalLibraryState().seriesExperiences;
+  return {
+    ...findActiveStoredProfile(readStoredLocalLibraryState()).seriesExperiences,
+  };
 }
 
 async function migrateLegacyStateIfNeeded(libraryState: LibraryState) {
@@ -738,6 +1059,85 @@ export async function fetchLibraryState() {
     }
 
     throw error;
+  }
+}
+
+export async function createProfile(name: string) {
+  const nextName = name.trim().replace(/\s+/g, " ");
+
+  try {
+    return withNativeRatingStats(
+      await requestJson<LibraryState>("/api/profiles", {
+        method: "POST",
+        body: JSON.stringify({ name: nextName }),
+      }),
+    );
+  } catch (error) {
+    if (!(error instanceof BackendUnavailableError)) {
+      throw error;
+    }
+
+    if (!nextName) {
+      throw new Error("Profile name is required.");
+    }
+
+    const state = readStoredLocalLibraryState();
+    const nameTaken = state.profiles.some(
+      (profile) => profile.name.toLocaleLowerCase() === nextName.toLocaleLowerCase(),
+    );
+
+    if (nameTaken) {
+      throw new Error("A profile with that name already exists.");
+    }
+
+    const nextProfile = createStoredProfile({
+      id: createProfileId(),
+      name: nextName,
+    });
+    const nextState = writeStoredLocalLibraryState({
+      profiles: [...state.profiles, nextProfile],
+      activeProfileId: nextProfile.id,
+    });
+
+    return withNativeRatingStats(toLibraryState(nextState), {
+      persistLocal: true,
+    });
+  }
+}
+
+export async function setActiveProfile(profileId: string) {
+  const nextProfileId = profileId.trim();
+
+  try {
+    return withNativeRatingStats(
+      await requestJson<LibraryState>("/api/profiles/active", {
+        method: "PUT",
+        body: JSON.stringify({ profileId: nextProfileId }),
+      }),
+    );
+  } catch (error) {
+    if (!(error instanceof BackendUnavailableError)) {
+      throw error;
+    }
+
+    if (!nextProfileId) {
+      throw new Error("Profile id is required.");
+    }
+
+    const state = readStoredLocalLibraryState();
+
+    if (!state.profiles.some((profile) => profile.id === nextProfileId)) {
+      throw new Error("Profile not found.");
+    }
+
+    const nextState = writeStoredLocalLibraryState({
+      profiles: state.profiles,
+      activeProfileId: nextProfileId,
+    });
+
+    return withNativeRatingStats(toLibraryState(nextState), {
+      persistLocal: true,
+    });
   }
 }
 

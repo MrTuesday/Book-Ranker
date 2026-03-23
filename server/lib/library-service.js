@@ -1,36 +1,103 @@
+import { randomUUID } from "node:crypto";
+
 import {
+  activateProfileState,
+  createEmptyProfile,
+  getProfileSummaries,
   markStateUpdated,
-  normalizeImportedState,
   normalizeGenreTag,
+  normalizeImportedState,
   parseBookPayload,
   replaceTag,
+  syncActiveProfileState,
 } from "./library-model.js";
 import { upsertCatalogBooks } from "./catalog-memory.js";
 
+function serializeLibraryState(state) {
+  return {
+    books: state.books,
+    catalogBooks: state.catalogBooks,
+    genreInterests: state.genreInterests,
+    authorExperiences: state.authorExperiences,
+    seriesExperiences: state.seriesExperiences ?? {},
+    profiles: getProfileSummaries(state),
+    activeProfileId: state.activeProfileId,
+    meta: state.meta,
+  };
+}
+
 export async function getLibraryState(store) {
-  return store.read();
+  return serializeLibraryState(await store.read());
+}
+
+export async function createProfile(store, payload) {
+  const nextName = String(payload?.name ?? "")
+    .trim()
+    .replace(/\s+/g, " ");
+
+  if (!nextName) {
+    throw new Error("Profile name is required.");
+  }
+
+  const state = await store.read();
+  const nameTaken = state.profiles.some(
+    (profile) => profile.name.toLocaleLowerCase() === nextName.toLocaleLowerCase(),
+  );
+
+  if (nameTaken) {
+    throw new Error("A profile with that name already exists.");
+  }
+
+  const nextProfile = createEmptyProfile(randomUUID(), nextName);
+  const nextState = activateProfileState(
+    {
+      ...state,
+      profiles: [...state.profiles, nextProfile],
+    },
+    nextProfile.id,
+  );
+  const writtenState = await store.write(nextState);
+  return serializeLibraryState(writtenState);
+}
+
+export async function setActiveProfile(store, profileId) {
+  const nextProfileId = String(profileId ?? "").trim();
+
+  if (!nextProfileId) {
+    throw new Error("Profile id is required.");
+  }
+
+  const state = await store.read();
+  const writtenState = await store.write(activateProfileState(state, nextProfileId));
+  return serializeLibraryState(writtenState);
 }
 
 export async function importLibraryState(store, payload) {
   const imported = normalizeImportedState(payload);
+  const state = await store.read();
 
-  return store.write({
-    books: imported.books.map((book) => ({
-      ...book,
-      authors: [...book.authors],
-      genres: [...book.genres],
-      moods: [...book.moods],
-    })),
-    catalogBooks: imported.catalogBooks,
-    genreInterests: { ...imported.genreInterests },
-    authorExperiences: { ...imported.authorExperiences },
-    seriesExperiences: { ...(imported.seriesExperiences ?? {}) },
-    meta: {
-      seeded: false,
-      migratedLocalState: true,
-      updatedAt: new Date().toISOString(),
-    },
-  });
+  return serializeLibraryState(
+    await store.write(
+      syncActiveProfileState(
+        markStateUpdated(
+          {
+            ...state,
+            books: imported.books.map((book) => ({
+              ...book,
+              authors: [...book.authors],
+              genres: [...book.genres],
+              moods: [...book.moods],
+            })),
+            catalogBooks: imported.catalogBooks,
+            genreInterests: { ...imported.genreInterests },
+            authorExperiences: { ...imported.authorExperiences },
+            seriesExperiences: { ...(imported.seriesExperiences ?? {}) },
+          },
+          { migratedLocalState: true },
+        ),
+      ),
+    ),
+  );
 }
 
 export async function createBookRecord(store, payload) {
@@ -38,17 +105,19 @@ export async function createBookRecord(store, payload) {
   const state = await store.read();
   const nextId = state.books.reduce((maxId, book) => Math.max(maxId, book.id), 0) + 1;
 
-  const nextState = markStateUpdated({
-    ...state,
-    catalogBooks: upsertCatalogBooks(state.catalogBooks ?? [], [nextBook]),
-    books: [
-      ...state.books,
-      {
-        id: nextId,
-        ...nextBook,
-      },
-    ],
-  });
+  const nextState = syncActiveProfileState(
+    markStateUpdated({
+      ...state,
+      catalogBooks: upsertCatalogBooks(state.catalogBooks ?? [], [nextBook]),
+      books: [
+        ...state.books,
+        {
+          id: nextId,
+          ...nextBook,
+        },
+      ],
+    }),
+  );
   const writtenState = await store.write(nextState);
   return writtenState.books;
 }
@@ -66,13 +135,15 @@ export async function updateBookRecord(store, id, payload) {
     throw new Error("Book not found.");
   }
 
-  const nextState = markStateUpdated({
-    ...state,
-    catalogBooks: upsertCatalogBooks(state.catalogBooks ?? [], [nextBook]),
-    books: state.books.map((book) =>
-      book.id === id ? { id: book.id, ...nextBook } : book,
-    ),
-  });
+  const nextState = syncActiveProfileState(
+    markStateUpdated({
+      ...state,
+      catalogBooks: upsertCatalogBooks(state.catalogBooks ?? [], [nextBook]),
+      books: state.books.map((book) =>
+        book.id === id ? { id: book.id, ...nextBook } : book,
+      ),
+    }),
+  );
   const writtenState = await store.write(nextState);
   return writtenState.books;
 }
@@ -90,11 +161,13 @@ export async function deleteBookRecord(store, id) {
   }
 
   const writtenState = await store.write(
-    markStateUpdated({
-      ...state,
-      catalogBooks: [...(state.catalogBooks ?? [])],
-      books: nextBooks,
-    }),
+    syncActiveProfileState(
+      markStateUpdated({
+        ...state,
+        catalogBooks: [...(state.catalogBooks ?? [])],
+        books: nextBooks,
+      }),
+    ),
   );
   return writtenState.books;
 }
@@ -113,13 +186,15 @@ export async function writeGenreInterest(store, genre, interest) {
 
   const state = await store.read();
   const writtenState = await store.write(
-    markStateUpdated({
-      ...state,
-      genreInterests: {
-        ...state.genreInterests,
-        [nextGenre]: Math.max(0, Math.min(5, nextInterest)),
-      },
-    }),
+    syncActiveProfileState(
+      markStateUpdated({
+        ...state,
+        genreInterests: {
+          ...state.genreInterests,
+          [nextGenre]: Math.max(0, Math.min(5, nextInterest)),
+        },
+      }),
+    ),
   );
   return writtenState.genreInterests;
 }
@@ -131,10 +206,12 @@ export async function deleteGenreInterest(store, genre) {
   delete nextMap[nextGenre];
 
   const writtenState = await store.write(
-    markStateUpdated({
-      ...state,
-      genreInterests: nextMap,
-    }),
+    syncActiveProfileState(
+      markStateUpdated({
+        ...state,
+        genreInterests: nextMap,
+      }),
+    ),
   );
   return writtenState.genreInterests;
 }
@@ -153,10 +230,12 @@ export async function renameGenreInterest(store, oldGenre, newGenre) {
   }
 
   const writtenState = await store.write(
-    markStateUpdated({
-      ...state,
-      genreInterests: nextMap,
-    }),
+    syncActiveProfileState(
+      markStateUpdated({
+        ...state,
+        genreInterests: nextMap,
+      }),
+    ),
   );
   return writtenState.genreInterests;
 }
@@ -170,11 +249,13 @@ export async function renameGenreInBooks(store, oldGenre, newGenre) {
     genres: replaceTag(book.genres, oldValue, nextValue, normalizeGenreTag),
   }));
   const writtenState = await store.write(
-    markStateUpdated({
-      ...state,
-      catalogBooks: upsertCatalogBooks(state.catalogBooks ?? [], nextBooks),
-      books: nextBooks,
-    }),
+    syncActiveProfileState(
+      markStateUpdated({
+        ...state,
+        catalogBooks: upsertCatalogBooks(state.catalogBooks ?? [], nextBooks),
+        books: nextBooks,
+      }),
+    ),
   );
   return writtenState.books;
 }
@@ -193,13 +274,15 @@ export async function writeAuthorExperience(store, author, experience) {
 
   const state = await store.read();
   const writtenState = await store.write(
-    markStateUpdated({
-      ...state,
-      authorExperiences: {
-        ...state.authorExperiences,
-        [nextAuthor]: Math.max(0, Math.min(5, nextExperience)),
-      },
-    }),
+    syncActiveProfileState(
+      markStateUpdated({
+        ...state,
+        authorExperiences: {
+          ...state.authorExperiences,
+          [nextAuthor]: Math.max(0, Math.min(5, nextExperience)),
+        },
+      }),
+    ),
   );
   return writtenState.authorExperiences;
 }
@@ -211,10 +294,12 @@ export async function deleteAuthorExperience(store, author) {
   delete nextMap[nextAuthor];
 
   const writtenState = await store.write(
-    markStateUpdated({
-      ...state,
-      authorExperiences: nextMap,
-    }),
+    syncActiveProfileState(
+      markStateUpdated({
+        ...state,
+        authorExperiences: nextMap,
+      }),
+    ),
   );
   return writtenState.authorExperiences;
 }
@@ -233,13 +318,15 @@ export async function writeSeriesExperience(store, series, experience) {
 
   const state = await store.read();
   const writtenState = await store.write(
-    markStateUpdated({
-      ...state,
-      seriesExperiences: {
-        ...(state.seriesExperiences ?? {}),
-        [nextSeries]: Math.max(0, Math.min(5, nextExperience)),
-      },
-    }),
+    syncActiveProfileState(
+      markStateUpdated({
+        ...state,
+        seriesExperiences: {
+          ...(state.seriesExperiences ?? {}),
+          [nextSeries]: Math.max(0, Math.min(5, nextExperience)),
+        },
+      }),
+    ),
   );
   return writtenState.seriesExperiences;
 }
@@ -251,10 +338,12 @@ export async function deleteSeriesExperience(store, series) {
   delete nextMap[nextSeries];
 
   const writtenState = await store.write(
-    markStateUpdated({
-      ...state,
-      seriesExperiences: nextMap,
-    }),
+    syncActiveProfileState(
+      markStateUpdated({
+        ...state,
+        seriesExperiences: nextMap,
+      }),
+    ),
   );
   return writtenState.seriesExperiences;
 }
@@ -273,10 +362,12 @@ export async function renameAuthorExperience(store, oldAuthor, newAuthor) {
   }
 
   const writtenState = await store.write(
-    markStateUpdated({
-      ...state,
-      authorExperiences: nextMap,
-    }),
+    syncActiveProfileState(
+      markStateUpdated({
+        ...state,
+        authorExperiences: nextMap,
+      }),
+    ),
   );
   return writtenState.authorExperiences;
 }
@@ -288,11 +379,13 @@ export async function renameAuthorInBooks(store, oldAuthor, newAuthor) {
     authors: replaceTag(book.authors, oldAuthor, newAuthor),
   }));
   const writtenState = await store.write(
-    markStateUpdated({
-      ...state,
-      catalogBooks: upsertCatalogBooks(state.catalogBooks ?? [], nextBooks),
-      books: nextBooks,
-    }),
+    syncActiveProfileState(
+      markStateUpdated({
+        ...state,
+        catalogBooks: upsertCatalogBooks(state.catalogBooks ?? [], nextBooks),
+        books: nextBooks,
+      }),
+    ),
   );
   return writtenState.books;
 }

@@ -1,4 +1,8 @@
-import { createSeedState } from "./seed-state.js";
+import {
+  DEFAULT_PROFILE_ID,
+  DEFAULT_PROFILE_NAME,
+  createSeedState,
+} from "./seed-state.js";
 import {
   cloneCatalogBooks,
   normalizeCatalogBook,
@@ -14,7 +18,7 @@ function cloneBooks(books) {
   }));
 }
 
-export function cloneState(state) {
+function cloneLibrarySnapshot(state) {
   return {
     books: cloneBooks(state.books),
     catalogBooks: cloneCatalogBooks(state.catalogBooks ?? []),
@@ -22,6 +26,23 @@ export function cloneState(state) {
     authorExperiences: { ...state.authorExperiences },
     seriesExperiences: { ...(state.seriesExperiences ?? {}) },
     meta: { ...state.meta },
+  };
+}
+
+function cloneProfile(profile) {
+  return {
+    id: profile.id,
+    name: profile.name,
+    createdAt: profile.createdAt,
+    ...cloneLibrarySnapshot(profile),
+  };
+}
+
+export function cloneState(state) {
+  return {
+    ...cloneLibrarySnapshot(state),
+    profiles: (state.profiles ?? []).map(cloneProfile),
+    activeProfileId: state.activeProfileId,
   };
 }
 
@@ -325,44 +346,216 @@ function normalizeScoreMap(value, normalizeKey = (key) => key.trim()) {
   return result;
 }
 
-export function normalizeLibraryState(value) {
-  const seedState = createSeedState();
+function createEmptySnapshotMeta(updatedAt = new Date().toISOString()) {
+  return {
+    seeded: false,
+    migratedLocalState: false,
+    updatedAt,
+  };
+}
 
-  if (!value || typeof value !== "object") {
-    return seedState;
-  }
+export function createEmptyProfile(
+  id = DEFAULT_PROFILE_ID,
+  name = DEFAULT_PROFILE_NAME,
+  options = {},
+) {
+  const createdAt =
+    normalizeTimestamp(options.createdAt) ?? new Date().toISOString();
+  const updatedAt = normalizeTimestamp(options.updatedAt) ?? createdAt;
 
-  const hasBookList = Array.isArray(value.books);
-  const rawBooks = hasBookList ? value.books : [];
-  const books = rawBooks
-    .map(normalizeBook)
-    .filter((book) => book !== null);
-  const rawCatalogBooks = Array.isArray(value.catalogBooks) ? value.catalogBooks : [];
+  return {
+    id,
+    name,
+    createdAt,
+    books: [],
+    catalogBooks: [],
+    genreInterests: {},
+    authorExperiences: {},
+    seriesExperiences: {},
+    meta: createEmptySnapshotMeta(updatedAt),
+  };
+}
+
+function normalizeLibrarySnapshot(value, fallback) {
+  const hasBookList = Array.isArray(value?.books);
+  const rawBooks = hasBookList ? value.books : fallback.books;
+  const books = rawBooks.map(normalizeBook).filter((book) => book !== null);
+  const hasCatalogBooks = Array.isArray(value?.catalogBooks);
+  const rawCatalogBooks = hasCatalogBooks ? value.catalogBooks : fallback.catalogBooks;
   const catalogBooks = upsertCatalogBooks(
     rawCatalogBooks
       .map(normalizeCatalogBook)
       .filter((book) => book !== null),
     books,
   );
+  const hasMeta = Boolean(value?.meta && typeof value.meta === "object");
 
   return {
-    books: hasBookList ? books : seedState.books,
+    books: hasBookList ? books : cloneBooks(fallback.books),
     catalogBooks:
-      rawCatalogBooks.length > 0 || hasBookList
+      hasCatalogBooks || hasBookList
         ? catalogBooks
-        : seedState.catalogBooks,
-    genreInterests: normalizeScoreMap(value.genreInterests, normalizeGenreTag),
-    authorExperiences: normalizeScoreMap(value.authorExperiences),
-    seriesExperiences: normalizeScoreMap(value.seriesExperiences),
+        : cloneCatalogBooks(fallback.catalogBooks),
+    genreInterests:
+      value?.genreInterests != null
+        ? normalizeScoreMap(value.genreInterests, normalizeGenreTag)
+        : { ...fallback.genreInterests },
+    authorExperiences:
+      value?.authorExperiences != null
+        ? normalizeScoreMap(value.authorExperiences)
+        : { ...fallback.authorExperiences },
+    seriesExperiences:
+      value?.seriesExperiences != null
+        ? normalizeScoreMap(value.seriesExperiences)
+        : { ...(fallback.seriesExperiences ?? {}) },
     meta: {
-      seeded: value.meta?.seeded === true,
-      migratedLocalState: value.meta?.migratedLocalState === true,
+      seeded: hasMeta ? value.meta?.seeded === true : fallback.meta?.seeded === true,
+      migratedLocalState: hasMeta
+        ? value.meta?.migratedLocalState === true
+        : fallback.meta?.migratedLocalState === true,
       updatedAt:
-        typeof value.meta?.updatedAt === "string"
-          ? value.meta.updatedAt
-          : new Date().toISOString(),
+        normalizeTimestamp(value?.meta?.updatedAt) ??
+        fallback.meta?.updatedAt ??
+        new Date().toISOString(),
     },
   };
+}
+
+function normalizeProfile(value, fallback) {
+  const normalizedId =
+    typeof value?.id === "string" && value.id.trim()
+      ? value.id.trim()
+      : fallback.id;
+  const normalizedName =
+    typeof value?.name === "string" && value.name.trim()
+      ? value.name.trim().replace(/\s+/g, " ")
+      : fallback.name;
+
+  return {
+    id: normalizedId,
+    name: normalizedName,
+    createdAt: normalizeTimestamp(value?.createdAt) ?? fallback.createdAt,
+    ...normalizeLibrarySnapshot(value, fallback),
+  };
+}
+
+function buildStateFromActiveProfile(profiles, activeProfileId) {
+  const activeProfile =
+    profiles.find((profile) => profile.id === activeProfileId) ?? profiles[0];
+
+  if (!activeProfile) {
+    const seedState = createSeedState();
+    return cloneState(seedState);
+  }
+
+  return {
+    ...cloneLibrarySnapshot(activeProfile),
+    profiles: profiles.map(cloneProfile),
+    activeProfileId: activeProfile.id,
+  };
+}
+
+export function syncActiveProfileState(state) {
+  const snapshot = cloneLibrarySnapshot(state);
+  const existingProfiles = Array.isArray(state.profiles) ? state.profiles : [];
+  const activeProfileIndex = existingProfiles.findIndex(
+    (profile) => profile.id === state.activeProfileId,
+  );
+  const fallbackProfile = createEmptyProfile(state.activeProfileId);
+  const baseProfile =
+    activeProfileIndex === -1
+      ? fallbackProfile
+      : normalizeProfile(existingProfiles[activeProfileIndex], fallbackProfile);
+  const nextProfile = {
+    id: baseProfile.id,
+    name: baseProfile.name,
+    createdAt: baseProfile.createdAt,
+    ...snapshot,
+  };
+  const nextProfiles =
+    activeProfileIndex === -1
+      ? [...existingProfiles.map(cloneProfile), nextProfile]
+      : existingProfiles.map((profile, index) =>
+          index === activeProfileIndex ? nextProfile : cloneProfile(profile),
+        );
+
+  return {
+    ...snapshot,
+    profiles: nextProfiles,
+    activeProfileId: nextProfile.id,
+  };
+}
+
+export function activateProfileState(state, profileId) {
+  if (!Array.isArray(state.profiles) || state.profiles.length === 0) {
+    throw new Error("No profiles found.");
+  }
+
+  const profile = state.profiles.find((entry) => entry.id === profileId);
+
+  if (!profile) {
+    throw new Error("Profile not found.");
+  }
+
+  return {
+    ...cloneLibrarySnapshot(profile),
+    profiles: state.profiles.map(cloneProfile),
+    activeProfileId: profile.id,
+  };
+}
+
+export function getProfileSummaries(state) {
+  return (state.profiles ?? []).map((profile) => ({
+    id: profile.id,
+    name: profile.name,
+    createdAt: profile.createdAt,
+  }));
+}
+
+export function normalizeLibraryState(value) {
+  const seedState = createSeedState();
+  const defaultProfile = cloneProfile(seedState.profiles[0]);
+  const rawProfiles =
+    Array.isArray(value?.profiles) && value.profiles.length > 0
+      ? value.profiles
+      : [
+          {
+            id: DEFAULT_PROFILE_ID,
+            name: DEFAULT_PROFILE_NAME,
+            createdAt:
+              normalizeTimestamp(value?.meta?.updatedAt) ??
+              defaultProfile.createdAt,
+            ...value,
+          },
+        ];
+  const profiles = rawProfiles
+    .map((profile, index) =>
+      normalizeProfile(
+        profile,
+        index === 0
+          ? defaultProfile
+          : createEmptyProfile(
+              typeof profile?.id === "string" && profile.id.trim()
+                ? profile.id.trim()
+                : `profile-${index + 1}`,
+              typeof profile?.name === "string" && profile.name.trim()
+                ? profile.name.trim().replace(/\s+/g, " ")
+                : `Profile ${index + 1}`,
+              { createdAt: profile?.createdAt },
+            ),
+      ),
+    )
+    .filter(
+      (profile, index, allProfiles) =>
+        allProfiles.findIndex((entry) => entry.id === profile.id) === index,
+    );
+
+  const requestedActiveProfileId =
+    typeof value?.activeProfileId === "string" && value.activeProfileId.trim()
+      ? value.activeProfileId.trim()
+      : profiles[0]?.id;
+
+  return buildStateFromActiveProfile(profiles, requestedActiveProfileId);
 }
 
 export function normalizeImportedState(value) {
@@ -371,9 +564,7 @@ export function normalizeImportedState(value) {
   }
 
   const rawBooks = Array.isArray(value.books) ? value.books : [];
-  const books = rawBooks
-    .map(normalizeBook)
-    .filter((book) => book !== null);
+  const books = rawBooks.map(normalizeBook).filter((book) => book !== null);
   const rawCatalogBooks = Array.isArray(value.catalogBooks) ? value.catalogBooks : [];
 
   if (books.length === 0) {

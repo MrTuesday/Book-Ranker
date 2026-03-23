@@ -1,9 +1,10 @@
 import {
-  memo,
   type DragEvent as ReactDragEvent,
   type FocusEvent as ReactFocusEvent,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -13,6 +14,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import {
+  createProfile,
   createBookRecord,
   deleteAuthorExperience,
   deleteBookRecord,
@@ -20,11 +22,14 @@ import {
   deleteSeriesExperience,
   fetchBooks,
   fetchLibraryState,
+  type LibraryState,
   type Book,
   type GenreInterestMap,
   type AuthorExperienceMap,
+  type ProfileSummary,
   type SeriesExperienceMap,
   normalizeGenreTag,
+  setActiveProfile,
   updateBookRecord,
   writeGenreInterest,
   writeAuthorExperience,
@@ -34,28 +39,29 @@ import {
   renameAuthorInBooks,
 } from "./lib/books-api";
 import {
-  archiveReadinessFromScores,
-  buildTagSmoothingFactorMap,
-  capArchiveScore,
-  GLOBAL_MEAN,
-  learnSignalWeights,
-  SMOOTHING_FACTOR,
-  bayesianScore,
-  averageTagPreference,
-  realizeArchiveScore,
-  scoreBook,
-} from "./lib/scoring";
-import {
   requestPathRecommendation,
   type PathRecommendationResponse,
   type RecommendedBook,
 } from "./lib/recommend-api";
 import {
+  mergeCatalogSearchResults,
   searchCatalog,
   type CatalogSearchResult,
 } from "./lib/catalog-api";
 import { type CatalogBook, upsertCatalogBooks } from "./lib/catalog-memory";
 import { BookCard } from "./components/BookCard";
+import {
+  ArchiveShelfIcon,
+  ProgressBar,
+  RatingButtons,
+  ReadCountStepper,
+  StarRating,
+} from "./components/LibraryControls";
+import { BookListSection } from "./components/BookListSection";
+import { buildBookAnalytics } from "./lib/ranking";
+import { searchOpenLibraryCatalog } from "./lib/open-library";
+
+const InterestMap = lazy(() => import("./components/InterestMap"));
 
 type BookDraft = {
   title: string;
@@ -83,12 +89,6 @@ type BookDraft = {
   markAsRead: boolean;
 };
 
-type RankedBook = Book & {
-  score: number;
-  rank: number;
-  archiveLabel?: string;
-};
-
 type SuggestionField = "author" | "genre";
 type DraftTagDrag = {
   field: SuggestionField;
@@ -110,10 +110,6 @@ const MAX_SUGGESTIONS = 6;
 const MAX_AUTOFILL_TOPICS = 8;
 const TITLE_SUGGESTION_FETCH_LIMIT = 6;
 const MIN_YEAR_OPTION = 1900;
-const MIN_INTEREST_MAP_ZOOM = 0.75;
-const MAX_INTEREST_MAP_ZOOM = 2.5;
-const INTEREST_MAP_WHEEL_ZOOM_SENSITIVITY = 0.003;
-const INTEREST_MAP_PINCH_ZOOM_SENSITIVITY = 1.35;
 
 function createDraft(): BookDraft {
   return {
@@ -243,57 +239,6 @@ function currentTranslateY(element: HTMLElement) {
   }
 }
 
-type InterestMapViewport = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-};
-
-function zoomInterestMapViewport(
-  viewport: InterestMapViewport,
-  baseWidth: number,
-  baseHeight: number,
-  nextZoom: number,
-  anchor = {
-    x: viewport.x + viewport.width / 2,
-    y: viewport.y + viewport.height / 2,
-  },
-): InterestMapViewport {
-  const clampedZoom = Math.max(
-    MIN_INTEREST_MAP_ZOOM,
-    Math.min(MAX_INTEREST_MAP_ZOOM, nextZoom),
-  );
-  const nextWidth = baseWidth / clampedZoom;
-  const nextHeight = baseHeight / clampedZoom;
-  const relativeX =
-    viewport.width > 0 ? (anchor.x - viewport.x) / viewport.width : 0.5;
-  const relativeY =
-    viewport.height > 0 ? (anchor.y - viewport.y) / viewport.height : 0.5;
-
-  return {
-    x: anchor.x - relativeX * nextWidth,
-    y: anchor.y - relativeY * nextHeight,
-    width: nextWidth,
-    height: nextHeight,
-  };
-}
-
-function clientPointWithinElement(
-  element: HTMLElement,
-  clientX: number,
-  clientY: number,
-) {
-  const rect = element.getBoundingClientRect();
-
-  return (
-    clientX >= rect.left &&
-    clientX <= rect.right &&
-    clientY >= rect.top &&
-    clientY <= rect.bottom
-  );
-}
-
 type DraftAutofillSource = Pick<
   CatalogSearchResult,
   | "id"
@@ -337,24 +282,6 @@ function buildDraftScores(tags: string[], scores: Record<string, number>) {
   );
 }
 
-function countScoredTagsForBook(
-  book: Pick<Book, "authors" | "genres" | "series">,
-  authorExperiences: AuthorExperienceMap,
-  genreInterests: GenreInterestMap,
-  seriesExperiences: SeriesExperienceMap,
-) {
-  const scoredAuthors = new Set(
-    book.authors.filter((author) => authorExperiences[author] != null),
-  ).size;
-  const scoredGenres = new Set(
-    book.genres.filter((genre) => genreInterests[genre] != null),
-  ).size;
-  const scoredSeries =
-    book.series && seriesExperiences[book.series] != null ? 1 : 0;
-
-  return scoredAuthors + scoredGenres + scoredSeries;
-}
-
 function hasDraftTagScore(scores: Record<string, string>, tag: string) {
   return Object.prototype.hasOwnProperty.call(scores, tag);
 }
@@ -363,49 +290,6 @@ function removeTagFromScores(scores: Record<string, string>, tag: string) {
   const nextScores = { ...scores };
   delete nextScores[tag];
   return nextScores;
-}
-
-function buildPredictiveBook(book: Book): Book {
-  const rating = book.myRating;
-  const averageRating = book.starRating;
-  const ratingsCount = book.ratingCount;
-
-  if (
-    rating == null ||
-    averageRating == null ||
-    ratingsCount == null ||
-    !Number.isFinite(averageRating) ||
-    !Number.isFinite(ratingsCount) ||
-    ratingsCount <= 0
-  ) {
-    return book;
-  }
-
-  const predictiveCount = Math.max(0, ratingsCount - 1);
-
-  if (predictiveCount === 0) {
-    const nextBook: Book = {
-      ...book,
-      authors: [...book.authors],
-      genres: [...book.genres],
-      moods: [...book.moods],
-    };
-    delete nextBook.starRating;
-    delete nextBook.ratingCount;
-    return nextBook;
-  }
-
-  const predictiveAverage =
-    (averageRating * ratingsCount - rating) / predictiveCount;
-
-  return {
-    ...book,
-    authors: [...book.authors],
-    genres: [...book.genres],
-    moods: [...book.moods],
-    starRating: Number(predictiveAverage.toFixed(2)),
-    ratingCount: predictiveCount,
-  };
 }
 
 
@@ -445,10 +329,6 @@ function moveTagToEnd(tags: string[], draggedTag: string) {
   return next;
 }
 
-
-
-
-
 function messageFromError(error: unknown) {
   if (error instanceof Error && error.message) {
     return error.message;
@@ -457,82 +337,26 @@ function messageFromError(error: unknown) {
   return "Something went wrong while saving your library.";
 }
 
-function shortenLabel(value: string, maxLength = 18) {
-  return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
+function profileInitials(name: string) {
+  const words = name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2);
+
+  if (words.length === 0) {
+    return "BR";
+  }
+
+  return words.map((word) => word[0]?.toLocaleUpperCase() ?? "").join("");
 }
 
-function hashTag(value: string) {
-  let hash = 2166136261;
-
-  for (const character of value) {
-    hash ^= character.charCodeAt(0);
-    hash = Math.imul(hash, 16777619);
+function messageFromCatalogLookupError(error: unknown) {
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return "";
   }
 
-  return hash >>> 0;
-}
-
-function sameStringList(left: string[], right: string[]) {
-  if (left.length !== right.length) {
-    return false;
-  }
-
-  for (let index = 0; index < left.length; index += 1) {
-    if (left[index] !== right[index]) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-function normalizedGenreSignature(book: Book) {
-  return uniqueTags(book.genres).sort((left, right) => left.localeCompare(right));
-}
-
-function sameGraphBooks(left: Book[], right: Book[]) {
-  if (left.length !== right.length) {
-    return false;
-  }
-
-  const rightById = new Map(right.map((book) => [book.id, book] as const));
-
-  for (const leftBook of left) {
-    const rightBook = rightById.get(leftBook.id);
-
-    if (!rightBook) {
-      return false;
-    }
-
-    const leftGenres = normalizedGenreSignature(leftBook);
-    const rightGenres = normalizedGenreSignature(rightBook);
-
-    if (!sameStringList(leftGenres, rightGenres)) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-function sameInterestMap(
-  left: GenreInterestMap,
-  right: GenreInterestMap,
-) {
-  const leftKeys = Object.keys(left).sort((a, b) => a.localeCompare(b));
-  const rightKeys = Object.keys(right).sort((a, b) => a.localeCompare(b));
-
-  if (!sameStringList(leftKeys, rightKeys)) {
-    return false;
-  }
-
-  for (const key of leftKeys) {
-    if (left[key] !== right[key]) {
-      return false;
-    }
-  }
-
-  return true;
+  return "Open Library lookup is unavailable right now.";
 }
 
 function matchesSelectedGenres(
@@ -547,1640 +371,19 @@ function matchesSelectedGenres(
   return selectedGenres.every((genre) => genreSet.has(genre));
 }
 
-type LabelAnchor = "middle" | "start" | "end";
-type LabelOrientation = "left" | "right" | "top" | "bottom";
-type LabelBox = {
-  left: number;
-  right: number;
-  top: number;
-  bottom: number;
-};
-
-function interestNodeLabelFontSize(radius: number) {
-  return Math.max(10, Math.min(20, radius * 1.6));
-}
-
-function estimateInterestLabelWidth(label: string, fontSize: number) {
-  return Math.max(fontSize * 3.2, label.length * fontSize * 0.52 + 10);
-}
-
-function interestNodeScoreFontSize(radius: number) {
-  return Math.max(8, Math.min(15, radius * 1.2));
-}
-
-function buildInterestLabelBox(
-  x: number,
-  y: number,
-  anchor: LabelAnchor,
-  width: number,
-  fontSize: number,
-): LabelBox {
-  const left =
-    anchor === "start" ? x : anchor === "end" ? x - width : x - width / 2;
-
-  return {
-    left: left - 4,
-    right: left + width + 4,
-    top: y - fontSize * 0.82,
-    bottom: y + fontSize * 0.26,
-  };
-}
-
-function buildInterestNodeBox(
-  node: { x: number; y: number; radius: number },
-  padding = 6,
-): LabelBox {
-  return {
-    left: node.x - node.radius - padding,
-    right: node.x + node.radius + padding,
-    top: node.y - node.radius - padding,
-    bottom: node.y + node.radius + padding,
-  };
-}
-
-function mergeInterestBoxes(...boxes: LabelBox[]) {
-  return {
-    left: Math.min(...boxes.map((box) => box.left)),
-    right: Math.max(...boxes.map((box) => box.right)),
-    top: Math.min(...boxes.map((box) => box.top)),
-    bottom: Math.max(...boxes.map((box) => box.bottom)),
-  };
-}
-
-function padInterestBox(
-  box: LabelBox,
-  paddingX = 12,
-  paddingY = 10,
-): LabelBox {
-  return {
-    left: box.left - paddingX,
-    right: box.right + paddingX,
-    top: box.top - paddingY,
-    bottom: box.bottom + paddingY,
-  };
-}
-
-function preferredInterestLabelOrientation(
-  dx: number,
-  dy: number,
-): LabelOrientation {
-  if (Math.abs(dx) > Math.abs(dy) + 18) {
-    return dx < 0 ? "left" : "right";
-  }
-
-  return dy < 0 ? "top" : "bottom";
-}
-
-function buildInterestBubblePlacement(
-  node: { x: number; y: number; radius: number },
-  orientation: LabelOrientation,
-  labelWidth: number,
-  labelFontSize: number,
-) {
-  const labelX =
-    orientation === "left"
-      ? node.x - node.radius - 10
-      : orientation === "right"
-        ? node.x + node.radius + 10
-        : node.x;
-  const labelY =
-    orientation === "top"
-      ? node.y - node.radius - Math.max(10, labelFontSize * 0.65)
-      : orientation === "bottom"
-        ? node.y + node.radius + Math.max(12, labelFontSize * 0.95)
-        : node.y + labelFontSize * 0.26;
-  const labelAnchor: LabelAnchor =
-    orientation === "left"
-      ? "end"
-      : orientation === "right"
-        ? "start"
-        : "middle";
-  const labelBox = buildInterestLabelBox(
-    labelX,
-    labelY,
-    labelAnchor,
-    labelWidth,
-    labelFontSize,
-  );
-  const bubbleBox = padInterestBox(
-    mergeInterestBoxes(labelBox, buildInterestNodeBox(node)),
-  );
-  const bubbleWidth = bubbleBox.right - bubbleBox.left;
-  const bubbleHeight = bubbleBox.bottom - bubbleBox.top;
-  const bubbleCenterX = (bubbleBox.left + bubbleBox.right) / 2;
-  const bubbleCenterY = (bubbleBox.top + bubbleBox.bottom) / 2;
-
-  return {
-    labelX,
-    labelY,
-    labelAnchor,
-    labelBox,
-    bubbleBox,
-    bubbleCenterX,
-    bubbleCenterY,
-    bubbleRadius: Math.hypot(bubbleWidth, bubbleHeight) / 2,
-  };
-}
-
-function ProgressBar({
-  value,
-  onChange,
-}: {
-  value: number;
-  onChange: (pct: number) => void;
-}) {
-  return (
-    <div
-      className="reading-progress"
-      role="slider"
-      aria-label="Reading progress"
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-valuenow={value}
-      tabIndex={0}
-      onClick={(e) => {
-        const track = e.currentTarget.querySelector(".reading-progress-track");
-        if (!track) return;
-        const rect = track.getBoundingClientRect();
-        const raw = Math.max(
-          0,
-          Math.min(100, ((e.clientX - rect.left) / rect.width) * 100),
-        );
-        const pct =
-          raw >= 95 ? 100 : raw <= 5 ? 0 : Math.round(raw / 10) * 10;
-        onChange(pct);
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "ArrowRight" || e.key === "ArrowUp") {
-          e.preventDefault();
-          onChange(Math.min(100, value + 10));
-        } else if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
-          e.preventDefault();
-          onChange(Math.max(0, value - 10));
-        }
-      }}
-    >
-      <div className="reading-progress-track">
-        <div
-          className="reading-progress-fill"
-          style={{ width: `${value}%` }}
-        />
-      </div>
-      {value > 0 && (
-        <span className="reading-progress-label">{value}%</span>
-      )}
-    </div>
-  );
-}
-
-function RatingButtons({
-  value,
-  onChange,
-  className,
-}: {
-  value: number | null;
-  onChange: (level: number | null) => void;
-  className?: string;
-}) {
-  return (
-    <div className={`rating-buttons${className ? ` ${className}` : ""}`}>
-      {[1, 2, 3, 4, 5].map((level) => (
-        <button
-          key={level}
-          type="button"
-          className={`rating-btn${level === value ? " is-active" : ""}`}
-          onClick={() => onChange(level === value ? null : level)}
-        >
-          {level}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function ReadCountStepper({
-  value,
-  onIncrement,
-  onDecrement,
-  disabled = false,
-}: {
-  value: number;
-  onIncrement: () => void;
-  onDecrement: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <div className="read-count-stepper" role="group" aria-label="Read count">
-      <button
-        type="button"
-        className="icon-btn read-count-stepper-btn"
-        onClick={onDecrement}
-        disabled={disabled || value === 0}
-        aria-label={
-          value === 0 ? "Read count is already 0" : `Decrease read count from ${value}`
-        }
-        title="Decrease read count"
-      >
-        -
-      </button>
-      <span
-        className={`read-count-value${value > 0 ? " has-reads" : ""}`}
-        aria-label={value === 1 ? "Read 1 time" : `Read ${value} times`}
-        title={value === 1 ? "Read 1 time" : `Read ${value} times`}
-      >
-        {value}
-      </span>
-      <button
-        type="button"
-        className="icon-btn read-count-stepper-btn"
-        onClick={onIncrement}
-        disabled={disabled}
-        aria-label={
-          value === 1 ? "Increase read count from 1" : `Increase read count from ${value}`
-        }
-        title="Increase read count"
-      >
-        +
-      </button>
-    </div>
-  );
-}
-
-function BookActionIcon() {
-  return (
-    <svg
-      className="book-state-icon"
-      viewBox="0 0 16 16"
-      width="16"
-      height="16"
-      fill="none"
-      aria-hidden="true"
-    >
-      <g className="book-icon-open">
-        <path
-          d="M8 4.35C6.65 3.55 5 3.15 3.3 3.15v8.3c1.7 0 3.35.4 4.7 1.2"
-          stroke="currentColor"
-          strokeWidth="1.2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M8 4.35C9.35 3.55 11 3.15 12.7 3.15v8.3c-1.7 0-3.35.4-4.7 1.2"
-          stroke="currentColor"
-          strokeWidth="1.2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M8 4.35v8.3"
-          stroke="currentColor"
-          strokeWidth="1.2"
-          strokeLinecap="round"
-          opacity="0.85"
-        />
-        <path
-          d="M4.35 5.55h2.1M4.35 7h2.1M9.55 5.55h2.1M9.55 7h2.1"
-          stroke="currentColor"
-          strokeWidth="1"
-          strokeLinecap="round"
-          opacity="0.34"
-        />
-      </g>
-      <g className="book-icon-closed">
-        <path
-          d="M4.1 3.2h6.15a1.35 1.35 0 0 1 1.35 1.35v8.15H5.45A1.35 1.35 0 0 0 4.1 14.05z"
-          stroke="currentColor"
-          strokeWidth="1.2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M4.1 3.2v10.85"
-          stroke="currentColor"
-          strokeWidth="1.2"
-          strokeLinecap="round"
-          opacity="0.9"
-        />
-        <path
-          d="M5.55 5.15h4.35M5.55 6.7h4.35M5.55 8.25h3.55"
-          stroke="currentColor"
-          strokeWidth="1"
-          strokeLinecap="round"
-          opacity="0.34"
-        />
-      </g>
-    </svg>
-  );
-}
-
-function ArchiveShelfIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 16 16"
-      width="16"
-      height="16"
-      fill="currentColor"
-      aria-hidden="true"
-    >
-      <path d="M2 2.3h1.9v9H2zM5.2 1.4h1.9v9.9H5.2zM8.4 3.1h1.9v8.2H8.4zM11.6 2.6h1.9v8.7h-1.9zM1.4 13.1h13.2v1.5H1.4z" />
-    </svg>
-  );
-}
-
-type InterestMapProps = {
-  books: Book[];
-  interests: GenreInterestMap;
-  compact?: boolean;
-  selectedPath?: string[];
-  onSelectTag?: (tag: string) => void;
-  onClearSelection?: () => void;
-  onEditingNodeChange?: (node: { tag: string; screenX: number; screenY: number } | null) => void;
-};
-
-function InterestMapView({
-  books,
-  interests,
-  compact = false,
-  selectedPath = [],
-  onSelectTag,
-  onClearSelection,
-  onEditingNodeChange,
-}: InterestMapProps) {
-  const data = useMemo(() => {
-    const tagCounts = new Map<string, number>();
-    const pairCounts = new Map<string, number>();
-
-    for (const book of books) {
-      const tags = uniqueTags(book.genres).filter((tag) => interests[tag] != null);
-
-      for (const tag of tags) {
-        tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
-      }
-
-      for (let index = 0; index < tags.length; index += 1) {
-        for (
-          let pairIndex = index + 1;
-          pairIndex < tags.length;
-          pairIndex += 1
-        ) {
-          const [left, right] = [tags[index], tags[pairIndex]].sort((a, b) =>
-            a.localeCompare(b),
-          );
-          const key = `${left}\u0000${right}`;
-          pairCounts.set(key, (pairCounts.get(key) ?? 0) + 1);
-        }
-      }
-    }
-
-    const nodes = Array.from(tagCounts.entries())
-      .sort(
-        ([leftTag, leftCount], [rightTag, rightCount]) =>
-          rightCount - leftCount ||
-          (interests[rightTag] ?? 0) - (interests[leftTag] ?? 0) ||
-          leftTag.localeCompare(rightTag),
-      )
-      .map(([tag, count]) => ({
-        tag,
-        count,
-        interest: interests[tag] ?? 0,
-      }));
-
-    const selectedTags = new Set(nodes.map((node) => node.tag));
-    const links = Array.from(pairCounts.entries())
-      .map(([key, count]) => {
-        const [source, target] = key.split("\u0000");
-        return { source, target, count };
-      })
-      .filter(
-        ({ source, target }) =>
-          selectedTags.has(source) && selectedTags.has(target),
-      )
-      .sort(
-        (left, right) =>
-          right.count - left.count ||
-          left.source.localeCompare(right.source) ||
-          left.target.localeCompare(right.target),
-      );
-
-    return { nodes, links };
-  }, [books, interests]);
-
-  const initialLayout = useMemo(() => {
-    if (data.nodes.length === 0) {
-      return null;
-    }
-
-    const degreeMap = new Map<string, number>();
-
-    for (const node of data.nodes) {
-      degreeMap.set(node.tag, 0);
-    }
-
-    for (const link of data.links) {
-      degreeMap.set(
-        link.source,
-        (degreeMap.get(link.source) ?? 0) + link.count,
-      );
-      degreeMap.set(
-        link.target,
-        (degreeMap.get(link.target) ?? 0) + link.count,
-      );
-    }
-
-    const connectedNodes = [...data.nodes]
-      .filter((node) => (degreeMap.get(node.tag) ?? 0) > 0)
-      .sort(
-        (left, right) =>
-          (degreeMap.get(right.tag) ?? 0) - (degreeMap.get(left.tag) ?? 0) ||
-          right.count - left.count ||
-          right.interest - left.interest ||
-          left.tag.localeCompare(right.tag),
-      );
-    const isolatedNodes = [...data.nodes]
-      .filter((node) => (degreeMap.get(node.tag) ?? 0) === 0)
-      .sort(
-        (left, right) =>
-          right.count - left.count ||
-          right.interest - left.interest ||
-          left.tag.localeCompare(right.tag),
-      );
-    const rankedNodes = [...connectedNodes, ...isolatedNodes];
-    const ringCapacities = [5, 8, 10, 12, 14];
-    const ringSizes: number[] = [];
-    let remainingNodes = Math.max(0, rankedNodes.length - 1);
-    let ringIndex = 0;
-
-    while (remainingNodes > 0) {
-      const capacity =
-        ringCapacities[ringIndex] ??
-        ringCapacities[ringCapacities.length - 1] +
-          (ringIndex - ringCapacities.length + 1) * 2;
-      const nextRingSize = Math.min(capacity, remainingNodes);
-      ringSizes.push(nextRingSize);
-      remainingNodes -= nextRingSize;
-      ringIndex += 1;
-    }
-
-    const width = 1200;
-    const height = Math.max(750, 600 + ringSizes.length * 40);
-    const padding = 80;
-    const centerX = width / 2;
-    const centerY = height / 2;
-    const maxNodeCount = Math.max(...data.nodes.map((node) => node.count), 1);
-    const maxLinkCount = Math.max(...data.links.map((link) => link.count), 1);
-
-    const positionedNodes = rankedNodes.map((node, index) => {
-      const seed = hashTag(node.tag);
-      const radius = 6 + (node.count / maxNodeCount) * 6;
-      let x = centerX;
-      let y = centerY;
-
-      if (index > 0) {
-        let ringNumber = 0;
-        let slotIndex = index - 1;
-
-        while (slotIndex >= (ringSizes[ringNumber] ?? 0)) {
-          slotIndex -= ringSizes[ringNumber] ?? 0;
-          ringNumber += 1;
-        }
-
-        const ringTotal = Math.max(ringSizes[ringNumber] ?? 1, 1);
-        const ringRadius = 200 + ringNumber * 100 + ((seed >> 10) % 16);
-        const angleOffset = ((seed >> 5) % 21) / 21;
-        const angle =
-          -Math.PI / 2 +
-          ((slotIndex + angleOffset * 0.22) / ringTotal) * Math.PI * 2;
-
-        x = centerX + Math.cos(angle) * ringRadius;
-        y = centerY + Math.sin(angle) * ringRadius * 0.55;
-      }
-
-      return {
-        ...node,
-        degree: degreeMap.get(node.tag) ?? 0,
-        x,
-        y,
-        vx: 0,
-        vy: 0,
-        homeX: x,
-        homeY: y,
-        radius,
-        restX: x,
-        restY: y,
-      };
-    });
-
-    if (positionedNodes.length > 1) {
-      const nodeIndex = new Map(
-        positionedNodes.map((node, index) => [node.tag, index] as const),
-      );
-
-      for (let iteration = 0; iteration < 220; iteration += 1) {
-        const forceX = new Array(positionedNodes.length).fill(0);
-        const forceY = new Array(positionedNodes.length).fill(0);
-        const cooling = 1 - iteration / 220;
-
-        for (
-          let leftIndex = 0;
-          leftIndex < positionedNodes.length;
-          leftIndex += 1
-        ) {
-          for (
-            let rightIndex = leftIndex + 1;
-            rightIndex < positionedNodes.length;
-            rightIndex += 1
-          ) {
-            const left = positionedNodes[leftIndex];
-            const right = positionedNodes[rightIndex];
-            let dx = right.x - left.x;
-            let dy = right.y - left.y;
-            let distance = Math.hypot(dx, dy);
-
-            if (distance < 0.001) {
-              dx = 0.01;
-              dy = 0;
-              distance = 0.01;
-            }
-
-            const minDistance = left.radius + right.radius + 60;
-            const directionX = dx / distance;
-            const directionY = dy / distance;
-            const baseRepulsion = 30000 / (distance * distance);
-            const overlapRepulsion =
-              distance < minDistance ? (minDistance - distance) * 0.28 : 0;
-            const push = baseRepulsion + overlapRepulsion;
-
-            forceX[leftIndex] -= directionX * push;
-            forceY[leftIndex] -= directionY * push;
-            forceX[rightIndex] += directionX * push;
-            forceY[rightIndex] += directionY * push;
-          }
-        }
-
-        for (const link of data.links) {
-          const sourceIndex = nodeIndex.get(link.source) ?? -1;
-          const targetIndex = nodeIndex.get(link.target) ?? -1;
-
-          if (sourceIndex === -1 || targetIndex === -1) {
-            continue;
-          }
-
-          const source = positionedNodes[sourceIndex];
-          const target = positionedNodes[targetIndex];
-          const dx = target.x - source.x;
-          const dy = target.y - source.y;
-          const distance = Math.max(1, Math.hypot(dx, dy));
-          const directionX = dx / distance;
-          const directionY = dy / distance;
-          const desiredDistance =
-            280 -
-            (link.count / maxLinkCount) * 50 -
-            (source.radius + target.radius);
-          const spring = (distance - desiredDistance) * 0.014;
-          const pull = spring * (0.8 + link.count / maxLinkCount);
-
-          forceX[sourceIndex] += directionX * pull;
-          forceY[sourceIndex] += directionY * pull;
-          forceX[targetIndex] -= directionX * pull;
-          forceY[targetIndex] -= directionY * pull;
-        }
-
-        for (let index = 0; index < positionedNodes.length; index += 1) {
-          const node = positionedNodes[index];
-          const centerPull = node.degree > 0 ? 0.0034 : 0.0016;
-          const edgeBias =
-            node.degree > 0
-              ? 0
-              : ((hashTag(`${node.tag}:edge`) % 3) - 1) * 0.015;
-
-          node.vx =
-            (node.vx +
-              forceX[index] +
-              (centerX - node.x) * centerPull +
-              edgeBias) *
-            (0.8 - cooling * -0.03);
-          node.vy =
-            (node.vy +
-              forceY[index] +
-              (centerY - node.y) * centerPull +
-              edgeBias * 0.6) *
-            (0.8 - cooling * -0.03);
-          node.x += node.vx;
-          node.y += node.vy;
-
-          const xPad = padding + node.radius + 80;
-          const yPad = padding + node.radius + 40;
-          node.x = Math.max(xPad, Math.min(width - xPad, node.x));
-          node.y = Math.max(yPad, Math.min(height - yPad, node.y));
-        }
-      }
-    } else {
-      positionedNodes[0].x = centerX;
-      positionedNodes[0].y = centerY;
-    }
-
-    const minX = Math.min(
-      ...positionedNodes.map((node) => node.x - node.radius),
-    );
-    const maxX = Math.max(
-      ...positionedNodes.map((node) => node.x + node.radius),
-    );
-    const minY = Math.min(
-      ...positionedNodes.map((node) => node.y - node.radius),
-    );
-    const maxY = Math.max(
-      ...positionedNodes.map((node) => node.y + node.radius),
-    );
-    const offsetX = centerX - (minX + maxX) / 2;
-    const offsetY = centerY - (minY + maxY) / 2;
-
-    for (const node of positionedNodes) {
-      const xPad = padding + node.radius + 80;
-      const yPad = padding + node.radius + 40;
-      node.x = Math.max(xPad, Math.min(width - xPad, node.x + offsetX));
-      node.y = Math.max(yPad, Math.min(height - yPad, node.y + offsetY));
-    }
-
-    for (const node of positionedNodes) {
-      node.vx = 0;
-      node.vy = 0;
-      node.homeX = node.x;
-      node.homeY = node.y;
-      node.restX = node.x;
-      node.restY = node.y;
-    }
-
-    const nodeIndexMap = new Map(
-      positionedNodes.map((node, index) => [node.tag, index] as const),
-    );
-
-    return {
-      width,
-      height,
-      padding,
-      maxLinkCount,
-      nodes: positionedNodes,
-      nodeIndex: nodeIndexMap,
-    };
-  }, [data]);
-
-  // Simulation state
-  const simRef = useRef<
-    Array<{
-      tag: string;
-      count: number;
-      interest: number;
-      degree: number;
-      x: number;
-      y: number;
-      vx: number;
-      vy: number;
-      homeX: number;
-      homeY: number;
-      radius: number;
-      restX: number;
-      restY: number;
-    }>
-  >([]);
-  const dragRef = useRef<{
-    nodeIndex: number;
-    pointerId: number;
-    startClientX: number;
-    startClientY: number;
-    moved: boolean;
-  } | null>(null);
-  const panRef = useRef<{
-    pointerId: number;
-    startClientX: number;
-    startClientY: number;
-    startViewport: InterestMapViewport;
-    moved: boolean;
-  } | null>(null);
-  const wasDraggedRef = useRef(false);
-  const animationTimeRef = useRef(0);
-  const svgRef = useRef<SVGSVGElement>(null);
-  const plotRef = useRef<HTMLDivElement>(null);
-  const viewportRef = useRef<InterestMapViewport | null>(null);
-  const gestureRef = useRef<{
-    startViewport: InterestMapViewport;
-    anchor: { x: number; y: number };
-  } | null>(null);
-  const [viewport, setViewport] = useState<InterestMapViewport | null>(null);
-  const [, setTick] = useState(0);
-  const setEditingNode = onEditingNodeChange ?? (() => {});
-
-  // Initialize simulation from layout
-  useEffect(() => {
-    if (!initialLayout) {
-      simRef.current = [];
-      return;
-    }
-    simRef.current = initialLayout.nodes.map((n) => ({ ...n }));
-    setTick((t) => t + 1);
-  }, [initialLayout]);
-
-  useEffect(() => {
-    if (!initialLayout) {
-      setViewport(null);
-      return;
-    }
-
-    setViewport({
-      x: 0,
-      y: 0,
-      width: initialLayout.width,
-      height: initialLayout.height,
-    });
-  }, [initialLayout]);
-
-  useEffect(() => {
-    viewportRef.current = viewport;
-  }, [viewport]);
-
-  function clientPointToSvg(clientX: number, clientY: number) {
-    const svg = svgRef.current;
-
-    if (!svg) {
-      return null;
-    }
-
-    const ctm = svg.getScreenCTM();
-
-    if (!ctm) {
-      return null;
-    }
-
-    return new DOMPoint(clientX, clientY).matrixTransform(ctm.inverse());
-  }
-
-  // Bubble physics.
-  useEffect(() => {
-    if (compact || !initialLayout || simRef.current.length === 0) {
-      return;
-    }
-
-    let frameId = 0;
-    let lastTime = 0;
-    const { width, height, nodeIndex, maxLinkCount } = initialLayout;
-    const boundaryPadding = 12;
-
-    function nodeOrientation(node: {
-      homeX: number;
-      homeY: number;
-      restX: number;
-      restY: number;
-      x: number;
-      y: number;
-    }) {
-      return preferredInterestLabelOrientation(
-        node.homeX - width / 2,
-        node.homeY - height / 2,
-      );
-    }
-
-    function step(now: number) {
-      const nodes = simRef.current;
-
-      if (nodes.length === 0) {
-        frameId = window.requestAnimationFrame(step);
-        return;
-      }
-
-      const dt = Math.min(2, Math.max(0.75, (now - lastTime || 16) / 16));
-      lastTime = now;
-      animationTimeRef.current = now / 1000;
-      const forceX = new Array(nodes.length).fill(0);
-      const forceY = new Array(nodes.length).fill(0);
-      const placements = nodes.map((node) => {
-        const labelText = shortenLabel(node.tag);
-        const labelFontSize = interestNodeLabelFontSize(node.radius);
-        const labelWidth = estimateInterestLabelWidth(labelText, labelFontSize);
-
-        return buildInterestBubblePlacement(
-          node,
-          nodeOrientation(node),
-          labelWidth,
-          labelFontSize,
-        );
-      });
-
-      for (let leftIndex = 0; leftIndex < nodes.length; leftIndex += 1) {
-        for (
-          let rightIndex = leftIndex + 1;
-          rightIndex < nodes.length;
-          rightIndex += 1
-        ) {
-          const leftPlacement = placements[leftIndex];
-          const rightPlacement = placements[rightIndex];
-          let dx = rightPlacement.bubbleCenterX - leftPlacement.bubbleCenterX;
-          let dy = rightPlacement.bubbleCenterY - leftPlacement.bubbleCenterY;
-          let distance = Math.hypot(dx, dy);
-
-          if (distance < 0.001) {
-            dx = 0.01;
-            dy = 0;
-            distance = 0.01;
-          }
-
-          const directionX = dx / distance;
-          const directionY = dy / distance;
-          const minDistance =
-            leftPlacement.bubbleRadius + rightPlacement.bubbleRadius + 10;
-          const baseRepulsion = 950 / (distance * distance);
-          const overlapRepulsion =
-            distance < minDistance ? (minDistance - distance) * 0.07 : 0;
-          const push = baseRepulsion + overlapRepulsion;
-
-          forceX[leftIndex] -= directionX * push;
-          forceY[leftIndex] -= directionY * push;
-          forceX[rightIndex] += directionX * push;
-          forceY[rightIndex] += directionY * push;
-        }
-      }
-
-      for (const link of data.links) {
-        const sourceIndex = nodeIndex.get(link.source) ?? -1;
-        const targetIndex = nodeIndex.get(link.target) ?? -1;
-
-        if (sourceIndex === -1 || targetIndex === -1) {
-          continue;
-        }
-
-        const sourceNode = nodes[sourceIndex];
-        const targetNode = nodes[targetIndex];
-        const sourcePlacement = placements[sourceIndex];
-        const targetPlacement = placements[targetIndex];
-        const dx = targetNode.x - sourceNode.x;
-        const dy = targetNode.y - sourceNode.y;
-        const distance = Math.max(1, Math.hypot(dx, dy));
-        const directionX = dx / distance;
-        const directionY = dy / distance;
-        const desiredDistance =
-          sourcePlacement.bubbleRadius +
-          targetPlacement.bubbleRadius +
-          26 +
-          (1 - link.count / maxLinkCount) * 40;
-        const spring = (distance - desiredDistance) * 0.0024;
-        const pull = spring * (0.8 + link.count / maxLinkCount * 0.85);
-
-        forceX[sourceIndex] += directionX * pull;
-        forceY[sourceIndex] += directionY * pull;
-        forceX[targetIndex] -= directionX * pull;
-        forceY[targetIndex] -= directionY * pull;
-      }
-
-      for (let index = 0; index < nodes.length; index += 1) {
-        const node = nodes[index];
-        const isDragged = dragRef.current?.nodeIndex === index;
-
-        if (isDragged) {
-          node.vx = 0;
-          node.vy = 0;
-          continue;
-        }
-
-        const swaySeed = hashTag(node.tag);
-        const swayX =
-          Math.sin(animationTimeRef.current * 0.44 + (swaySeed & 0xff) * 0.027) *
-          0.0018;
-        const swayY =
-          Math.cos(
-            animationTimeRef.current * 0.38 + ((swaySeed >> 8) & 0xff) * 0.025,
-          ) * 0.0015;
-
-        forceX[index] += (node.restX - node.x) * 0.009 + swayX;
-        forceY[index] += (node.restY - node.y) * 0.009 + swayY;
-
-        node.vx = (node.vx + forceX[index] * dt) * 0.86;
-        node.vy = (node.vy + forceY[index] * dt) * 0.86;
-        const speed = Math.hypot(node.vx, node.vy);
-
-        if (speed > 2.2) {
-          const clamp = 2.2 / speed;
-          node.vx *= clamp;
-          node.vy *= clamp;
-        }
-
-        node.x += node.vx * dt;
-        node.y += node.vy * dt;
-      }
-
-      for (let index = 0; index < nodes.length; index += 1) {
-        const node = nodes[index];
-        const placement = buildInterestBubblePlacement(
-          node,
-          nodeOrientation(node),
-          estimateInterestLabelWidth(
-            shortenLabel(node.tag),
-            interestNodeLabelFontSize(node.radius),
-          ),
-          interestNodeLabelFontSize(node.radius),
-        );
-
-        if (placement.bubbleBox.left < boundaryPadding) {
-          const shift = boundaryPadding - placement.bubbleBox.left;
-          node.x += shift;
-          if (dragRef.current?.nodeIndex !== index) {
-            node.homeX += shift * 0.12;
-            node.restX += shift * 0.3;
-          }
-          node.vx *= 0.65;
-        } else if (placement.bubbleBox.right > width - boundaryPadding) {
-          const shift = width - boundaryPadding - placement.bubbleBox.right;
-          node.x += shift;
-          if (dragRef.current?.nodeIndex !== index) {
-            node.homeX += shift * 0.12;
-            node.restX += shift * 0.3;
-          }
-          node.vx *= 0.65;
-        }
-
-        if (placement.bubbleBox.top < boundaryPadding) {
-          const shift = boundaryPadding - placement.bubbleBox.top;
-          node.y += shift;
-          if (dragRef.current?.nodeIndex !== index) {
-            node.homeY += shift * 0.12;
-            node.restY += shift * 0.3;
-          }
-          node.vy *= 0.65;
-        } else if (placement.bubbleBox.bottom > height - boundaryPadding) {
-          const shift = height - boundaryPadding - placement.bubbleBox.bottom;
-          node.y += shift;
-          if (dragRef.current?.nodeIndex !== index) {
-            node.homeY += shift * 0.12;
-            node.restY += shift * 0.3;
-          }
-          node.vy *= 0.65;
-        }
-      }
-
-      frameId = window.requestAnimationFrame(step);
-      setTick((t) => t + 1);
-    }
-
-    frameId = window.requestAnimationFrame(step);
-    return () => {
-      window.cancelAnimationFrame(frameId);
-    };
-  }, [compact, initialLayout, data.links]);
-
-  // Drag handlers
-  function handleNodePointerDown(
-    event: React.PointerEvent<SVGGElement>,
-    nodeIdx: number,
-  ) {
-    if (compact || !svgRef.current) {
-      return;
-    }
-
-    if (event.button !== 0) {
-      return;
-    }
-
-    event.preventDefault();
-
-    // Don't use setPointerCapture — it retargets pointerup/click to the
-    // SVG element instead of the original node <g>, which prevents the
-    // React onClick handler from firing on nodes.
-    dragRef.current = {
-      nodeIndex: nodeIdx,
-      pointerId: event.pointerId,
-      startClientX: event.clientX,
-      startClientY: event.clientY,
-      moved: false,
-    };
-
-    // Use document-level listeners so drag tracking works even when
-    // the pointer leaves the SVG.
-    function onDocMove(e: PointerEvent) {
-      const drag = dragRef.current;
-      if (!drag || !svgRef.current) return;
-
-      const dx = e.clientX - drag.startClientX;
-      const dy = e.clientY - drag.startClientY;
-
-      if (!drag.moved && Math.hypot(dx, dy) < 4) return;
-
-      drag.moved = true;
-      const ctm = svgRef.current.getScreenCTM();
-      if (!ctm) return;
-
-      const pt = new DOMPoint(e.clientX, e.clientY).matrixTransform(
-        ctm.inverse(),
-      );
-      const node = simRef.current[drag.nodeIndex];
-      if (node) {
-        node.x = pt.x;
-        node.y = pt.y;
-        node.homeX = pt.x;
-        node.homeY = pt.y;
-        node.restX = pt.x;
-        node.restY = pt.y;
-        node.vx = 0;
-        node.vy = 0;
-        setTick((t) => t + 1);
-      }
-    }
-
-    function onDocUp() {
-      if (dragRef.current) {
-        wasDraggedRef.current = dragRef.current.moved;
-        dragRef.current = null;
-      }
-      setTick((t) => t + 1);
-      document.removeEventListener("pointermove", onDocMove);
-      document.removeEventListener("pointerup", onDocUp);
-    }
-
-    document.addEventListener("pointermove", onDocMove);
-    document.addEventListener("pointerup", onDocUp);
-  }
-
-  function handleSvgPointerDown(event: React.PointerEvent<SVGSVGElement>) {
-    if (compact || !svgRef.current || !viewport) {
-      return;
-    }
-
-    if (event.button !== 0) {
-      return;
-    }
-
-    event.preventDefault();
-
-    const target = event.target as Element | null;
-    if (target?.closest(".interest-map-node")) {
-      return;
-    }
-
-    panRef.current = {
-      pointerId: event.pointerId,
-      startClientX: event.clientX,
-      startClientY: event.clientY,
-      startViewport: viewport,
-      moved: false,
-    };
-
-    function onDocMove(e: PointerEvent) {
-      const pan = panRef.current;
-      const svg = svgRef.current;
-
-      if (!pan || !svg) {
-        return;
-      }
-
-      const dx = e.clientX - pan.startClientX;
-      const dy = e.clientY - pan.startClientY;
-
-      if (!pan.moved && Math.hypot(dx, dy) < 4) {
-        return;
-      }
-
-      pan.moved = true;
-      const svgWidth = svg.clientWidth || svg.getBoundingClientRect().width;
-      const svgHeight = svg.clientHeight || svg.getBoundingClientRect().height;
-
-      if (svgWidth <= 0 || svgHeight <= 0) {
-        return;
-      }
-
-      setViewport({
-        x: pan.startViewport.x - (dx * pan.startViewport.width) / svgWidth,
-        y: pan.startViewport.y - (dy * pan.startViewport.height) / svgHeight,
-        width: pan.startViewport.width,
-        height: pan.startViewport.height,
-      });
-    }
-
-    function onDocUp() {
-      if (panRef.current) {
-        wasDraggedRef.current = panRef.current.moved;
-        panRef.current = null;
-      }
-      setTick((t) => t + 1);
-      document.removeEventListener("pointermove", onDocMove);
-      document.removeEventListener("pointerup", onDocUp);
-    }
-
-    document.addEventListener("pointermove", onDocMove);
-    document.addEventListener("pointerup", onDocUp);
-  }
-
-  function handleInterestMapWheel(
-    event: Pick<
-      WheelEvent,
-      "preventDefault" | "ctrlKey" | "clientX" | "clientY" | "deltaX" | "deltaY"
-    >,
-  ) {
-    if (compact || !svgRef.current || !initialLayout || !viewportRef.current) {
-      return;
-    }
-
-    event.preventDefault();
-
-    if (event.ctrlKey) {
-      const anchor = clientPointToSvg(event.clientX, event.clientY);
-
-      if (!anchor) {
-        return;
-      }
-
-      setViewport((current) =>
-        current
-          ? zoomInterestMapViewport(
-              current,
-              initialLayout.width,
-              initialLayout.height,
-              (initialLayout.width / current.width) *
-                Math.exp(-event.deltaY * INTEREST_MAP_WHEEL_ZOOM_SENSITIVITY),
-              { x: anchor.x, y: anchor.y },
-            )
-          : current,
-      );
-      return;
-    }
-
-    const svgWidth = svgRef.current.clientWidth || svgRef.current.getBoundingClientRect().width;
-    const svgHeight =
-      svgRef.current.clientHeight || svgRef.current.getBoundingClientRect().height;
-
-    if (svgWidth <= 0 || svgHeight <= 0) {
-      return;
-    }
-
-    setViewport((current) =>
-      current
-        ? {
-            x: current.x + (event.deltaX * current.width) / svgWidth,
-            y: current.y + (event.deltaY * current.height) / svgHeight,
-            width: current.width,
-            height: current.height,
-          }
-        : current,
-    );
-  }
-
-  useEffect(() => {
-    if (compact || !initialLayout || !plotRef.current) {
-      return;
-    }
-
-    const layout = initialLayout;
-    const plotElement = plotRef.current;
-
-    type WebkitGestureEvent = Event & {
-      clientX: number;
-      clientY: number;
-      scale: number;
-      preventDefault(): void;
-      target: EventTarget | null;
-    };
-
-    function isGraphGestureTarget(event: {
-      clientX: number;
-      clientY: number;
-      target?: EventTarget | null;
-    }) {
-      const target = event.target;
-
-      if (target instanceof Node && plotElement.contains(target)) {
-        return true;
-      }
-
-      return clientPointWithinElement(plotElement, event.clientX, event.clientY);
-    }
-
-    function handleNativeWheel(event: WheelEvent) {
-      if (!isGraphGestureTarget(event)) {
-        return;
-      }
-
-      handleInterestMapWheel(event);
-    }
-
-    function handleGestureStart(event: Event) {
-      const gestureEvent = event as WebkitGestureEvent;
-
-      if (!isGraphGestureTarget(gestureEvent)) {
-        return;
-      }
-
-      const anchor = clientPointToSvg(gestureEvent.clientX, gestureEvent.clientY);
-
-      if (!anchor) {
-        return;
-      }
-
-      gestureEvent.preventDefault();
-      const currentViewport = viewportRef.current;
-
-      if (!currentViewport) {
-        return;
-      }
-
-      gestureRef.current = {
-        startViewport: currentViewport,
-        anchor: { x: anchor.x, y: anchor.y },
-      };
-    }
-
-    function handleGestureChange(event: Event) {
-      const gestureEvent = event as WebkitGestureEvent;
-      const gesture = gestureRef.current;
-
-      if (!gesture || !isGraphGestureTarget(gestureEvent)) {
-        return;
-      }
-
-      gestureEvent.preventDefault();
-      const startZoom = layout.width / gesture.startViewport.width;
-
-      setViewport(
-        zoomInterestMapViewport(
-          gesture.startViewport,
-          layout.width,
-          layout.height,
-          startZoom *
-            (1 +
-              (gestureEvent.scale - 1) * INTEREST_MAP_PINCH_ZOOM_SENSITIVITY),
-          gesture.anchor,
-        ),
-      );
-    }
-
-    function handleGestureEnd(event: Event) {
-      if (!gestureRef.current) {
-        return;
-      }
-
-      (event as WebkitGestureEvent).preventDefault();
-      gestureRef.current = null;
-    }
-
-    document.addEventListener("wheel", handleNativeWheel, {
-      passive: false,
-      capture: true,
-    });
-    document.addEventListener("gesturestart", handleGestureStart, {
-      passive: false,
-      capture: true,
-    });
-    document.addEventListener("gesturechange", handleGestureChange, {
-      passive: false,
-      capture: true,
-    });
-    document.addEventListener("gestureend", handleGestureEnd, {
-      passive: false,
-      capture: true,
-    });
-
-    return () => {
-      document.removeEventListener("wheel", handleNativeWheel, true);
-      document.removeEventListener("gesturestart", handleGestureStart, true);
-      document.removeEventListener("gesturechange", handleGestureChange, true);
-      document.removeEventListener("gestureend", handleGestureEnd, true);
-    };
-  }, [compact, initialLayout]);
-
-  function handleSvgClick(event: React.MouseEvent) {
-    if (wasDraggedRef.current) {
-      event.stopPropagation();
-      wasDraggedRef.current = false;
-      return;
-    }
-    setEditingNode(null);
-    onClearSelection?.();
-  }
-
-  if (!initialLayout) {
-    return (
-      <p className={`interest-map-empty${compact ? " is-compact" : ""}`}>
-        Add genre and topic tags to see how your interests connect.
-      </p>
-    );
-  }
-
-  // Use animated positions when available, fall back to initial layout
-  const currentNodes =
-    !compact && simRef.current.length > 0
-      ? simRef.current
-      : initialLayout.nodes;
-  const activeViewport = viewport ?? {
-    x: 0,
-    y: 0,
-    width: initialLayout.width,
-    height: initialLayout.height,
-  };
-  const isInteracting = dragRef.current != null || panRef.current != null;
-  const selectedPathSet = new Set(selectedPath);
-  const centerX = initialLayout.width / 2;
-  const centerY = initialLayout.height / 2;
-  const renderNodes = currentNodes.map((node, index) => {
-    const labelText = shortenLabel(node.tag);
-    const labelFontSize = interestNodeLabelFontSize(node.radius);
-    const labelWidth = estimateInterestLabelWidth(labelText, labelFontSize);
-    const orientation =
-      preferredInterestLabelOrientation(node.restX - centerX, node.restY - centerY);
-    const placement = buildInterestBubblePlacement(
-      node,
-      orientation,
-      labelWidth,
-      labelFontSize,
-    );
-
-    return {
-      ...node,
-      index,
-      labelText,
-      labelFontSize,
-      labelWidth,
-      orientation,
-      labelX: placement.labelX,
-      labelY: placement.labelY,
-      labelAnchor: placement.labelAnchor,
-      bubbleBox: placement.bubbleBox,
-    };
-  });
-  const nodeMap = new Map(renderNodes.map((node) => [node.tag, node] as const));
-
-  const hasLinks = data.links.length > 0;
-  const interestLabel =
-    data.nodes.length === 1 ? "1 interest" : `${data.nodes.length} interests`;
-  const connectionLabel =
-    data.links.length === 1 ? "1 link" : `${data.links.length} links`;
-  const hasActiveSelection = selectedPathSet.size > 0;
-  const connectedLinks = hasActiveSelection
-    ? data.links.filter(
-        (link) =>
-          selectedPathSet.has(link.source) || selectedPathSet.has(link.target),
-      )
-    : [];
-  const isSelectable = !compact && typeof onSelectTag === "function";
-
-  function buildLinkSegment(
-    source: { x: number; y: number; radius: number },
-    target: { x: number; y: number; radius: number },
-  ) {
-    const dx = target.x - source.x;
-    const dy = target.y - source.y;
-    const distance = Math.max(1, Math.hypot(dx, dy));
-    const unitX = dx / distance;
-    const unitY = dy / distance;
-
-    return {
-      startX: source.x + unitX * (source.radius + 1),
-      startY: source.y + unitY * (source.radius + 1),
-      endX: target.x - unitX * (target.radius + 1),
-      endY: target.y - unitY * (target.radius + 1),
-    };
-  }
-
-  function handleNodeKeyDown(
-    event: ReactKeyboardEvent<SVGGElement>,
-    node: { tag: string; x: number; y: number },
-  ) {
-    if (!onSelectTag) {
-      return;
-    }
-
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      handleNodeClick(event, node);
-    }
-  }
-
-  function handleNodeClick(
-    event: Pick<React.MouseEvent<SVGGElement>, "stopPropagation">,
-    node: { tag: string; x: number; y: number },
-  ) {
-    event.stopPropagation();
-
-    if (wasDraggedRef.current) {
-      wasDraggedRef.current = false;
-      return;
-    }
-
-    const willBeOnlySelectedNode =
-      !selectedPath.includes(node.tag) && selectedPath.length === 0;
-
-    if (willBeOnlySelectedNode) {
-      const svg = svgRef.current;
-
-      if (svg) {
-        const point = svg.createSVGPoint();
-        point.x = node.x;
-        point.y = node.y;
-        const ctm = svg.getScreenCTM();
-
-        if (ctm) {
-          const screenPoint = point.matrixTransform(ctm);
-          setEditingNode({
-            tag: node.tag,
-            screenX: screenPoint.x,
-            screenY: screenPoint.y,
-          });
-        }
-      }
-    } else {
-      setEditingNode(null);
-    }
-
-    onSelectTag?.(node.tag);
-  }
-
-  return (
-    <div className={`interest-map${compact ? " is-compact" : ""}`}>
-      {!compact ? (
-        <div className="interest-map-meta">
-          <span>{interestLabel}</span>
-          <span>{hasLinks ? connectionLabel : "No links yet"}</span>
-        </div>
-      ) : null}
-      <div
-        ref={plotRef}
-        className="interest-map-plot"
-      >
-        <svg
-          ref={svgRef}
-          className={`interest-map-chart${isInteracting ? " is-dragging" : ""}`}
-          preserveAspectRatio="xMidYMid meet"
-          viewBox={`${activeViewport.x} ${activeViewport.y} ${activeViewport.width} ${activeViewport.height}`}
-          aria-label="Interest graph showing how genre and topic tags connect across your books"
-          onPointerDown={!compact ? handleSvgPointerDown : undefined}
-          onClick={!compact ? handleSvgClick : undefined}
-        >
-          {data.links.map((link) => {
-            const source = nodeMap.get(link.source);
-            const target = nodeMap.get(link.target);
-
-            if (!source || !target) {
-              return null;
-            }
-
-            const segment = buildLinkSegment(source, target);
-
-            return (
-              <g key={`${link.source}-${link.target}`}>
-                <line
-                  x1={segment.startX}
-                  y1={segment.startY}
-                  x2={segment.endX}
-                  y2={segment.endY}
-                  stroke="rgba(180, 83, 9, 0.22)"
-                  strokeOpacity={
-                    0.2 + (link.count / initialLayout.maxLinkCount) * 0.2
-                  }
-                  strokeWidth={
-                    0.8 + (link.count / initialLayout.maxLinkCount) * 1.1
-                  }
-                  strokeLinecap="round"
-                />
-              </g>
-            );
-          })}
-          {connectedLinks.map((link) => {
-            const source = nodeMap.get(link.source);
-            const target = nodeMap.get(link.target);
-
-            if (!source || !target) {
-              return null;
-            }
-
-            const segment = buildLinkSegment(source, target);
-
-            return (
-              <line
-                key={`connected:${link.source}:${link.target}`}
-                x1={segment.startX}
-                y1={segment.startY}
-                x2={segment.endX}
-                y2={segment.endY}
-                stroke="rgba(180, 83, 9, 0.78)"
-                strokeWidth={1.8 + (link.count / initialLayout.maxLinkCount) * 1.6}
-                strokeLinecap="round"
-              />
-            );
-          })}
-          {renderNodes.map((node) => (
-            <g
-              key={node.tag}
-              className={`interest-map-node${isSelectable ? " is-selectable" : ""}${selectedPathSet.has(node.tag) ? " is-selected" : ""}`}
-              onClick={
-                onSelectTag
-                  ? (event: React.MouseEvent) => handleNodeClick(event, node)
-                  : undefined
-              }
-              onPointerDown={
-                !compact
-                  ? (event) => handleNodePointerDown(event, node.index)
-                  : undefined
-              }
-              onKeyDown={
-                onSelectTag
-                  ? (event) => handleNodeKeyDown(event, node)
-                  : undefined
-              }
-            >
-              {!compact ? (
-                <rect
-                  className="interest-map-bubble"
-                  x={node.bubbleBox.left}
-                  y={node.bubbleBox.top}
-                  width={node.bubbleBox.right - node.bubbleBox.left}
-                  height={node.bubbleBox.bottom - node.bubbleBox.top}
-                  rx="16"
-                  fill={
-                    selectedPathSet.has(node.tag)
-                      ? "rgba(255, 247, 237, 0.92)"
-                      : "rgba(252, 248, 241, 0.78)"
-                  }
-                  stroke={
-                    selectedPathSet.has(node.tag)
-                      ? "rgba(180, 83, 9, 0.3)"
-                      : "rgba(180, 83, 9, 0.14)"
-                  }
-                  strokeWidth={selectedPathSet.has(node.tag) ? "1.6" : "1"}
-                />
-              ) : null}
-              <title>{`${node.tag}: ${node.count} book${node.count === 1 ? "" : "s"}, interest ${node.interest}/5`}</title>
-              {selectedPathSet.has(node.tag) ? (
-                <circle
-                  cx={node.x}
-                  cy={node.y}
-                  r={node.radius + 5}
-                  fill="rgba(180, 83, 9, 0.12)"
-                  stroke="rgba(180, 83, 9, 0.7)"
-                  strokeWidth="2"
-                />
-              ) : null}
-              <circle
-                cx={node.x}
-                cy={node.y}
-                r={node.radius}
-                fill={selectedPathSet.has(node.tag) ? "rgba(180, 83, 9, 0.85)" : "rgba(180, 83, 9, 0.55)"}
-                stroke="rgba(180, 83, 9, 0.3)"
-                strokeWidth="1"
-              />
-              {node.count > 0 ? (
-                <text
-                  className="interest-map-score"
-                  x={node.x}
-                  y={node.y}
-                  textAnchor="middle"
-                  dominantBaseline="central"
-                  fontSize={interestNodeScoreFontSize(node.radius)}
-                  fill="white"
-                  fontWeight="600"
-                  pointerEvents="none"
-                >
-                  {node.interest}
-                </text>
-              ) : null}
-              {!compact ? (
-                <text
-                  className="interest-map-label"
-                  x={node.labelX}
-                  y={node.labelY}
-                  textAnchor={node.labelAnchor}
-                  style={{ fontSize: `${node.labelFontSize}px` }}
-                >
-                  {node.labelText}
-                </text>
-              ) : null}
-            </g>
-          ))}
-        </svg>
-      </div>
-      {!compact ? (
-        <p className="interest-map-note">
-          {hasLinks
-            ? "Lines connect interests that appear together on the same book. Scroll or drag the background to pan, pinch or use the controls to zoom, and drag nodes to rearrange."
-            : "Your current books do not connect any two interests yet."}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-const InterestMap = memo(
-  InterestMapView,
-  (previousProps, nextProps) =>
-    previousProps.compact === nextProps.compact &&
-    sameStringList(previousProps.selectedPath ?? [], nextProps.selectedPath ?? []) &&
-    sameGraphBooks(previousProps.books, nextProps.books) &&
-    sameInterestMap(previousProps.interests, nextProps.interests),
-);
-
 export default function App() {
   const currentYear = new Date().getFullYear();
   const [books, setBooks] = useState<Book[]>([]);
   const [catalogBooks, setCatalogBooks] = useState<CatalogBook[]>([]);
+  const [profiles, setProfiles] = useState<ProfileSummary[]>([]);
+  const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
   const [draft, setDraft] = useState<BookDraft>(createDraft());
   const [editingBookId, setEditingBookId] = useState<number | null>(null);
   const [scrollToForm, setScrollToForm] = useState(false);
   const [highlightedBookId, setHighlightedBookId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isManagingProfiles, setIsManagingProfiles] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
   const [pendingTagDelete, setPendingTagDelete] = useState<string | null>(null);
   const [titleSuggestions, setTitleSuggestions] = useState<CatalogSearchResult[]>(
@@ -2234,6 +437,16 @@ export default function App() {
   const [pendingBookRevealId, setPendingBookRevealId] = useState<number | null>(
     null,
   );
+
+  const applyLibraryState = useCallback((libraryState: LibraryState) => {
+    setBooks(libraryState.books);
+    setCatalogBooks(libraryState.catalogBooks);
+    setGenreInterests(libraryState.genreInterests);
+    setAuthorExperiences(libraryState.authorExperiences);
+    setSeriesExperiences(libraryState.seriesExperiences ?? {});
+    setProfiles(libraryState.profiles);
+    setActiveProfileId(libraryState.activeProfileId);
+  }, []);
 
   const captureVisibleBookRects = useCallback(() => {
     const rects = new Map<number, DOMRect>();
@@ -2442,11 +655,7 @@ export default function App() {
       try {
         const savedLibrary = await fetchLibraryState();
         if (isActive) {
-          setBooks(savedLibrary.books);
-          setCatalogBooks(savedLibrary.catalogBooks);
-          setGenreInterests(savedLibrary.genreInterests);
-          setAuthorExperiences(savedLibrary.authorExperiences);
-          setSeriesExperiences(savedLibrary.seriesExperiences ?? {});
+          applyLibraryState(savedLibrary);
         }
       } catch (error) {
         if (isActive) {
@@ -2464,7 +673,7 @@ export default function App() {
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [applyLibraryState]);
 
   const toggleInterestPathTag = useCallback((tag: string) => {
     setSelectedInterestPath((current) => {
@@ -2500,252 +709,16 @@ export default function App() {
     );
   }, [selectedInterestPath]);
 
-  const predictiveBooks = useMemo(
-    () => books.map(buildPredictiveBook),
-    [books],
-  );
-
-  const predictiveBooksById = useMemo(
-    () => new Map(predictiveBooks.map((book) => [book.id, book] as const)),
-    [predictiveBooks],
-  );
-
-  const smoothingFactors = useMemo(
-    () => buildTagSmoothingFactorMap(predictiveBooks, genreInterests),
-    [predictiveBooks, genreInterests],
-  );
-
-  const signalWeights = useMemo(
+  const { predictiveBooks, rankedBooks, readBooks } = useMemo(
     () =>
-      learnSignalWeights(
-        books.flatMap((displayBook) => {
-          const book = predictiveBooksById.get(displayBook.id) ?? displayBook;
-
-          if (displayBook.myRating == null) {
-            return [];
-          }
-
-          const authorPref = averageTagPreference(displayBook.authors, authorExperiences, {
-            excludeMissing: true,
-          });
-          const genrePref = averageTagPreference(displayBook.genres, genreInterests, {
-            excludeMissing: true,
-          });
-          const seriesPref = averageTagPreference(
-            displayBook.series ? [displayBook.series] : [],
-            seriesExperiences,
-            {
-              excludeMissing: true,
-            },
-          );
-          const R = book.starRating ?? GLOBAL_MEAN;
-          const v = book.ratingCount ?? 0;
-          const bScore = bayesianScore(
-            R,
-            v,
-            GLOBAL_MEAN,
-            smoothingFactors.get(book.id) ?? SMOOTHING_FACTOR,
-          );
-
-          return [
-            {
-              bayesian: bScore,
-              author: authorPref,
-              genre: genrePref,
-              series: seriesPref,
-              target: displayBook.myRating,
-            },
-          ];
-        }),
-      ),
-    [
-      books,
-      predictiveBooksById,
-      authorExperiences,
-      genreInterests,
-      seriesExperiences,
-      smoothingFactors,
-    ],
+      buildBookAnalytics({
+        books,
+        genreInterests,
+        authorExperiences,
+        seriesExperiences,
+      }),
+    [books, genreInterests, authorExperiences, seriesExperiences],
   );
-
-  const rankedBooks = useMemo<RankedBook[]>(() => {
-    return books
-      .filter((book) => !book.read)
-      .map((book) => {
-        const predictiveBook = predictiveBooksById.get(book.id) ?? book;
-        const authorPref = averageTagPreference(book.authors, authorExperiences, {
-          excludeMissing: true,
-        });
-        const genrePref = averageTagPreference(book.genres, genreInterests, {
-          excludeMissing: true,
-        });
-        const seriesPref = averageTagPreference(
-          book.series ? [book.series] : [],
-          seriesExperiences,
-          {
-            excludeMissing: true,
-          },
-        );
-        const R = predictiveBook.starRating ?? GLOBAL_MEAN;
-        const v = predictiveBook.ratingCount ?? 0;
-        const bScore = bayesianScore(
-          R,
-          v,
-          GLOBAL_MEAN,
-          smoothingFactors.get(book.id) ?? SMOOTHING_FACTOR,
-        );
-        return {
-          ...book,
-          predictiveStarRating: predictiveBook.starRating ?? 0,
-          predictiveRatingCount: predictiveBook.ratingCount ?? 0,
-          scoredTagCount: countScoredTagsForBook(
-            book,
-            authorExperiences,
-            genreInterests,
-            seriesExperiences,
-          ),
-          score: scoreBook(
-            bScore,
-            authorPref,
-            genrePref,
-            seriesPref,
-            book.myRating,
-            book.progress,
-            book.readCount ?? 0,
-            signalWeights,
-          ),
-          rank: 0,
-        };
-      })
-      .sort((a, b) => {
-        if (b.score !== a.score) {
-          return b.score - a.score;
-        }
-        if (b.scoredTagCount !== a.scoredTagCount) {
-          return b.scoredTagCount - a.scoredTagCount;
-        }
-        if (b.predictiveStarRating !== a.predictiveStarRating) {
-          return b.predictiveStarRating - a.predictiveStarRating;
-        }
-        return b.predictiveRatingCount - a.predictiveRatingCount;
-      })
-      .map(
-        (
-          {
-            predictiveStarRating: _predictiveStarRating,
-            predictiveRatingCount: _predictiveRatingCount,
-            scoredTagCount: _scoredTagCount,
-            ...book
-          },
-          index,
-        ) => ({
-          ...book,
-          rank: index + 1,
-        }),
-      );
-  }, [
-    books,
-    predictiveBooksById,
-    genreInterests,
-    authorExperiences,
-    seriesExperiences,
-    smoothingFactors,
-    signalWeights,
-  ]);
-
-  const readBooks = useMemo<RankedBook[]>(() => {
-    return books
-      .filter((book) => book.read)
-      .map((book) => {
-        const predictiveBook = predictiveBooksById.get(book.id) ?? book;
-        const authorPref = averageTagPreference(book.authors, authorExperiences, {
-          excludeMissing: true,
-        });
-        const genrePref = averageTagPreference(book.genres, genreInterests, {
-          excludeMissing: true,
-        });
-        const seriesPref = averageTagPreference(
-          book.series ? [book.series] : [],
-          seriesExperiences,
-          {
-            excludeMissing: true,
-          },
-        );
-        const R = predictiveBook.starRating ?? GLOBAL_MEAN;
-        const v = predictiveBook.ratingCount ?? 0;
-        const bScore = bayesianScore(
-          R,
-          v,
-          GLOBAL_MEAN,
-          smoothingFactors.get(book.id) ?? SMOOTHING_FACTOR,
-        );
-        const fullScore = scoreBook(
-          bScore,
-          authorPref,
-          genrePref,
-          seriesPref,
-          book.myRating,
-          book.progress,
-          book.readCount ?? 0,
-          signalWeights,
-        );
-        const realizedScore = realizeArchiveScore(
-          fullScore,
-          book.lastReadYear,
-          book.archivedAtYear,
-        );
-        const score = capArchiveScore(realizedScore, fullScore);
-        const archiveReadiness = archiveReadinessFromScores(score, fullScore);
-        return {
-          ...book,
-          predictiveStarRating: predictiveBook.starRating ?? 0,
-          predictiveRatingCount: predictiveBook.ratingCount ?? 0,
-          scoredTagCount: countScoredTagsForBook(
-            book,
-            authorExperiences,
-            genreInterests,
-            seriesExperiences,
-          ),
-          score,
-          archiveLabel: archiveReadiness.label,
-          rank: 0,
-        };
-      })
-      .sort((a, b) => {
-        if (b.score !== a.score) {
-          return b.score - a.score;
-        }
-        if (b.scoredTagCount !== a.scoredTagCount) {
-          return b.scoredTagCount - a.scoredTagCount;
-        }
-        if (b.predictiveStarRating !== a.predictiveStarRating) {
-          return b.predictiveStarRating - a.predictiveStarRating;
-        }
-        return b.predictiveRatingCount - a.predictiveRatingCount;
-      })
-      .map(
-        (
-          {
-            predictiveStarRating: _predictiveStarRating,
-            predictiveRatingCount: _predictiveRatingCount,
-            scoredTagCount: _scoredTagCount,
-            ...book
-          },
-          index,
-        ) => ({
-          ...book,
-          rank: index + 1,
-        }),
-      );
-  }, [
-    books,
-    predictiveBooksById,
-    genreInterests,
-    authorExperiences,
-    seriesExperiences,
-    smoothingFactors,
-    signalWeights,
-  ]);
 
   const visibleRankedBooks = useMemo(
     () =>
@@ -2764,6 +737,11 @@ export default function App() {
   );
 
   const hasSelectedNodeFilter = selectedInterestPath.length > 0;
+  const activeProfile = useMemo(
+    () => profiles.find((profile) => profile.id === activeProfileId) ?? null,
+    [profiles, activeProfileId],
+  );
+  const profileControlDisabled = isLoading || isSaving || isManagingProfiles;
 
   const isEditing = editingBookId !== null;
   const currentYearLabel = String(currentYear);
@@ -2772,44 +750,43 @@ export default function App() {
     return Array.from({ length: totalYears }, (_, index) => currentYear - index);
   }, [currentYear]);
 
-  const knownGenres = useMemo(() => {
-    const set = new Set<string>();
+  const { knownGenres, knownAuthors, knownSeries } = useMemo(() => {
+    const nextGenres = new Set<string>();
+    const nextAuthors = new Set<string>();
+    const nextSeries = new Set<string>();
+
     for (const book of books) {
       for (const genre of book.genres) {
-        set.add(genre);
+        nextGenres.add(genre);
       }
-    }
-    for (const genre of Object.keys(genreInterests)) {
-      set.add(genre);
-    }
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [books, genreInterests]);
 
-  const knownAuthors = useMemo(() => {
-    const set = new Set<string>();
-    for (const book of books) {
       for (const author of book.authors) {
-        set.add(author);
+        nextAuthors.add(author);
       }
-    }
-    for (const author of Object.keys(authorExperiences)) {
-      set.add(author);
-    }
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [books, authorExperiences]);
 
-  const knownSeries = useMemo(() => {
-    const set = new Set<string>();
-    for (const book of books) {
       if (book.series?.trim()) {
-        set.add(book.series);
+        nextSeries.add(book.series);
       }
     }
-    for (const series of Object.keys(seriesExperiences)) {
-      set.add(series);
+
+    for (const genre of Object.keys(genreInterests)) {
+      nextGenres.add(genre);
     }
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [books, seriesExperiences]);
+
+    for (const author of Object.keys(authorExperiences)) {
+      nextAuthors.add(author);
+    }
+
+    for (const series of Object.keys(seriesExperiences)) {
+      nextSeries.add(series);
+    }
+
+    return {
+      knownGenres: Array.from(nextGenres).sort((a, b) => a.localeCompare(b)),
+      knownAuthors: Array.from(nextAuthors).sort((a, b) => a.localeCompare(b)),
+      knownSeries: Array.from(nextSeries).sort((a, b) => a.localeCompare(b)),
+    };
+  }, [books, genreInterests, authorExperiences, seriesExperiences]);
 
   const authorSuggestions = useMemo(() => {
     return matchingSuggestions(draft.authorInput, draft.authors, knownAuthors);
@@ -2843,6 +820,64 @@ export default function App() {
     setDraftTagDrag(null);
     setDraftTagDropTarget(null);
   }, []);
+
+  const resetProfileWorkspace = useCallback(() => {
+    resetDraft();
+    pendingBookRectsRef.current = null;
+    setPendingBookRevealId(null);
+    setHighlightedBookId(null);
+    setPendingDeleteId(null);
+    setPendingTagDelete(null);
+    setSelectedInterestPath([]);
+    setShowArchive(false);
+    setRecommendations(null);
+    setRecError(null);
+    setIsLoadingRecs(false);
+    setAddedRecIds(new Set());
+    setGraphEditingNode(null);
+  }, [resetDraft]);
+
+  async function handleCreateProfile() {
+    const name = window.prompt("Name this profile");
+
+    if (name == null) {
+      return;
+    }
+
+    setIsManagingProfiles(true);
+    setIsLoading(true);
+    setErrorMessage(null);
+    resetProfileWorkspace();
+
+    try {
+      applyLibraryState(await createProfile(name));
+    } catch (error) {
+      setErrorMessage(messageFromError(error));
+    } finally {
+      setIsManagingProfiles(false);
+      setIsLoading(false);
+    }
+  }
+
+  async function handleProfileChange(nextProfileId: string) {
+    if (!nextProfileId || nextProfileId === activeProfileId) {
+      return;
+    }
+
+    setIsManagingProfiles(true);
+    setIsLoading(true);
+    setErrorMessage(null);
+    resetProfileWorkspace();
+
+    try {
+      applyLibraryState(await setActiveProfile(nextProfileId));
+    } catch (error) {
+      setErrorMessage(messageFromError(error));
+    } finally {
+      setIsManagingProfiles(false);
+      setIsLoading(false);
+    }
+  }
 
   useEffect(() => {
     if (scrollToForm) {
@@ -2955,12 +990,13 @@ export default function App() {
     const requestId = titleSearchRequestRef.current + 1;
     titleSearchRequestRef.current = requestId;
     let cancelled = false;
+    let controller: AbortController | null = null;
 
     setIsSearchingCatalog(true);
     setCatalogError(null);
 
     const debounce = window.setTimeout(async () => {
-      const response = searchCatalog(
+      const localResponse = searchCatalog(
         books,
         query,
         TITLE_SUGGESTION_FETCH_LIMIT,
@@ -2971,16 +1007,50 @@ export default function App() {
         return;
       }
 
-      setTitleSuggestions(response.results);
-      setCatalogError(null);
+      controller = new AbortController();
 
-      if (!cancelled && titleSearchRequestRef.current === requestId) {
-        setIsSearchingCatalog(false);
+      try {
+        const remoteResponse = await searchOpenLibraryCatalog(
+          query,
+          TITLE_SUGGESTION_FETCH_LIMIT,
+          controller.signal,
+        );
+
+        if (cancelled || titleSearchRequestRef.current !== requestId) {
+          return;
+        }
+
+        setTitleSuggestions(
+          mergeCatalogSearchResults(
+            remoteResponse.results,
+            localResponse.results,
+            TITLE_SUGGESTION_FETCH_LIMIT,
+          ),
+        );
+        setCatalogError(null);
+      } catch (error) {
+        if (cancelled || titleSearchRequestRef.current !== requestId) {
+          return;
+        }
+
+        const message = messageFromCatalogLookupError(error);
+
+        if (localResponse.results.length > 0) {
+          setTitleSuggestions(localResponse.results);
+          setCatalogError(null);
+        } else if (message) {
+          setCatalogError(message);
+        }
+      } finally {
+        if (!cancelled && titleSearchRequestRef.current === requestId) {
+          setIsSearchingCatalog(false);
+        }
       }
     }, 260);
 
     return () => {
       cancelled = true;
+      controller?.abort();
       window.clearTimeout(debounce);
     };
   }, [
@@ -4149,249 +2219,115 @@ export default function App() {
       <div className="app-layout">
         {/* ── Left column: reading list ── */}
         <aside ref={leftColumnRef} className="left-column">
-        {!showArchive ? (
-        <section className="board">
-          <header className="list-header">
-            <h2>Reading list</h2>
-          </header>
-          <div className="ranking-list">
-            {isLoading ? (
-              <div className="empty-state">Loading your rankings...</div>
-            ) : rankedBooks.length === 0 ? (
-              <div className="empty-state">
-                No books yet. Add your first book to get started.
-              </div>
-            ) : visibleRankedBooks.length === 0 ? (
-              <div className="empty-state">
-                No books in your reading list match the selected nodes.
-              </div>
-            ) : (
-              visibleRankedBooks.map((book) => {
-                const isDeleting = pendingDeleteId === book.id;
-                const isEditingBook = editingBookId === book.id;
-                const editActionDisabled =
-                  isSaving || isDeleting || (isEditingBook && !canSubmit);
-                const rankClass =
-                  book.rank === 2
-                    ? "rank-silver"
-                    : book.rank === 3
-                      ? "rank-bronze"
-                      : "";
-
-                return (
-                  <BookCard
-                    key={book.id}
-                    itemId={book.id}
-                    rank={book.rank}
-                    title={book.title}
-                    series={book.series}
-                    seriesNumber={book.seriesNumber}
-                    authors={book.authors}
-                    score={book.score}
-                    rankClass={rankClass}
-                    className={[
-                      isEditingBook ? "is-editing" : "",
-                      highlightedBookId === book.id ? "is-recently-added" : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                    isActive={isEditingBook}
-                    onToggle={() => toggleCardEditing(book)}
-                    progressBar={
-                      <ProgressBar
-                        value={book.progress ?? 0}
-                        onChange={(pct) =>
-                          void updateProgress(book.id, pct === 0 ? undefined : pct)
-                        }
-                      />
-                    }
-                    subMeta={
-                      <ReadCountStepper
-                        value={book.readCount ?? 0}
-                        onIncrement={() => void incrementReadCount(book.id)}
-                        onDecrement={() => void decrementReadCount(book.id)}
-                        disabled={isSaving || isDeleting}
-                      />
-                    }
-                    stars={
-                      <span className="my-rating-stars">
-                        {[1, 2, 3, 4, 5].map((star) => (
-                          <button
-                            key={star}
-                            type="button"
-                            className={`my-rating-star${book.myRating != null && star <= book.myRating ? " is-filled" : ""}`}
-                            onClick={() => void updateMyRating(book.id, star)}
-                            aria-label={`Rate ${star} out of 5`}
-                          >
-                            {book.myRating != null && star <= book.myRating ? "\u2605" : "\u2606"}
-                          </button>
-                        ))}
-                      </span>
-                    }
-                    actions={
-                      <>
-                        <button
-                          type="button"
-                          className="icon-btn icon-btn-danger"
-                          onClick={() => void removeBook(book.id)}
-                          disabled={isSaving || isDeleting}
-                          aria-label="Remove"
-                          title="Remove"
-                        >
-                          {"\u2715"}
-                        </button>
-                        <button
-                          type="button"
-                          className="icon-btn"
-                          onClick={() => toggleEditing(book)}
-                          disabled={editActionDisabled}
-                          aria-label={isEditingBook ? "Save changes" : "Edit"}
-                          title={isEditingBook ? "Save changes" : "Edit"}
-                        >
-                          {isEditingBook ? "\u2713" : "\u270E"}
-                        </button>
-                        <button
-                          type="button"
-                          className="icon-btn book-state-btn is-open-default"
-                          onClick={() => void toggleBookRead(book.id, true)}
-                          disabled={isSaving || isDeleting}
-                          aria-label="Mark as read"
-                          title="Mark as read"
-                        >
-                          <BookActionIcon />
-                        </button>
-                      </>
-                    }
-                  />
-                );
-              })
-            )}
-          </div>
-        </section>
-        ) : (
-            <section className="board archive-list">
-              <header className="list-header">
-                <h2>Books to revisit</h2>
-              </header>
-              <div className="ranking-list">
-                {readBooks.length === 0 ? (
-                  <div className="empty-state">No read books yet.</div>
-                ) : visibleReadBooks.length === 0 ? (
-                  <div className="empty-state">
-                    No rereads match the selected nodes.
-                  </div>
-                ) : (
-                  visibleReadBooks.map((book) => {
-                    const isDeleting = pendingDeleteId === book.id;
-                    const isEditingBook = editingBookId === book.id;
-                    const editActionDisabled =
-                      isSaving || isDeleting || (isEditingBook && !canSubmit);
-                    const rankClass =
-                      book.rank === 2
-                          ? "rank-silver"
-                          : book.rank === 3
-                            ? "rank-bronze"
-                            : "";
-
-                    return (
-                      <BookCard
-                        key={book.id}
-                        itemId={book.id}
-                        rank={book.rank}
-                        title={book.title}
-                        series={book.series}
-                        seriesNumber={book.seriesNumber}
-                        authors={book.authors}
-                        score={book.score}
-                        scoreOverride={book.archiveLabel ?? "Not yet"}
-                        rankClass={rankClass}
-                        className={[
-                          "is-read",
-                          isEditingBook ? "is-editing" : "",
-                          highlightedBookId === book.id ? "is-recently-added" : "",
-                        ]
-                          .filter(Boolean)
-                          .join(" ")}
-                        isActive={isEditingBook}
-                        onToggle={() => toggleCardEditing(book)}
-                        progressBar={
-                          <ProgressBar
-                            value={book.progress ?? 0}
-                            onChange={(pct) =>
-                              void updateProgress(book.id, pct === 0 ? undefined : pct)
-                            }
-                          />
-                        }
-                        subMeta={
-                          <ReadCountStepper
-                            value={book.readCount ?? 0}
-                            onIncrement={() => void incrementReadCount(book.id)}
-                            onDecrement={() => void decrementReadCount(book.id)}
-                            disabled={isSaving || isDeleting}
-                          />
-                        }
-                        stars={
-                          <span className="my-rating-stars">
-                            {[1, 2, 3, 4, 5].map((star) => (
-                              <button
-                                key={star}
-                                type="button"
-                                className={`my-rating-star${book.myRating != null && star <= book.myRating ? " is-filled" : ""}`}
-                                onClick={() => void updateMyRating(book.id, star)}
-                                aria-label={`Rate ${star} out of 5`}
-                              >
-                                {book.myRating != null && star <= book.myRating ? "\u2605" : "\u2606"}
-                              </button>
-                            ))}
-                          </span>
-                        }
-                        actions={
-                          <>
-                            <button
-                              type="button"
-                              className="icon-btn icon-btn-danger"
-                              onClick={() => void removeBook(book.id)}
-                              disabled={isSaving || isDeleting}
-                              aria-label="Remove"
-                              title="Remove"
-                            >
-                              {"\u2715"}
-                            </button>
-                            <button
-                              type="button"
-                              className="icon-btn"
-                              onClick={() => toggleEditing(book)}
-                              disabled={editActionDisabled}
-                              aria-label={isEditingBook ? "Save changes" : "Edit"}
-                              title={isEditingBook ? "Save changes" : "Edit"}
-                            >
-                              {isEditingBook ? "\u2713" : "\u270E"}
-                            </button>
-                            <button
-                              type="button"
-                              className="icon-btn book-state-btn is-closed-default"
-                              onClick={() => void toggleBookRead(book.id, false)}
-                              disabled={isSaving || isDeleting}
-                              aria-label="Reread this book"
-                              title="Reread this book"
-                            >
-                              <BookActionIcon />
-                            </button>
-                          </>
-                        }
-                      />
-                    );
-                  })
-                )}
-              </div>
-            </section>
+          {!showArchive ? (
+            <BookListSection
+              title="Reading list"
+              totalCount={rankedBooks.length}
+              books={visibleRankedBooks}
+              isLoading={isLoading}
+              emptyMessage="No books yet. Add your first book to get started."
+              emptyFilteredMessage="No books in your reading list match the selected nodes."
+              pendingDeleteId={pendingDeleteId}
+              editingBookId={editingBookId}
+              highlightedBookId={highlightedBookId}
+              isSaving={isSaving}
+              canSubmit={canSubmit}
+              onToggleCardEditing={toggleCardEditing}
+              onToggleEditing={toggleEditing}
+              onProgressChange={(bookId, progress) => {
+                void updateProgress(bookId, progress);
+              }}
+              onIncrementReadCount={(bookId) => {
+                void incrementReadCount(bookId);
+              }}
+              onDecrementReadCount={(bookId) => {
+                void decrementReadCount(bookId);
+              }}
+              onRatingChange={(bookId, level) => {
+                void updateMyRating(bookId, level);
+              }}
+              onRemove={(bookId) => {
+                void removeBook(bookId);
+              }}
+              onToggleRead={(bookId, read) => {
+                void toggleBookRead(bookId, read);
+              }}
+            />
+          ) : (
+            <BookListSection
+              title="Books to revisit"
+              totalCount={readBooks.length}
+              books={visibleReadBooks}
+              emptyMessage="No read books yet."
+              emptyFilteredMessage="No rereads match the selected nodes."
+              readMode
+              pendingDeleteId={pendingDeleteId}
+              editingBookId={editingBookId}
+              highlightedBookId={highlightedBookId}
+              isSaving={isSaving}
+              canSubmit={canSubmit}
+              onToggleCardEditing={toggleCardEditing}
+              onToggleEditing={toggleEditing}
+              onProgressChange={(bookId, progress) => {
+                void updateProgress(bookId, progress);
+              }}
+              onIncrementReadCount={(bookId) => {
+                void incrementReadCount(bookId);
+              }}
+              onDecrementReadCount={(bookId) => {
+                void decrementReadCount(bookId);
+              }}
+              onRatingChange={(bookId, level) => {
+                void updateMyRating(bookId, level);
+              }}
+              onRemove={(bookId) => {
+                void removeBook(bookId);
+              }}
+              onToggleRead={(bookId, read) => {
+                void toggleBookRead(bookId, read);
+              }}
+            />
           )}
           <div className="column-footer">
             <div className="profile-info">
-              <div className="profile-avatar">DL</div>
+              <div className="profile-avatar">
+                {profileInitials(activeProfile?.name ?? "Book Ranker")}
+              </div>
               <div className="profile-text">
-                <span className="profile-name">Dan L.</span>
-                <span className="profile-plan">Free plan</span>
+                <span className="profile-label">Active profile</span>
+                <div className="profile-picker-row">
+                  <label className="sr-only" htmlFor="profile-select">
+                    Active profile
+                  </label>
+                  <select
+                    id="profile-select"
+                    className="profile-select"
+                    value={activeProfileId ?? ""}
+                    onChange={(event) => {
+                      void handleProfileChange(event.target.value);
+                    }}
+                    disabled={profileControlDisabled}
+                  >
+                    {profiles.map((profile) => (
+                      <option key={profile.id} value={profile.id}>
+                        {profile.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="profile-create-btn"
+                    onClick={() => {
+                      void handleCreateProfile();
+                    }}
+                    disabled={profileControlDisabled}
+                  >
+                    New
+                  </button>
+                </div>
+                <span className="profile-plan">
+                  {books.length === 1 ? "1 book saved" : `${books.length} books saved`}
+                </span>
               </div>
             </div>
             <div className="footer-actions">
@@ -4471,14 +2407,22 @@ export default function App() {
               />
             </div>
           </div>
-          <InterestMap
-            books={books}
-            interests={genreInterests}
-            selectedPath={selectedInterestPath}
-            onSelectTag={toggleInterestPathTag}
-            onClearSelection={() => setSelectedInterestPath([])}
-            onEditingNodeChange={setGraphEditingNode}
-          />
+          <Suspense
+            fallback={
+              <div className="interest-map">
+                <p className="interest-map-empty">Loading interest map…</p>
+              </div>
+            }
+          >
+            <InterestMap
+              books={books}
+              interests={genreInterests}
+              selectedPath={selectedInterestPath}
+              onSelectTag={toggleInterestPathTag}
+              onClearSelection={() => setSelectedInterestPath([])}
+              onEditingNodeChange={setGraphEditingNode}
+            />
+          </Suspense>
         </section>
           {graphEditingNode ? createPortal(
             <div
@@ -4646,7 +2590,7 @@ export default function App() {
                   </div>
                 </div>
                 {isTitleSuggestionActive && isSearchingCatalog ? (
-                  <p className="field-note">Searching site…</p>
+                  <p className="field-note">Searching Open Library + local catalog…</p>
                 ) : null}
                 {isTitleSuggestionActive && catalogError ? (
                   <p className="field-note is-error">{catalogError}</p>
@@ -5117,24 +3061,15 @@ export default function App() {
 
             <div className="field entry-my-rating">
               <span>My rating</span>
-              <span className="my-rating-stars">
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <button
-                    key={star}
-                    type="button"
-                    className={`my-rating-star${draft.myRating != null && star <= draft.myRating ? " is-filled" : ""}`}
-                    onClick={() =>
-                      setDraft((prev) => ({
-                        ...prev,
-                        myRating: prev.myRating === star ? null : star,
-                      }))
-                    }
-                    aria-label={`Rate ${star} out of 5`}
-                  >
-                    {draft.myRating != null && star <= draft.myRating ? "\u2605" : "\u2606"}
-                  </button>
-                ))}
-              </span>
+              <StarRating
+                value={draft.myRating}
+                onChange={(level) =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    myRating: prev.myRating === level ? null : level,
+                  }))
+                }
+              />
             </div>
 
             {hasAutomatedDraftStats ? (

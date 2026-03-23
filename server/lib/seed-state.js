@@ -1,5 +1,8 @@
 import { upsertCatalogBooks } from "./catalog-memory.js";
 
+export const DEFAULT_PROFILE_ID = "profile-default";
+export const DEFAULT_PROFILE_NAME = "My Profile";
+
 const seededBooks = [
   {
     id: 1,
@@ -149,17 +152,49 @@ function cloneBooks(books) {
   }));
 }
 
-export function createSeedState() {
+function cloneLibraryData(libraryData) {
   return {
-    books: cloneBooks(seededBooks),
-    catalogBooks: upsertCatalogBooks([], seededBooks),
+    books: cloneBooks(libraryData.books),
+    catalogBooks: upsertCatalogBooks([], libraryData.books),
+    genreInterests: { ...libraryData.genreInterests },
+    authorExperiences: { ...libraryData.authorExperiences },
+    seriesExperiences: { ...libraryData.seriesExperiences },
+    meta: { ...libraryData.meta },
+  };
+}
+
+export function createSeedLibraryData() {
+  const now = new Date().toISOString();
+  const books = cloneBooks(seededBooks);
+
+  return {
+    books,
+    catalogBooks: upsertCatalogBooks([], books),
     genreInterests: {},
     authorExperiences: {},
     seriesExperiences: {},
     meta: {
       seeded: true,
       migratedLocalState: false,
-      updatedAt: new Date().toISOString(),
+      updatedAt: now,
     },
+  };
+}
+
+export function createSeedState() {
+  const createdAt = new Date().toISOString();
+  const defaultLibraryData = createSeedLibraryData();
+
+  return {
+    ...cloneLibraryData(defaultLibraryData),
+    profiles: [
+      {
+        id: DEFAULT_PROFILE_ID,
+        name: DEFAULT_PROFILE_NAME,
+        createdAt,
+        ...cloneLibraryData(defaultLibraryData),
+      },
+    ],
+    activeProfileId: DEFAULT_PROFILE_ID,
   };
 }

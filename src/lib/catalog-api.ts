@@ -31,6 +31,35 @@ export type SiteCatalogResult = CatalogSearchResult & {
   sourceBookIds: number[];
 };
 
+function mergeCatalogSearchResult(
+  current: CatalogSearchResult,
+  incoming: CatalogSearchResult,
+): CatalogSearchResult {
+  return {
+    ...current,
+    ...(current.series || incoming.series
+      ? { series: current.series ?? incoming.series }
+      : {}),
+    ...(current.seriesNumber != null || incoming.seriesNumber != null
+      ? { seriesNumber: current.seriesNumber ?? incoming.seriesNumber }
+      : {}),
+    authors:
+      current.authors.length > 0
+        ? uniqueStrings(current.authors)
+        : uniqueStrings(incoming.authors),
+    genres: uniqueStrings([...current.genres, ...incoming.genres]),
+    tags: uniqueStrings([...current.tags, ...incoming.tags]),
+    moods: uniqueStrings([...current.moods, ...incoming.moods]),
+    topics: uniqueStrings([...current.topics, ...incoming.topics]),
+    averageRating: current.averageRating ?? incoming.averageRating,
+    ratingsCount: current.ratingsCount ?? incoming.ratingsCount,
+    usersCount: current.usersCount ?? incoming.usersCount,
+    description: current.description ?? incoming.description,
+    coverUrl: current.coverUrl ?? incoming.coverUrl,
+    infoLink: current.infoLink ?? incoming.infoLink,
+  };
+}
+
 function normalizeSearchValue(value: string) {
   return value.trim().toLocaleLowerCase().replace(/\s+/g, " ");
 }
@@ -213,4 +242,49 @@ export function searchCatalog(
     query,
     results,
   };
+}
+
+export function mergeCatalogSearchResults(
+  primaryResults: CatalogSearchResult[],
+  secondaryResults: CatalogSearchResult[],
+  limit = 10,
+) {
+  const byIdentity = new Map<string, CatalogSearchResult>();
+  const orderedResults: CatalogSearchResult[] = [];
+
+  function upsert(result: CatalogSearchResult) {
+    const identityKey = buildCatalogIdentityKey({
+      title: result.title,
+      authors: result.authors,
+    });
+    const current = byIdentity.get(identityKey);
+
+    if (!current) {
+      byIdentity.set(identityKey, result);
+      orderedResults.push(result);
+      return;
+    }
+
+    const merged = mergeCatalogSearchResult(current, result);
+    byIdentity.set(identityKey, merged);
+    const index = orderedResults.findIndex(
+      (candidate) =>
+        candidate.title === current.title &&
+        candidate.authors.join("|") === current.authors.join("|"),
+    );
+
+    if (index !== -1) {
+      orderedResults[index] = merged;
+    }
+  }
+
+  for (const result of primaryResults) {
+    upsert(result);
+  }
+
+  for (const result of secondaryResults) {
+    upsert(result);
+  }
+
+  return orderedResults.slice(0, Math.max(1, limit));
 }

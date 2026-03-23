@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   createBookRecord,
+  createProfile,
   deleteAuthorExperience,
   deleteBookRecord,
   deleteGenreInterest,
@@ -16,11 +17,13 @@ import {
   renameAuthorInBooks,
   renameGenreInBooks,
   renameGenreInterest,
+  setActiveProfile,
   updateBookRecord,
   writeAuthorExperience,
   writeGenreInterest,
   writeSeriesExperience,
 } from "./lib/library-service.js";
+import { searchOpenLibraryCatalog } from "./lib/open-library.js";
 import { createSeedState } from "./lib/seed-state.js";
 import { JsonStateStore } from "./lib/state-store.js";
 import { HttpError, notFound, readJson, sendJson } from "./lib/http.js";
@@ -99,6 +102,16 @@ async function handleApi(request, response, url) {
     return sendJson(response, 200, await getLibraryState(stateStore));
   }
 
+  if (request.method === "GET" && path === "/api/catalog/search") {
+    return sendJson(
+      response,
+      200,
+      await searchOpenLibraryCatalog(url.searchParams.get("query") ?? url.searchParams.get("q") ?? "", {
+        limit: url.searchParams.get("limit"),
+      }),
+    );
+  }
+
   if (request.method === "POST" && path === "/api/library/import") {
     const body = await readJson(request);
     return sendJson(response, 200, await importLibraryState(stateStore, body));
@@ -107,6 +120,20 @@ async function handleApi(request, response, url) {
   if (request.method === "POST" && path === "/api/books") {
     const body = await readJson(request);
     return sendJson(response, 200, await createBookRecord(stateStore, body));
+  }
+
+  if (request.method === "POST" && path === "/api/profiles") {
+    const body = await readJson(request);
+    return sendJson(response, 200, await createProfile(stateStore, body));
+  }
+
+  if (request.method === "PUT" && path === "/api/profiles/active") {
+    const body = await readJson(request);
+    return sendJson(
+      response,
+      200,
+      await setActiveProfile(stateStore, body?.profileId),
+    );
   }
 
   const bookMatch = path.match(/^\/api\/books\/(\d+)$/);
