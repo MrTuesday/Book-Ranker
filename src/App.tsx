@@ -50,7 +50,11 @@ import {
   searchCatalog,
   type CatalogSearchResult,
 } from "./lib/catalog-api";
-import { type CatalogBook, upsertCatalogBooks } from "./lib/catalog-memory";
+import {
+  buildCatalogIdentityKey,
+  type CatalogBook,
+  upsertCatalogBooks,
+} from "./lib/catalog-memory";
 import { BookCard } from "./components/BookCard";
 import {
   ArchiveShelfIcon,
@@ -230,14 +234,27 @@ function resolvedSuggestion(
 }
 
 function buildCatalogGenres(
-  result: Pick<CatalogSearchResult, "genres" | "tags">,
+  result: Pick<CatalogSearchResult, "title" | "authors" | "genres" | "tags">,
+  knownGenres: string[],
+  savedGenresByIdentity: Map<string, string[]>,
 ) {
+  const identityKey = buildCatalogIdentityKey({
+    title: result.title,
+    authors: result.authors,
+  });
+  const savedGenres = savedGenresByIdentity.get(identityKey);
+
+  if (savedGenres && savedGenres.length > 0) {
+    return savedGenres.slice(0, MAX_AUTOFILL_TOPICS);
+  }
+
+  const knownGenreSet = new Set(knownGenres.map(normalizeGenreTag));
+
   return uniqueTags(
-    [...result.genres, ...result.tags].map(normalizeGenreTag),
-  ).slice(
-    0,
-    MAX_AUTOFILL_TOPICS,
-  );
+    [...result.genres, ...result.tags]
+      .map(normalizeGenreTag)
+      .filter((genre) => knownGenreSet.has(genre)),
+  ).slice(0, MAX_AUTOFILL_TOPICS);
 }
 
 function currentTranslateY(element: HTMLElement) {
@@ -841,6 +858,22 @@ export default function App() {
       knownSeries: Array.from(nextSeries).sort((a, b) => a.localeCompare(b)),
     };
   }, [books, genreInterests, authorExperiences, seriesExperiences]);
+
+  const savedGenresByIdentity = useMemo(() => {
+    const nextMap = new Map<string, string[]>();
+
+    for (const book of books) {
+      nextMap.set(
+        buildCatalogIdentityKey({
+          title: book.title,
+          authors: book.authors,
+        }),
+        uniqueTags(book.genres.map(normalizeGenreTag)),
+      );
+    }
+
+    return nextMap;
+  }, [books]);
 
   const authorSuggestions = useMemo(() => {
     return matchingSuggestions(draft.authorInput, draft.authors, knownAuthors);
@@ -1509,7 +1542,11 @@ export default function App() {
     result: DraftAutofillSource,
     options?: { resetDraft?: boolean },
   ) {
-    const catalogGenres = buildCatalogGenres(result);
+    const catalogGenres = buildCatalogGenres(
+      result,
+      knownGenres,
+      savedGenresByIdentity,
+    );
     const nextTitleParts = splitDraftTitle(result.title);
 
     setDraft((current) => {

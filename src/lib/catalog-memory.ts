@@ -133,7 +133,10 @@ function mergeCatalogBook(current: CatalogBook, incoming: CatalogBook): CatalogB
       incoming.authors.length > 0
         ? uniqueStrings(incoming.authors)
         : uniqueStrings(current.authors),
-    genres: uniqueStrings([...current.genres, ...incoming.genres]),
+    genres:
+      incoming.genres.length > 0
+        ? uniqueStrings(incoming.genres)
+        : uniqueStrings(current.genres),
   };
 }
 
