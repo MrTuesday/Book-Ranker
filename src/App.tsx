@@ -82,7 +82,6 @@ const InterestMap = lazy(() => import("./components/InterestMap"));
 
 type BookDraft = {
   title: string;
-  subtitle: string;
   series: string;
   seriesNumber: string;
   seriesExperience: string;
@@ -113,7 +112,6 @@ type DraftTagDrag = {
 };
 type DraftTextField =
   | "title"
-  | "subtitle"
   | "series"
   | "seriesNumber"
   | "seriesExperience"
@@ -134,7 +132,6 @@ const MIN_YEAR_OPTION = 1900;
 function createDraft(): BookDraft {
   return {
     title: "",
-    subtitle: "",
     series: "",
     seriesNumber: "",
     seriesExperience: "",
@@ -169,34 +166,6 @@ function recommendationSourceLabel(provider: string) {
   }
 
   return "Your library";
-}
-
-function splitDraftTitle(value: string) {
-  const trimmed = value.trim();
-  const separatorIndex = trimmed.indexOf(": ");
-
-  if (separatorIndex === -1) {
-    return {
-      title: trimmed,
-      subtitle: "",
-    };
-  }
-
-  return {
-    title: trimmed.slice(0, separatorIndex),
-    subtitle: trimmed.slice(separatorIndex + 2),
-  };
-}
-
-function buildDraftTitle(title: string, subtitle: string) {
-  const baseTitle = title.trim();
-  const trimmedSubtitle = subtitle.trim();
-
-  if (!trimmedSubtitle) {
-    return baseTitle;
-  }
-
-  return `${baseTitle}: ${trimmedSubtitle}`;
 }
 
 function uniqueTags(values: string[]) {
@@ -1398,7 +1367,7 @@ export default function App() {
   ]);
 
   function updateDraft(field: DraftTextField, value: string) {
-    if (field === "title" || field === "subtitle") {
+    if (field === "title") {
       setSelectedCatalogBookId(null);
       setSelectedRecommendationId(null);
       setCatalogError(null);
@@ -1450,7 +1419,7 @@ export default function App() {
       }
 
       const next = { ...current, [field]: clamped };
-      if (field === "title" || field === "subtitle") {
+      if (field === "title") {
         next.starRating = "";
         next.ratingCount = "";
       }
@@ -1694,8 +1663,6 @@ export default function App() {
       result,
       knownGenres,
     );
-    const nextTitleParts = splitDraftTitle(result.title);
-
     setDraft((current) => {
       const baseDraft = options?.resetDraft ? createDraft() : current;
       const nextAuthors =
@@ -1705,8 +1672,7 @@ export default function App() {
 
       return {
         ...baseDraft,
-        title: nextTitleParts.title,
-        subtitle: nextTitleParts.subtitle,
+        title: result.title,
         series: result.series ?? "",
         seriesNumber:
           result.seriesNumber != null
@@ -1745,7 +1711,7 @@ export default function App() {
     });
 
     setSelectedCatalogBookId(result.id);
-    selectedCatalogTitleRef.current = nextTitleParts.title;
+    selectedCatalogTitleRef.current = result.title;
     setTitleSuggestions([]);
     setCatalogError(null);
   }
@@ -2073,7 +2039,6 @@ export default function App() {
 
   function startEditing(book: Book) {
     const lastReadYear = effectiveLastReadYear(book);
-    const nextTitleParts = splitDraftTitle(book.title);
     titleSearchRequestRef.current += 1;
     setEditingBookId(book.id);
     setScrollToForm(true);
@@ -2086,8 +2051,7 @@ export default function App() {
     selectedCatalogTitleRef.current = "";
     setActiveTagActionMenu(null);
     setDraft({
-      title: nextTitleParts.title,
-      subtitle: nextTitleParts.subtitle,
+      title: book.title,
       series: book.series ?? "",
       seriesNumber:
         book.seriesNumber != null ? String(book.seriesNumber) : "",
@@ -2155,7 +2119,7 @@ export default function App() {
         ? Number(draft.progress)
         : undefined;
       const sourceCatalogBookId = selectedCatalogBookId;
-      const draftTitle = buildDraftTitle(draft.title, draft.subtitle);
+      const draftTitle = draft.title.trim();
       const catalogKey = buildCatalogIdentityKey({
         title: draftTitle,
         authors: draft.authors,
@@ -3223,18 +3187,6 @@ export default function App() {
                   <p className="field-note is-error">{catalogError}</p>
                 ) : null}
               </div>
-            </label>
-
-            <label className="field entry-subtitle">
-              <span>Subtitle</span>
-              <input
-                type="text"
-                placeholder="Robert Moses and the Fall of New York"
-                value={draft.subtitle}
-                onChange={(event) =>
-                  updateDraft("subtitle", event.target.value)
-                }
-              />
             </label>
 
             <label className="field entry-series">
