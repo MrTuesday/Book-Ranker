@@ -95,6 +95,8 @@ const ACTIVE_PROFILE_STORAGE_KEY = "book-ranker.active-profile-id.v1";
 const BACKEND_MIGRATION_KEY = "book-ranker.backend-migrated.v1";
 const DEFAULT_PROFILE_ID = "profile-default";
 const DEFAULT_PROFILE_NAME = "My Profile";
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type StoredProfile = ProfileSummary & {
   books: Book[];
@@ -478,7 +480,15 @@ function createProfileId() {
     return crypto.randomUUID();
   }
 
-  return `profile-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (token) => {
+    const random = Math.floor(Math.random() * 16);
+    const value = token === "x" ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
+  });
+}
+
+function isUuid(value: string | null | undefined) {
+  return typeof value === "string" && UUID_PATTERN.test(value);
 }
 
 function createStoredProfile(
@@ -580,6 +590,31 @@ function createStoredLibraryState(
   };
 }
 
+function normalizeStoredLibraryStateForRemote(state: StoredLibraryState) {
+  const idMap = new Map<string, string>();
+  const nextProfiles = state.profiles.map((profile) => {
+    const nextId = isUuid(profile.id) ? profile.id : createProfileId();
+    idMap.set(profile.id, nextId);
+
+    if (nextId === profile.id) {
+      return cloneStoredProfile(profile);
+    }
+
+    return createStoredProfile({
+      ...profile,
+      id: nextId,
+    });
+  });
+  const nextActiveProfileId =
+    idMap.get(state.activeProfileId) ??
+    (isUuid(state.activeProfileId) ? state.activeProfileId : nextProfiles[0]?.id);
+
+  return createStoredLibraryState({
+    profiles: nextProfiles,
+    activeProfileId: nextActiveProfileId,
+  });
+}
+
 function normalizeRemoteProfileRow(row: RemoteProfileRow): StoredProfile {
   return createStoredProfile({
     id: row.id,
@@ -657,7 +692,9 @@ async function persistRemoteStoredLibraryState(
   meta: RemoteLibraryMeta,
 ) {
   const client = requireSupabase();
-  const nextState = createStoredLibraryState(state);
+  const nextState = normalizeStoredLibraryStateForRemote(
+    createStoredLibraryState(state),
+  );
   const nextProfileIds = nextState.profiles.map((profile) => profile.id);
   const { data: existingProfiles, error: existingProfilesError } = await client
     .from(REMOTE_PROFILE_TABLE)
@@ -733,12 +770,11 @@ async function initializeRemoteStoredLibraryState(
     migratedLocalState: hasMeaningfulStoredState(state),
     updatedAt: new Date().toISOString(),
   };
-
-  await persistRemoteStoredLibraryState(userId, state, meta);
+  const persistedState = await persistRemoteStoredLibraryState(userId, state, meta);
 
   return {
     userId,
-    state,
+    state: persistedState,
     meta,
   };
 }
