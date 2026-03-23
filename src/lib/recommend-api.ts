@@ -44,6 +44,32 @@ export type PathRecommendationResponse = {
 };
 
 const DEFAULT_RECOMMENDATION_LIMIT = 20;
+const ACADEMIC_SIGNAL_PATTERNS = [
+  /\bancient history\b/i,
+  /\bbiography\b/i,
+  /\bcivilization\b/i,
+  /\bcriticism\b/i,
+  /\bgovernment\b/i,
+  /\bhistory\b/i,
+  /\bliterary criticism\b/i,
+  /\bphilosophy\b/i,
+  /\bpolitical science\b/i,
+  /\breference\b/i,
+  /\breligion\b/i,
+  /\brepublic\b/i,
+  /\bsocial conditions\b/i,
+  /\bsources\b/i,
+  /\btextbooks?\b/i,
+];
+const FICTION_SIGNAL_PATTERNS = [
+  /\bchildren'?s fiction\b/i,
+  /\bfantasy\b/i,
+  /\bfiction\b/i,
+  /\bgraphic novels?\b/i,
+  /\bjuvenile\b/i,
+  /\bromance\b/i,
+  /\bthrillers?\b/i,
+];
 
 function normalizeForMatch(value: string) {
   return String(value ?? "").trim().toLocaleLowerCase();
@@ -72,6 +98,12 @@ function averageOrNull(values: number[]) {
   return values.length > 0 ? average(values) : null;
 }
 
+function hasSelectedTag(selectedTags: string[], expectedTag: string) {
+  const normalizedExpected = normalizeForMatch(expectedTag);
+
+  return selectedTags.some((tag) => normalizeForMatch(tag) === normalizedExpected);
+}
+
 function labelMatches(candidateLabels: string[], rawLabel: string) {
   const normalizedLabel = normalizeForMatch(rawLabel);
 
@@ -89,6 +121,33 @@ function labelMatches(candidateLabels: string[], rawLabel: string) {
   });
 }
 
+function academicFitScore(candidateLabels: string[], selectedTags: string[]) {
+  if (!hasSelectedTag(selectedTags, "Academic")) {
+    return null;
+  }
+
+  const hasAcademicSignal = candidateLabels.some((label) =>
+    ACADEMIC_SIGNAL_PATTERNS.some((pattern) => pattern.test(label)),
+  );
+  const hasFictionSignal = candidateLabels.some((label) =>
+    FICTION_SIGNAL_PATTERNS.some((pattern) => pattern.test(label)),
+  );
+
+  if (hasAcademicSignal && !hasFictionSignal) {
+    return 5;
+  }
+
+  if (hasAcademicSignal) {
+    return 4;
+  }
+
+  if (hasFictionSignal) {
+    return 1.5;
+  }
+
+  return 3;
+}
+
 function scoreCandidate(
   candidate: Omit<RecommendedBook, "score" | "tagOverlap">,
   selectedTags: string[],
@@ -96,7 +155,11 @@ function scoreCandidate(
   authorExperiences: AuthorExperienceMap,
   seriesExperiences: SeriesExperienceMap,
 ) {
-  const candidateLabels = uniqueStrings([...candidate.topics, ...candidate.genres]);
+  const candidateLabels = uniqueStrings([
+    ...candidate.topics,
+    ...candidate.tags,
+    ...candidate.genres,
+  ]);
   const matchedSelectedTags = selectedTags.filter((tag) =>
     labelMatches(candidateLabels, tag),
   );
@@ -132,6 +195,7 @@ function scoreCandidate(
   const genreMatches = matchedProfileGenres.flatMap((tag) =>
     genreInterests[tag] != null ? [genreInterests[tag]] : [],
   );
+  const academicScore = academicFitScore(candidateLabels, selectedTags);
   const pathCoverage =
     selectedTags.length > 0
       ? (matchedSelectedTags.length / selectedTags.length) * 5
@@ -146,6 +210,7 @@ function scoreCandidate(
     pathInterest,
     ...(authorScore != null ? [authorScore] : []),
     ...(seriesScore != null ? [seriesScore] : []),
+    ...(academicScore != null ? [academicScore] : []),
     ...genreMatches,
   ];
   const score = average(scoreInputs);

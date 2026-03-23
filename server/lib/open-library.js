@@ -4,6 +4,8 @@ const MAX_RESULT_LIMIT = 10;
 const DEFAULT_RECOMMENDATION_LIMIT = 20;
 const MAX_RECOMMENDATION_LIMIT = 24;
 const MAX_RECOMMENDATION_TAGS = 4;
+const MAX_RECOMMENDATION_EXACT_TAGS = 2;
+const MAX_RECOMMENDATION_FALLBACK_TAGS = 3;
 const MIN_RECOMMENDATION_RESULTS_PER_TAG = 5;
 const MAX_RECOMMENDATION_RESULTS_PER_TAG = 12;
 const MAX_TOPIC_COUNT = 12;
@@ -28,6 +30,10 @@ const NOISY_SUBJECT_PATTERNS = [
   /^translations into /i,
   /^spanish language materials$/i,
   /^untranslated$/i,
+  /^open_syllabus_project$/i,
+  /^open syllabus project$/i,
+  /^general$/i,
+  /^reference$/i,
 ];
 
 const GENRE_KEYWORDS = [
@@ -51,6 +57,22 @@ const GENRE_KEYWORDS = [
   "adventure",
   "young adult",
   "children",
+];
+
+const BROAD_RECOMMENDATION_TAG_PATTERNS = [
+  /^academic$/i,
+  /^art$/i,
+  /^biography$/i,
+  /^classics?$/i,
+  /^fiction$/i,
+  /^general$/i,
+  /^history$/i,
+  /^literature$/i,
+  /^non[-\s]?fiction$/i,
+  /^philosophy$/i,
+  /^politics$/i,
+  /^science$/i,
+  /^theory$/i,
 ];
 
 function clampLimit(value, fallback = DEFAULT_RESULT_LIMIT) {
@@ -120,6 +142,13 @@ function uniqueStrings(values) {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
+function tokenizeSearchLabel(value) {
+  return normalizeString(value)
+    .toLocaleLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((token) => token.length >= 3);
+}
+
 function normalizeIdentityKey(title, authors) {
   return `${normalizeString(title).toLocaleLowerCase()}::${uniqueStrings(
     normalizeStringArray(authors).map((value) => value.toLocaleLowerCase()),
@@ -127,7 +156,15 @@ function normalizeIdentityKey(title, authors) {
 }
 
 function isUsefulSubject(subject) {
-  if (!subject || subject.length > 48) {
+  if (!subject || subject.length < 3 || subject.length > 64) {
+    return false;
+  }
+
+  const letters = Array.from(subject).filter((character) =>
+    /\p{L}/u.test(character),
+  ).length;
+
+  if (letters < 3) {
     return false;
   }
 
@@ -138,6 +175,19 @@ function isGenreLikeSubject(subject) {
   const normalized = subject.toLocaleLowerCase();
 
   return GENRE_KEYWORDS.some((keyword) => normalized.includes(keyword));
+}
+
+function extractSearchSubjects(rawResult) {
+  const result =
+    rawResult && typeof rawResult === "object" && !Array.isArray(rawResult)
+      ? rawResult
+      : null;
+
+  return uniqueStrings(
+    normalizeStringArray(result?.subject)
+      .map(toDisplayLabel)
+      .filter(isUsefulSubject),
+  );
 }
 
 function normalizeSearchResult(rawResult) {
@@ -152,11 +202,7 @@ function normalizeSearchResult(rawResult) {
   }
 
   const authors = normalizeStringArray(result?.author_name);
-  const subjects = uniqueStrings(
-    normalizeStringArray(result?.subject)
-      .map(toDisplayLabel)
-      .filter(isUsefulSubject),
-  );
+  const subjects = extractSearchSubjects(result);
   const genres = subjects.filter(isGenreLikeSubject).slice(0, MAX_GENRE_COUNT);
   const tags = subjects.slice(0, MAX_TAG_COUNT);
   const topics = subjects.slice(0, MAX_TOPIC_COUNT);
@@ -204,6 +250,110 @@ function mergeNormalizedSearchResult(current, incoming) {
     description: current.description ?? incoming.description,
     infoLink: current.infoLink ?? incoming.infoLink,
   };
+}
+
+function isBroadRecommendationTag(tag) {
+  return BROAD_RECOMMENDATION_TAG_PATTERNS.some((pattern) => pattern.test(tag));
+}
+
+function recommendationTagPriority(tag) {
+  const normalized = normalizeString(tag);
+  const tokens = tokenizeSearchLabel(normalized);
+  const broadPenalty = isBroadRecommendationTag(normalized) ? 3 : 0;
+
+  return (
+    tokens.length * 3 +
+    Math.min(Math.floor(normalized.length / 6), 4) -
+    broadPenalty
+  );
+}
+
+function sortRecommendationTags(tags) {
+  return [...tags].sort((left, right) => {
+    return (
+      recommendationTagPriority(right) - recommendationTagPriority(left) ||
+      right.length - left.length ||
+      left.localeCompare(right)
+    );
+  });
+}
+
+function escapeSearchLiteral(value) {
+  return normalizeString(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function buildExactSubjectQuery(tags) {
+  return tags.map((tag) => `subject:"${escapeSearchLiteral(tag)}"`).join(" AND ");
+}
+
+function subjectMatchScore(subjects, tag) {
+  const normalizedTag = normalizeString(tag).toLocaleLowerCase();
+
+  if (!normalizedTag) {
+    return 0;
+  }
+
+  const tagTokens = tokenizeSearchLabel(normalizedTag);
+
+  for (const subject of subjects) {
+    const normalizedSubject = normalizeString(subject).toLocaleLowerCase();
+
+    if (!normalizedSubject) {
+      continue;
+    }
+
+    if (normalizedSubject === normalizedTag) {
+      return 5;
+    }
+
+    if (normalizedSubject.includes(normalizedTag)) {
+      return 4;
+    }
+
+    if (
+      tagTokens.length > 1 &&
+      tagTokens.every((token) => normalizedSubject.includes(token))
+    ) {
+      return 3;
+    }
+
+    if (
+      !isBroadRecommendationTag(normalizedTag) &&
+      normalizedTag.includes(normalizedSubject) &&
+      normalizedSubject.length >= 6
+    ) {
+      return 2;
+    }
+  }
+
+  return 0;
+}
+
+function mergeRecommendationResult(current, incoming) {
+  return {
+    result: mergeNormalizedSearchResult(current.result, incoming.result),
+    subjects: uniqueStrings([...current.subjects, ...incoming.subjects]),
+    exactQueryTags: new Set([...current.exactQueryTags, ...incoming.exactQueryTags]),
+    fallbackQueryTags: new Set([
+      ...current.fallbackQueryTags,
+      ...incoming.fallbackQueryTags,
+    ]),
+  };
+}
+
+async function fetchRecommendationPlan(endpoint, userAgent, plan, limit) {
+  const url = new URL(endpoint);
+
+  if (plan.kind === "exact") {
+    url.searchParams.set("q", buildExactSubjectQuery(plan.tags));
+  } else {
+    url.searchParams.set("subject", plan.tags[0]);
+  }
+
+  url.searchParams.set("fields", SEARCH_FIELDS);
+  url.searchParams.set("limit", String(limit));
+
+  return fetchOpenLibraryDocs(url, userAgent);
 }
 
 async function fetchOpenLibraryDocs(url, userAgent) {
@@ -276,6 +426,38 @@ export async function searchOpenLibraryRecommendations(selectedTags, options = {
     };
   }
 
+  const prioritizedTags = sortRecommendationTags(tags);
+  const exactTags = prioritizedTags.slice(0, MAX_RECOMMENDATION_EXACT_TAGS);
+  const requiredTags = prioritizedTags.filter((tag) => !isBroadRecommendationTag(tag));
+  const exactPlans = [];
+
+  if (exactTags.length > 1) {
+    exactPlans.push({
+      kind: "exact",
+      tags: exactTags,
+    });
+  }
+
+  for (const tag of requiredTags.slice(0, MAX_RECOMMENDATION_EXACT_TAGS)) {
+    exactPlans.push({
+      kind: "exact",
+      tags: [tag],
+    });
+  }
+
+  if (exactPlans.length === 0) {
+    exactPlans.push({
+      kind: "exact",
+      tags: [prioritizedTags[0]],
+    });
+  }
+
+  const fallbackPlans = prioritizedTags
+    .slice(0, MAX_RECOMMENDATION_FALLBACK_TAGS)
+    .map((tag) => ({
+      kind: "fallback",
+      tags: [tag],
+    }));
   const perTagLimit = Math.max(
     MIN_RECOMMENDATION_RESULTS_PER_TAG,
     Math.min(
@@ -283,45 +465,120 @@ export async function searchOpenLibraryRecommendations(selectedTags, options = {
       Math.ceil((limit * 2) / tags.length),
     ),
   );
-  const docsByTag = await Promise.all(
-    tags.map(async (tag) => {
-      const url = new URL(endpoint);
-      url.searchParams.set("subject", tag);
-      url.searchParams.set("fields", SEARCH_FIELDS);
-      url.searchParams.set("limit", String(perTagLimit));
-      return fetchOpenLibraryDocs(url, userAgent);
-    }),
-  );
+
   const byIdentity = new Map();
 
-  for (const docs of docsByTag) {
-    for (const doc of docs) {
-      const result = normalizeSearchResult(doc);
+  async function collectPlans(plans) {
+    const docsByPlan = await Promise.all(
+      plans.map(async (plan) => ({
+        plan,
+        docs: await fetchRecommendationPlan(
+          endpoint,
+          userAgent,
+          plan,
+          perTagLimit,
+        ),
+      })),
+    );
 
-      if (!result) {
-        continue;
+    for (const { plan, docs } of docsByPlan) {
+      for (const doc of docs) {
+        const result = normalizeSearchResult(doc);
+
+        if (!result) {
+          continue;
+        }
+
+        const identityKey = normalizeIdentityKey(result.title, result.authors);
+        const current = byIdentity.get(identityKey);
+        const nextEntry = {
+          result,
+          subjects: extractSearchSubjects(doc),
+          exactQueryTags: new Set(plan.kind === "exact" ? plan.tags : []),
+          fallbackQueryTags: new Set(plan.kind === "fallback" ? plan.tags : []),
+        };
+
+        byIdentity.set(
+          identityKey,
+          current ? mergeRecommendationResult(current, nextEntry) : nextEntry,
+        );
       }
+    }
+  }
 
-      const identityKey = normalizeIdentityKey(result.title, result.authors);
-      const current = byIdentity.get(identityKey);
+  await collectPlans(exactPlans);
 
-      byIdentity.set(
-        identityKey,
-        current ? mergeNormalizedSearchResult(current, result) : result,
+  if (byIdentity.size < limit) {
+    await collectPlans(fallbackPlans);
+  }
+
+  let rankedResults = Array.from(byIdentity.values()).map((entry) => {
+    const matchedTags = tags.filter((tag) => {
+      return (
+        entry.exactQueryTags.has(tag) ||
+        entry.fallbackQueryTags.has(tag) ||
+        subjectMatchScore(entry.subjects, tag) > 0
       );
+    });
+    const matchedRequiredTags = requiredTags.filter((tag) => matchedTags.includes(tag));
+    const tagsForDisplay = uniqueStrings([...matchedTags, ...entry.result.tags]).slice(
+      0,
+      MAX_TAG_COUNT,
+    );
+    const topicsForDisplay = uniqueStrings([
+      ...matchedTags,
+      ...entry.result.topics,
+      ...entry.result.tags,
+      ...entry.subjects,
+    ]).slice(0, MAX_TOPIC_COUNT);
+
+    return {
+      ...entry.result,
+      tags: tagsForDisplay,
+      topics: topicsForDisplay,
+      _matchedTagCount: matchedTags.length,
+      _matchedRequiredTagCount: matchedRequiredTags.length,
+      _exactQueryTagCount: entry.exactQueryTags.size,
+      _queryTagCount: uniqueStrings([
+        ...entry.exactQueryTags,
+        ...entry.fallbackQueryTags,
+      ]).length,
+    };
+  });
+
+  if (requiredTags.length > 0) {
+    const requiredMatches = rankedResults.filter(
+      (result) => result._matchedRequiredTagCount > 0,
+    );
+
+    if (requiredMatches.length > 0) {
+      rankedResults = requiredMatches;
     }
   }
 
   return {
     provider: "openlibrary",
     query: tags.join(", "),
-    results: Array.from(byIdentity.values())
+    results: rankedResults
       .sort((left, right) => {
         return (
+          right._matchedRequiredTagCount - left._matchedRequiredTagCount ||
+          right._matchedTagCount - left._matchedTagCount ||
+          right._exactQueryTagCount - left._exactQueryTagCount ||
+          right._queryTagCount - left._queryTagCount ||
           (right.usersCount ?? 0) - (left.usersCount ?? 0) ||
           left.title.localeCompare(right.title)
         );
       })
-      .slice(0, limit),
+      .slice(0, limit)
+      .map(
+        ({
+          _matchedTagCount,
+          _matchedRequiredTagCount,
+          _exactQueryTagCount,
+          _queryTagCount,
+          ...result
+        }) => result,
+      ),
   };
 }
