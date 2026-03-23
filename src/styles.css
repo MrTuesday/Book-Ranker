@@ -1916,6 +1916,11 @@ select:focus {
     gap: 12px;
 }
 
+.account-setup-actions {
+    display: flex;
+    justify-content: flex-end;
+}
+
 @media (max-width: 720px) {
     .column-footer {
         align-items: center;

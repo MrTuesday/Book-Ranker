@@ -453,6 +453,7 @@ export default function App() {
   const [authFeedback, setAuthFeedback] = useState<string | null>(null);
   const [isAuthBusy, setIsAuthBusy] = useState(false);
   const [isUpdatingUsername, setIsUpdatingUsername] = useState(false);
+  const [isUsernameEditorOpen, setIsUsernameEditorOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
   const [pendingTagDelete, setPendingTagDelete] = useState<string | null>(null);
   const [titleSuggestions, setTitleSuggestions] = useState<CatalogSearchResult[]>(
@@ -857,6 +858,7 @@ export default function App() {
     authSession != null &&
     !storedAccountUsername &&
     isPlaceholderProfileName(activeProfile?.name);
+  const isUsernameModalOpen = needsUsernameSetup || isUsernameEditorOpen;
   const profileControlDisabled =
     isLoading || isSaving || isAuthBusy || isUpdatingUsername;
 
@@ -1024,12 +1026,14 @@ export default function App() {
           normalizeAccountUsername(session.user.user_metadata?.username) ||
             (session.user.email?.split("@")[0] ?? ""),
         );
+        setIsUsernameEditorOpen(false);
         setAuthFeedback(null);
         setErrorMessage(null);
         return;
       }
 
       setAuthUsernameInput("");
+      setIsUsernameEditorOpen(false);
       resetProfileWorkspace();
       clearLibraryState();
     });
@@ -1101,6 +1105,7 @@ export default function App() {
 
   async function handleLogout() {
     setIsProfileMenuOpen(false);
+    setIsUsernameEditorOpen(false);
     setErrorMessage(null);
 
     if (!authEnabled) {
@@ -1115,6 +1120,13 @@ export default function App() {
       setErrorMessage(messageFromError(error));
       setIsAuthBusy(false);
     }
+  }
+
+  function openUsernameEditor() {
+    setIsProfileMenuOpen(false);
+    setErrorMessage(null);
+    setAuthUsernameInput(storedAccountUsername || displayedProfileName);
+    setIsUsernameEditorOpen(true);
   }
 
   async function handleUsernameSetupSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1144,6 +1156,7 @@ export default function App() {
       const nextSession = await getAuthSession();
       setAuthSession(nextSession);
       setAuthUsernameInput(nextUsername);
+      setIsUsernameEditorOpen(false);
     } catch (error) {
       setErrorMessage(messageFromError(error));
     } finally {
@@ -2827,6 +2840,15 @@ export default function App() {
 	                        <span className="profile-menu-email">{accountEmail}</span>
 	                      ) : null}
 	                    </div>
+	                    <button
+	                      type="button"
+	                      className="profile-menu-link"
+	                      onClick={openUsernameEditor}
+	                      disabled={profileControlDisabled}
+	                      role="menuitem"
+	                    >
+	                      Change username
+	                    </button>
 	                    {authEnabled ? (
 	                      <button
 	                        type="button"
@@ -3699,13 +3721,15 @@ export default function App() {
 	        </section>
 	        </aside>
 	      </div>
-	      {needsUsernameSetup ? (
+	      {isUsernameModalOpen ? (
 	        <div className="account-setup-overlay" role="dialog" aria-modal="true">
 	          <div className="account-setup-card">
 	            <p className="account-setup-eyebrow">Account setup</p>
-	            <h2>Choose a username</h2>
+	            <h2>{needsUsernameSetup ? "Choose a username" : "Change username"}</h2>
 	            <p className="account-setup-copy">
-	              This will appear above your email address in the account menu.
+	              {needsUsernameSetup
+	                ? "This will appear above your email address in the account menu."
+	                : "Your username appears above your email address in the account menu."}
 	            </p>
 	            <form
 	              className="account-setup-form"
@@ -3735,6 +3759,21 @@ export default function App() {
 	              >
 	                {isUpdatingUsername ? "Saving..." : "Save username"}
 	              </button>
+	              {!needsUsernameSetup ? (
+	                <div className="account-setup-actions">
+	                  <button
+	                    type="button"
+	                    className="auth-link"
+	                    onClick={() => {
+	                      setIsUsernameEditorOpen(false);
+	                      setErrorMessage(null);
+	                    }}
+	                    disabled={isUpdatingUsername}
+	                  >
+	                    Cancel
+	                  </button>
+	                </div>
+	              ) : null}
 	            </form>
 	          </div>
 	        </div>
