@@ -10,6 +10,8 @@ import {
   bayesianScore,
   buildTagSmoothingFactorMap,
   capArchiveScore,
+  type ConnectionRatios,
+  DEFAULT_CONNECTION_RATIOS,
   GLOBAL_MEAN,
   learnSignalWeights,
   realizeArchiveScore,
@@ -91,44 +93,68 @@ function buildPredictiveBook(book: Book): Book {
 function buildConnectionRatioMap(
   books: Pick<Book, "id" | "authors" | "genres" | "series">[],
 ) {
-  const tagFrequency = new Map<string, number>();
+  const authorFrequency = new Map<string, number>();
+  const genreFrequency = new Map<string, number>();
+  const seriesFrequency = new Map<string, number>();
 
   for (const book of books) {
     for (const author of book.authors) {
-      tagFrequency.set(author, (tagFrequency.get(author) ?? 0) + 1);
+      authorFrequency.set(author, (authorFrequency.get(author) ?? 0) + 1);
     }
     for (const genre of book.genres) {
-      tagFrequency.set(genre, (tagFrequency.get(genre) ?? 0) + 1);
+      genreFrequency.set(genre, (genreFrequency.get(genre) ?? 0) + 1);
     }
     if (book.series) {
-      tagFrequency.set(book.series, (tagFrequency.get(book.series) ?? 0) + 1);
+      seriesFrequency.set(
+        book.series,
+        (seriesFrequency.get(book.series) ?? 0) + 1,
+      );
     }
   }
 
-  let totalConnections = 0;
-  const rawCounts = new Map<number, number>();
+  const rawCounts = new Map<
+    number,
+    { author: number; genre: number; series: number }
+  >();
+  let totalAuthor = 0;
+  let totalGenre = 0;
+  let totalSeries = 0;
 
   for (const book of books) {
-    let connections = 0;
+    let authorConns = 0;
     for (const author of book.authors) {
-      connections += tagFrequency.get(author) ?? 0;
+      authorConns += authorFrequency.get(author) ?? 0;
     }
+    let genreConns = 0;
     for (const genre of book.genres) {
-      connections += tagFrequency.get(genre) ?? 0;
+      genreConns += genreFrequency.get(genre) ?? 0;
     }
+    let seriesConns = 0;
     if (book.series) {
-      connections += tagFrequency.get(book.series) ?? 0;
+      seriesConns += seriesFrequency.get(book.series) ?? 0;
     }
-    rawCounts.set(book.id, connections);
-    totalConnections += connections;
+    rawCounts.set(book.id, {
+      author: authorConns,
+      genre: genreConns,
+      series: seriesConns,
+    });
+    totalAuthor += authorConns;
+    totalGenre += genreConns;
+    totalSeries += seriesConns;
   }
 
-  const meanConnections =
-    books.length > 0 ? totalConnections / books.length : 0;
+  const n = books.length;
+  const meanAuthor = n > 0 ? totalAuthor / n : 0;
+  const meanGenre = n > 0 ? totalGenre / n : 0;
+  const meanSeries = n > 0 ? totalSeries / n : 0;
 
-  const connectionRatios = new Map<number, number>();
-  for (const [id, count] of rawCounts) {
-    connectionRatios.set(id, meanConnections > 0 ? count / meanConnections : 1);
+  const connectionRatios = new Map<number, ConnectionRatios>();
+  for (const [id, counts] of rawCounts) {
+    connectionRatios.set(id, {
+      author: meanAuthor > 0 ? counts.author / meanAuthor : 1,
+      genre: meanGenre > 0 ? counts.genre / meanGenre : 1,
+      series: meanSeries > 0 ? counts.series / meanSeries : 1,
+    });
   }
 
   return connectionRatios;
@@ -189,7 +215,7 @@ function buildRankedCollection(
   seriesExperiences: SeriesExperienceMap,
   smoothingFactors: Map<number, number>,
   signalWeights: SignalWeights,
-  connectionRatios: Map<number, number>,
+  connectionRatios: Map<number, ConnectionRatios>,
   archiveMode = false,
 ) {
   const scoredBooks: ScoredBook[] = sourceBooks
@@ -209,7 +235,7 @@ function buildRankedCollection(
       );
       const scaledWeights = scaleTagWeights(
         signalWeights,
-        connectionRatios.get(book.id) ?? 1,
+        connectionRatios.get(book.id) ?? DEFAULT_CONNECTION_RATIOS,
       );
       const fullScore = scoreBook(
         bayesian,
@@ -296,7 +322,7 @@ export function buildBookAnalytics({
           author: preferences.author,
           genre: preferences.genre,
           series: preferences.series,
-          connectionRatio: connectionRatios.get(displayBook.id) ?? 1,
+          connectionRatios: connectionRatios.get(displayBook.id) ?? DEFAULT_CONNECTION_RATIOS,
           target: displayBook.myRating,
         },
       ];

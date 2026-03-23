@@ -99,12 +99,24 @@ export type SignalWeights = {
   connectionExponent: number;
 };
 
+export type ConnectionRatios = {
+  author: number;
+  genre: number;
+  series: number;
+};
+
+export const DEFAULT_CONNECTION_RATIOS: ConnectionRatios = {
+  author: 1,
+  genre: 1,
+  series: 1,
+};
+
 export type PredictiveWeightSample = {
   bayesian: number;
   author: number | null;
   genre: number | null;
   series: number | null;
-  connectionRatio: number;
+  connectionRatios: ConnectionRatios;
   target: number;
 };
 
@@ -153,14 +165,14 @@ function weightDistance(left: SignalWeights, right: SignalWeights) {
 
 export function scaleTagWeights(
   weights: SignalWeights,
-  connectionRatio: number,
+  ratios: ConnectionRatios,
 ): SignalWeights {
-  const factor = connectionRatio ** weights.connectionExponent;
+  const exp = weights.connectionExponent;
   return {
     ...weights,
-    author: weights.author * factor,
-    genre: weights.genre * factor,
-    series: weights.series * factor,
+    author: weights.author * ratios.author ** exp,
+    genre: weights.genre * ratios.genre ** exp,
+    series: weights.series * ratios.series ** exp,
   };
 }
 
@@ -217,7 +229,7 @@ export function learnSignalWeights(
           };
           const loss =
             samples.reduce((total, sample) => {
-              const scaled = scaleTagWeights(candidate, sample.connectionRatio);
+              const scaled = scaleTagWeights(candidate, sample.connectionRatios);
               const prediction = predictiveScore(
                 sample.bayesian,
                 sample.author,
