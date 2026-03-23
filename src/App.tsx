@@ -14,6 +14,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import {
+  AuthRequiredError,
   createProfile,
   createBookRecord,
   deleteProfile,
@@ -40,6 +41,16 @@ import {
   renameGenreInterest,
   renameAuthorInBooks,
 } from "./lib/books-api";
+import {
+  getAuthSession,
+  isSupabaseConfigured,
+  requestPasswordReset,
+  signInWithEmail,
+  signOutUser,
+  signUpWithEmail,
+  subscribeToAuthChanges,
+  type AuthSession,
+} from "./lib/auth";
 import {
   fetchPathRecommendations,
   type PathRecommendationResponse,
@@ -112,11 +123,13 @@ type DraftTextField =
   | "genreInterest"
   | "progress";
 
+type AuthView = "sign-in" | "sign-up" | "reset";
+type AuthStatus = "checking" | "signed-in" | "signed-out" | "disabled";
+
 const MAX_SUGGESTIONS = 6;
 const MAX_AUTOFILL_TOPICS = 8;
 const TITLE_SUGGESTION_FETCH_LIMIT = 6;
 const MIN_YEAR_OPTION = 1900;
-const PROFILE_LOGGED_OUT_KEY = "book-ranker.profile-logged-out.v1";
 
 function createDraft(): BookDraft {
   return {
@@ -362,6 +375,10 @@ function moveTagToEnd(tags: string[], draggedTag: string) {
 }
 
 function messageFromError(error: unknown) {
+  if (error instanceof AuthRequiredError) {
+    return "Sign in required.";
+  }
+
   if (error instanceof Error && error.message) {
     return error.message;
   }
@@ -381,18 +398,6 @@ function profileInitials(name: string) {
   }
 
   return words.map((word) => word[0]?.toLocaleUpperCase() ?? "").join("");
-}
-
-function readProfileSessionLoggedOut() {
-  if (typeof window === "undefined") {
-    return false;
-  }
-
-  try {
-    return window.localStorage.getItem(PROFILE_LOGGED_OUT_KEY) === "true";
-  } catch {
-    return false;
-  }
 }
 
 function messageFromCatalogLookupError(error: unknown) {
@@ -417,6 +422,7 @@ function matchesSelectedGenres(
 
 export default function App() {
   const currentYear = new Date().getFullYear();
+  const authEnabled = isSupabaseConfigured;
   const [books, setBooks] = useState<Book[]>([]);
   const [catalogBooks, setCatalogBooks] = useState<CatalogBook[]>([]);
   const [profiles, setProfiles] = useState<ProfileSummary[]>([]);
@@ -429,9 +435,16 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [isManagingProfiles, setIsManagingProfiles] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
-  const [isSignedOut, setIsSignedOut] = useState(() =>
-    readProfileSessionLoggedOut(),
+  const [authStatus, setAuthStatus] = useState<AuthStatus>(
+    authEnabled ? "checking" : "disabled",
   );
+  const [authSession, setAuthSession] = useState<AuthSession | null>(null);
+  const [authMode, setAuthMode] = useState<AuthView>("sign-in");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authConfirmPassword, setAuthConfirmPassword] = useState("");
+  const [authFeedback, setAuthFeedback] = useState<string | null>(null);
+  const [isAuthBusy, setIsAuthBusy] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
   const [pendingTagDelete, setPendingTagDelete] = useState<string | null>(null);
   const [titleSuggestions, setTitleSuggestions] = useState<CatalogSearchResult[]>(
@@ -474,6 +487,8 @@ export default function App() {
   const [addedRecIds, setAddedRecIds] = useState<Set<string>>(new Set());
   const [graphAddGenreInput, setGraphAddGenreInput] = useState("");
   const [graphAddGenreRating, setGraphAddGenreRating] = useState<number | null>(null);
+  const [isGraphGenreSuggestionActive, setIsGraphGenreSuggestionActive] =
+    useState(false);
   const [graphEditingNode, setGraphEditingNode] = useState<{ tag: string; screenX: number; screenY: number } | null>(null);
   const leftColumnRef = useRef<HTMLElement | null>(null);
   const rightColumnRef = useRef<HTMLElement | null>(null);
@@ -497,22 +512,14 @@ export default function App() {
     setActiveProfileId(libraryState.activeProfileId);
   }, []);
 
-  const persistSignedOutState = useCallback((nextValue: boolean) => {
-    setIsSignedOut(nextValue);
-
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    try {
-      if (nextValue) {
-        window.localStorage.setItem(PROFILE_LOGGED_OUT_KEY, "true");
-      } else {
-        window.localStorage.removeItem(PROFILE_LOGGED_OUT_KEY);
-      }
-    } catch {
-      // Ignore storage failures and keep the in-memory state.
-    }
+  const clearLibraryState = useCallback(() => {
+    setBooks([]);
+    setCatalogBooks([]);
+    setGenreInterests({});
+    setAuthorExperiences({});
+    setSeriesExperiences({});
+    setProfiles([]);
+    setActiveProfileId(null);
   }, []);
 
   const captureVisibleBookRects = useCallback(() => {
@@ -715,6 +722,14 @@ export default function App() {
   useEffect(() => {
     let isActive = true;
 
+    if (authEnabled && authStatus !== "signed-in") {
+      clearLibraryState();
+      setIsLoading(authStatus === "checking");
+      return () => {
+        isActive = false;
+      };
+    }
+
     async function loadSavedBooks() {
       setIsLoading(true);
       setErrorMessage(null);
@@ -726,6 +741,13 @@ export default function App() {
         }
       } catch (error) {
         if (isActive) {
+          if (error instanceof AuthRequiredError) {
+            setAuthSession(null);
+            setAuthStatus("signed-out");
+            clearLibraryState();
+            return;
+          }
+
           setErrorMessage(messageFromError(error));
         }
       } finally {
@@ -740,7 +762,7 @@ export default function App() {
     return () => {
       isActive = false;
     };
-  }, [applyLibraryState]);
+  }, [applyLibraryState, authEnabled, authStatus, clearLibraryState]);
 
   const toggleInterestPathTag = useCallback((tag: string) => {
     setSelectedInterestPath((current) => {
@@ -754,17 +776,21 @@ export default function App() {
     });
   }, []);
 
-  useEffect(() => {
-    const visibleGraphTags = new Set(
+  const visibleGraphGenres = useMemo(() => {
+    return uniqueTags(
       books.flatMap((book) =>
         uniqueTags(book.genres).filter((tag) => genreInterests[tag] != null),
       ),
-    );
+    ).sort((left, right) => left.localeCompare(right));
+  }, [books, genreInterests]);
+
+  useEffect(() => {
+    const visibleGraphTags = new Set(visibleGraphGenres);
 
     setSelectedInterestPath((current) =>
       current.filter((tag) => visibleGraphTags.has(tag)),
     );
-  }, [books, genreInterests]);
+  }, [visibleGraphGenres]);
 
   useEffect(() => {
     setGraphEditingNode((current) =>
@@ -808,11 +834,12 @@ export default function App() {
     () => profiles.find((profile) => profile.id === activeProfileId) ?? null,
     [profiles, activeProfileId],
   );
-  const displayedProfileName = isSignedOut
-    ? "Signed out"
-    : activeProfile?.name ?? "Profile";
+  const displayedProfileName =
+    activeProfile?.name ?? authSession?.user.email ?? "Profile";
+  const accountEmail = authSession?.user.email?.trim() ?? "";
   const canDeleteActiveProfile = profiles.length > 1 && activeProfile != null;
-  const profileControlDisabled = isLoading || isSaving || isManagingProfiles;
+  const profileControlDisabled =
+    isLoading || isSaving || isManagingProfiles || isAuthBusy;
 
   const isEditing = editingBookId !== null;
   const currentYearLabel = String(currentYear);
@@ -883,6 +910,10 @@ export default function App() {
     return matchingSuggestions(draft.genreInput, draft.genres, knownGenres);
   }, [draft.genreInput, draft.genres, knownGenres]);
 
+  const graphGenreSuggestions = useMemo(() => {
+    return matchingSuggestions(graphAddGenreInput, [], visibleGraphGenres);
+  }, [graphAddGenreInput, visibleGraphGenres]);
+
   const resetDraft = useCallback(() => {
     const activeElement = document.activeElement;
     if (
@@ -924,6 +955,115 @@ export default function App() {
     setGraphEditingNode(null);
   }, [resetDraft]);
 
+  useEffect(() => {
+    if (!authEnabled) {
+      setAuthStatus("disabled");
+      return;
+    }
+
+    let isActive = true;
+
+    void getAuthSession()
+      .then((session) => {
+        if (!isActive) {
+          return;
+        }
+
+        setAuthSession(session);
+        setAuthStatus(session ? "signed-in" : "signed-out");
+        setAuthEmail(session?.user.email ?? "");
+      })
+      .catch((error) => {
+        if (!isActive) {
+          return;
+        }
+
+        setAuthSession(null);
+        setAuthStatus("signed-out");
+        setErrorMessage(messageFromError(error));
+      });
+
+    const unsubscribe = subscribeToAuthChanges((session) => {
+      if (!isActive) {
+        return;
+      }
+
+      setAuthSession(session);
+      setAuthStatus(session ? "signed-in" : "signed-out");
+      setIsAuthBusy(false);
+      setIsProfileMenuOpen(false);
+      setAuthPassword("");
+      setAuthConfirmPassword("");
+
+      if (session) {
+        setAuthEmail(session.user.email ?? "");
+        setAuthFeedback(null);
+        setErrorMessage(null);
+        return;
+      }
+
+      resetProfileWorkspace();
+      clearLibraryState();
+    });
+
+    return () => {
+      isActive = false;
+      unsubscribe();
+    };
+  }, [authEnabled, clearLibraryState, resetProfileWorkspace]);
+
+  async function handleAuthSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setErrorMessage(null);
+    setAuthFeedback(null);
+
+    const nextEmail = authEmail.trim().toLocaleLowerCase();
+
+    if (!nextEmail) {
+      setErrorMessage("Email is required.");
+      return;
+    }
+
+    if (authMode !== "reset" && !authPassword) {
+      setErrorMessage("Password is required.");
+      return;
+    }
+
+    if (authMode === "sign-up" && authPassword !== authConfirmPassword) {
+      setErrorMessage("Passwords do not match.");
+      return;
+    }
+
+    setIsAuthBusy(true);
+
+    try {
+      if (authMode === "sign-up") {
+        const result = await signUpWithEmail(nextEmail, authPassword);
+        setAuthPassword("");
+        setAuthConfirmPassword("");
+
+        if (result.needsEmailConfirmation) {
+          setAuthFeedback("Check your email to confirm your account.");
+          setAuthMode("sign-in");
+        }
+      } else if (authMode === "reset") {
+        await requestPasswordReset(nextEmail);
+        setAuthPassword("");
+        setAuthConfirmPassword("");
+        setAuthFeedback("Password reset email sent.");
+        setAuthMode("sign-in");
+      } else {
+        await signInWithEmail(nextEmail, authPassword);
+        setAuthPassword("");
+        setAuthConfirmPassword("");
+      }
+    } catch (error) {
+      setErrorMessage(messageFromError(error));
+    } finally {
+      setIsAuthBusy(false);
+    }
+  }
+
   async function handleCreateProfile() {
     setIsProfileMenuOpen(false);
     const name = window.prompt("Name this profile");
@@ -939,7 +1079,6 @@ export default function App() {
 
     try {
       applyLibraryState(await createProfile(name));
-      persistSignedOutState(false);
     } catch (error) {
       setErrorMessage(messageFromError(error));
     } finally {
@@ -955,7 +1094,6 @@ export default function App() {
 
     if (nextProfileId === activeProfileId) {
       setIsProfileMenuOpen(false);
-      persistSignedOutState(false);
       return;
     }
 
@@ -967,7 +1105,6 @@ export default function App() {
 
     try {
       applyLibraryState(await setActiveProfile(nextProfileId));
-      persistSignedOutState(false);
     } catch (error) {
       setErrorMessage(messageFromError(error));
     } finally {
@@ -976,11 +1113,22 @@ export default function App() {
     }
   }
 
-  function handleLogout() {
+  async function handleLogout() {
     setIsProfileMenuOpen(false);
     setErrorMessage(null);
-    resetProfileWorkspace();
-    persistSignedOutState(true);
+
+    if (!authEnabled) {
+      return;
+    }
+
+    setIsAuthBusy(true);
+
+    try {
+      await signOutUser();
+    } catch (error) {
+      setErrorMessage(messageFromError(error));
+      setIsAuthBusy(false);
+    }
   }
 
   async function handleRenameActiveProfile() {
@@ -1000,7 +1148,6 @@ export default function App() {
 
     try {
       applyLibraryState(await updateProfile(activeProfile.id, nextName));
-      persistSignedOutState(false);
     } catch (error) {
       setErrorMessage(messageFromError(error));
     } finally {
@@ -1029,7 +1176,6 @@ export default function App() {
 
     try {
       applyLibraryState(await deleteProfile(activeProfile.id));
-      persistSignedOutState(false);
     } catch (error) {
       setErrorMessage(messageFromError(error));
     } finally {
@@ -1536,6 +1682,14 @@ export default function App() {
     }
 
     setIsTitleSuggestionActive(false);
+  }
+
+  function handleGraphGenreSuggestionBlur(event: ReactFocusEvent<HTMLDivElement>) {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      return;
+    }
+
+    setIsGraphGenreSuggestionActive(false);
   }
 
   function populateDraftFromAutofill(
@@ -2186,6 +2340,13 @@ export default function App() {
     }
   }
 
+  function focusGraphGenre(tag: string) {
+    setSelectedInterestPath([tag]);
+    setGraphAddGenreInput(tag);
+    setGraphAddGenreRating(genreInterests[tag] ?? null);
+    setIsGraphGenreSuggestionActive(false);
+  }
+
   async function renameGraphGenre(oldName: string, newName: string) {
     setErrorMessage(null);
 
@@ -2426,6 +2587,158 @@ export default function App() {
     activeSuggestionField === "genre" &&
     draft.genreInput.trim().length > 0 &&
     genreSuggestions.length > 0;
+  const showGraphGenreSuggestions =
+    isGraphGenreSuggestionActive &&
+    graphAddGenreInput.trim().length > 0 &&
+    graphGenreSuggestions.length > 0;
+
+  function showAuthView(nextView: AuthView) {
+    setAuthMode(nextView);
+    setAuthFeedback(null);
+    setErrorMessage(null);
+    setAuthPassword("");
+    setAuthConfirmPassword("");
+  }
+
+  if (authEnabled && authStatus !== "signed-in") {
+    const authTitle =
+      authStatus === "checking"
+        ? "Checking your session"
+        : authMode === "sign-up"
+          ? "Create your account"
+          : authMode === "reset"
+            ? "Reset your password"
+            : "Sign in";
+    const authCopy =
+      authStatus === "checking"
+        ? "Loading your account."
+        : authMode === "sign-up"
+          ? "Use your email address to create an account for your saved lists."
+          : authMode === "reset"
+            ? "Enter your email address and we’ll send a reset link."
+            : "Sign in with your email address to access your saved lists.";
+
+    return (
+      <main className="auth-shell">
+        <section className="auth-card" aria-busy={authStatus === "checking" || isAuthBusy}>
+          <p className="auth-eyebrow">Book Ranker</p>
+          <h1>{authTitle}</h1>
+          <p className="auth-copy">{authCopy}</p>
+          {authStatus === "checking" ? (
+            <p className="auth-status">Loading...</p>
+          ) : (
+            <>
+              <form
+                className="auth-form"
+                onSubmit={(event) => {
+                  void handleAuthSubmit(event);
+                }}
+              >
+                <label className="auth-field">
+                  <span>Email</span>
+                  <input
+                    className="auth-input"
+                    type="email"
+                    autoComplete="email"
+                    value={authEmail}
+                    onChange={(event) => {
+                      setAuthEmail(event.target.value);
+                    }}
+                    placeholder="you@example.com"
+                    disabled={isAuthBusy}
+                  />
+                </label>
+                {authMode !== "reset" ? (
+                  <label className="auth-field">
+                    <span>Password</span>
+                    <input
+                      className="auth-input"
+                      type="password"
+                      autoComplete={authMode === "sign-up" ? "new-password" : "current-password"}
+                      value={authPassword}
+                      onChange={(event) => {
+                        setAuthPassword(event.target.value);
+                      }}
+                      placeholder="Password"
+                      disabled={isAuthBusy}
+                    />
+                  </label>
+                ) : null}
+                {authMode === "sign-up" ? (
+                  <label className="auth-field">
+                    <span>Confirm password</span>
+                    <input
+                      className="auth-input"
+                      type="password"
+                      autoComplete="new-password"
+                      value={authConfirmPassword}
+                      onChange={(event) => {
+                        setAuthConfirmPassword(event.target.value);
+                      }}
+                      placeholder="Confirm password"
+                      disabled={isAuthBusy}
+                    />
+                  </label>
+                ) : null}
+                {authFeedback ? <p className="auth-feedback">{authFeedback}</p> : null}
+                {errorMessage ? <p className="auth-error">{errorMessage}</p> : null}
+                <button
+                  type="submit"
+                  className="auth-submit"
+                  disabled={isAuthBusy}
+                >
+                  {isAuthBusy
+                    ? "Working..."
+                    : authMode === "sign-up"
+                      ? "Create account"
+                      : authMode === "reset"
+                        ? "Send reset email"
+                        : "Sign in"}
+                </button>
+              </form>
+              <div className="auth-actions">
+                {authMode === "sign-in" ? (
+                  <>
+                    <button
+                      type="button"
+                      className="auth-link"
+                      onClick={() => {
+                        showAuthView("sign-up");
+                      }}
+                      disabled={isAuthBusy}
+                    >
+                      Create an account
+                    </button>
+                    <button
+                      type="button"
+                      className="auth-link"
+                      onClick={() => {
+                        showAuthView("reset");
+                      }}
+                      disabled={isAuthBusy}
+                    >
+                      Forgot password?
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="auth-link"
+                    onClick={() => {
+                      showAuthView("sign-in");
+                    }}
+                    disabled={isAuthBusy}
+                  >
+                    Back to sign in
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className="app-shell">
@@ -2525,12 +2838,18 @@ export default function App() {
 	                </button>
 	                {isProfileMenuOpen ? (
 	                  <div className="profile-menu" role="menu" aria-label="Profile options">
+	                    {accountEmail ? (
+	                      <div className="profile-menu-account">
+	                        <span className="profile-menu-label">Signed in as</span>
+	                        <span className="profile-menu-email">{accountEmail}</span>
+	                      </div>
+	                    ) : null}
 	                    <div className="profile-menu-list">
 	                      {profiles.map((profile) => (
 	                        <button
 	                          key={profile.id}
 	                          type="button"
-	                          className={`profile-menu-item${profile.id === activeProfileId && !isSignedOut ? " is-active" : ""}`}
+	                          className={`profile-menu-item${profile.id === activeProfileId ? " is-active" : ""}`}
 	                          onClick={() => {
 	                            void handleProfileChange(profile.id);
 	                          }}
@@ -2538,13 +2857,24 @@ export default function App() {
 	                          role="menuitem"
 	                        >
 	                          <span>{profile.name}</span>
-	                          {profile.id === activeProfileId && !isSignedOut ? (
+	                          {profile.id === activeProfileId ? (
 	                            <span className="profile-menu-state">Current</span>
 	                          ) : null}
 	                        </button>
 	                      ))}
 	                    </div>
 	                    <div className="profile-menu-actions">
+	                      <button
+	                        type="button"
+	                        className="profile-menu-link"
+	                        onClick={() => {
+	                          void handleCreateProfile();
+	                        }}
+	                        disabled={profileControlDisabled}
+	                        role="menuitem"
+	                      >
+	                        New profile
+	                      </button>
 	                      <button
 	                        type="button"
 	                        className="profile-menu-link"
@@ -2568,15 +2898,19 @@ export default function App() {
 	                        Delete profile
 	                      </button>
 	                    </div>
-	                    <button
-	                      type="button"
-	                      className="profile-menu-link is-danger"
-	                      onClick={handleLogout}
-	                      disabled={profileControlDisabled || isSignedOut}
-	                      role="menuitem"
-	                    >
-	                      Log out
-	                    </button>
+	                    {authEnabled ? (
+	                      <button
+	                        type="button"
+	                        className="profile-menu-link is-danger"
+	                        onClick={() => {
+	                          void handleLogout();
+	                        }}
+	                        disabled={profileControlDisabled}
+	                        role="menuitem"
+	                      >
+	                        Log out
+	                      </button>
+	                    ) : null}
 	                  </div>
 	                ) : null}
 	              </div>
@@ -2623,21 +2957,73 @@ export default function App() {
           <div className="graph-edit-toolbar">
             <div className="tag-entry-group graph-tag-entry">
               <div className="tag-entry-row">
-                <input
-                  type="text"
-                  placeholder="Add genre or topic..."
-                  value={graphAddGenreInput}
-                  onChange={(e) => setGraphAddGenreInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (
-                      e.key === "Enter" &&
-                      graphAddGenreInput.trim() &&
-                      graphAddGenreRating != null
-                    ) {
-                      void addGraphGenreInterest();
-                    }
-                  }}
-                />
+                <div
+                  className="suggestion-field"
+                  onFocus={() => setIsGraphGenreSuggestionActive(true)}
+                  onBlur={handleGraphGenreSuggestionBlur}
+                >
+                  <input
+                    type="text"
+                    placeholder="Find what interests you"
+                    value={graphAddGenreInput}
+                    autoComplete="off"
+                    aria-expanded={showGraphGenreSuggestions}
+                    aria-controls="graph-genre-suggestions"
+                    onChange={(e) => {
+                      setGraphAddGenreInput(e.target.value);
+                      setIsGraphGenreSuggestionActive(true);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter") {
+                        return;
+                      }
+
+                      const matchedGenre = resolvedSuggestion(
+                        graphAddGenreInput,
+                        [],
+                        visibleGraphGenres,
+                      );
+
+                      if (matchedGenre) {
+                        e.preventDefault();
+                        focusGraphGenre(matchedGenre);
+                        return;
+                      }
+
+                      if (
+                        graphAddGenreInput.trim() &&
+                        graphAddGenreRating != null
+                      ) {
+                        void addGraphGenreInterest();
+                      }
+                    }}
+                  />
+                  {showGraphGenreSuggestions ? (
+                    <div
+                      id="graph-genre-suggestions"
+                      className="suggestion-popover"
+                      aria-label="Suggested graph genres"
+                    >
+                      {graphGenreSuggestions.map((genre) => (
+                        <div key={genre} className="suggestion-option">
+                          <button
+                            type="button"
+                            className="suggestion-pick"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => focusGraphGenre(genre)}
+                          >
+                            <span className="suggestion-copy">{genre}</span>
+                            {genreInterests[genre] != null ? (
+                              <span className="genre-tag-interest">
+                                {genreInterests[genre]}
+                              </span>
+                            ) : null}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
                 <button
                   type="button"
                   className="graph-add-btn"
@@ -3384,43 +3770,6 @@ export default function App() {
 	        </section>
 	        </aside>
 	      </div>
-	      {isSignedOut ? (
-	        <div className="profile-session-overlay" role="dialog" aria-modal="true">
-	          <div className="profile-session-card">
-	            <p className="profile-session-eyebrow">Profiles</p>
-	            <h2>Choose a profile</h2>
-	            <p className="profile-session-copy">
-	              Pick a profile to continue, or create a new one.
-	            </p>
-	            <div className="profile-session-list">
-	              {profiles.map((profile) => (
-	                <button
-	                  key={profile.id}
-	                  type="button"
-	                  className="profile-session-item"
-	                  onClick={() => {
-	                    void handleProfileChange(profile.id);
-	                  }}
-	                  disabled={profileControlDisabled}
-	                >
-	                  <span>{profile.name}</span>
-	                  <span className="profile-session-action">Continue</span>
-	                </button>
-	              ))}
-	            </div>
-	            <button
-	              type="button"
-	              className="profile-session-create"
-	              onClick={() => {
-	                void handleCreateProfile();
-	              }}
-	              disabled={profileControlDisabled}
-	            >
-	              Create profile
-	            </button>
-	          </div>
-	        </div>
-	      ) : null}
 	    </main>
 	  );
 	}

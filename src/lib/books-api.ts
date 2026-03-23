@@ -5,6 +5,7 @@ import {
   upsertCatalogBooks,
 } from "./catalog-memory";
 import { applySiteRatingStats } from "./site-books";
+import { isSupabaseConfigured, requireSupabase } from "./supabase";
 
 export type Book = {
   id: number;
@@ -105,6 +106,30 @@ type StoredLibraryState = {
   activeProfileId: string;
 };
 
+type RemoteProfileRow = {
+  id: string;
+  user_id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  books: unknown;
+  catalog_books: unknown;
+  genre_interests: unknown;
+  author_experiences: unknown;
+  series_experiences: unknown;
+};
+
+type RemoteLibraryMeta = {
+  migratedLocalState: boolean;
+  updatedAt: string;
+};
+
+type RemoteLibraryContext = {
+  userId: string;
+  state: StoredLibraryState;
+  meta: RemoteLibraryMeta;
+};
+
 type LegacyLibraryData = Omit<
   LibraryState,
   "meta" | "profiles" | "activeProfileId"
@@ -116,6 +141,16 @@ class BackendUnavailableError extends Error {
     this.name = "BackendUnavailableError";
   }
 }
+
+export class AuthRequiredError extends Error {
+  constructor(message = "Sign in required.") {
+    super(message);
+    this.name = "AuthRequiredError";
+  }
+}
+
+const REMOTE_PROFILE_TABLE = "user_profiles";
+const REMOTE_SETTINGS_TABLE = "user_settings";
 
 async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
   let response: Response;
@@ -148,6 +183,32 @@ async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> 
   }
 
   return payload as T;
+}
+
+function hasMeaningfulStoredState(state: StoredLibraryState) {
+  return state.profiles.some((profile) => {
+    return (
+      profile.books.length > 0 ||
+      profile.catalogBooks.length > 0 ||
+      Object.keys(profile.genreInterests).length > 0 ||
+      Object.keys(profile.authorExperiences).length > 0 ||
+      Object.keys(profile.seriesExperiences).length > 0
+    );
+  });
+}
+
+function withRemoteMeta(
+  libraryState: LibraryState,
+  meta: RemoteLibraryMeta,
+): LibraryState {
+  return {
+    ...libraryState,
+    meta: {
+      ...libraryState.meta,
+      migratedLocalState: meta.migratedLocalState,
+      updatedAt: normalizeTimestamp(meta.updatedAt) ?? libraryState.meta.updatedAt,
+    },
+  };
 }
 
 function getStorage() {
@@ -513,6 +574,231 @@ function createStoredLibraryState(
     profiles,
     activeProfileId,
   };
+}
+
+function normalizeRemoteProfileRow(row: RemoteProfileRow): StoredProfile {
+  return createStoredProfile({
+    id: row.id,
+    name: row.name,
+    createdAt: row.created_at,
+    books: Array.isArray(row.books)
+      ? row.books.map(normalizeBook).filter((book): book is Book => book !== null)
+      : [],
+    catalogBooks: Array.isArray(row.catalog_books)
+      ? row.catalog_books
+          .map(normalizeCatalogBook)
+          .filter((book): book is CatalogBook => book !== null)
+      : [],
+    genreInterests: normalizeScoreMap(row.genre_interests, normalizeGenreTag),
+    authorExperiences: normalizeScoreMap(row.author_experiences),
+    seriesExperiences: normalizeScoreMap(row.series_experiences),
+    meta: {
+      seeded: false,
+      migratedLocalState: false,
+      updatedAt: row.updated_at,
+    },
+  });
+}
+
+function createRemoteStoredLibraryStateResult(
+  state: StoredLibraryState,
+  meta: RemoteLibraryMeta,
+) {
+  return withNativeRatingStats(withRemoteMeta(toLibraryState(state), meta));
+}
+
+async function getRemoteUserId() {
+  const client = requireSupabase();
+  const { data, error } = await client.auth.getSession();
+
+  if (error) {
+    throw error;
+  }
+
+  const userId = data.session?.user.id;
+
+  if (!userId) {
+    throw new AuthRequiredError();
+  }
+
+  return userId;
+}
+
+function createInitialRemoteStoredLibraryState() {
+  if (!getStorage()) {
+    return createStoredLibraryState();
+  }
+
+  return readStoredLocalLibraryState();
+}
+
+async function persistRemoteStoredLibraryState(
+  userId: string,
+  state: StoredLibraryState,
+  meta: RemoteLibraryMeta,
+) {
+  const client = requireSupabase();
+  const nextState = createStoredLibraryState(state);
+  const nextProfileIds = nextState.profiles.map((profile) => profile.id);
+  const { data: existingProfiles, error: existingProfilesError } = await client
+    .from(REMOTE_PROFILE_TABLE)
+    .select("id")
+    .eq("user_id", userId);
+
+  if (existingProfilesError) {
+    throw existingProfilesError;
+  }
+
+  const staleProfileIds =
+    existingProfiles
+      ?.map((profile) => String(profile.id))
+      .filter((profileId) => !nextProfileIds.includes(profileId)) ?? [];
+
+  if (staleProfileIds.length > 0) {
+    const { error: deleteProfilesError } = await client
+      .from(REMOTE_PROFILE_TABLE)
+      .delete()
+      .eq("user_id", userId)
+      .in("id", staleProfileIds);
+
+    if (deleteProfilesError) {
+      throw deleteProfilesError;
+    }
+  }
+
+  const remoteProfiles = nextState.profiles.map((profile) => ({
+    id: profile.id,
+    user_id: userId,
+    name: profile.name,
+    created_at: profile.createdAt,
+    updated_at: profile.meta.updatedAt,
+    books: cloneBooks(profile.books),
+    catalog_books: cloneCatalogBooks(profile.catalogBooks),
+    genre_interests: { ...profile.genreInterests },
+    author_experiences: { ...profile.authorExperiences },
+    series_experiences: { ...profile.seriesExperiences },
+  }));
+  const { error: upsertProfilesError } = await client
+    .from(REMOTE_PROFILE_TABLE)
+    .upsert(remoteProfiles, { onConflict: "id" });
+
+  if (upsertProfilesError) {
+    throw upsertProfilesError;
+  }
+
+  const { error: upsertSettingsError } = await client
+    .from(REMOTE_SETTINGS_TABLE)
+    .upsert(
+      {
+        user_id: userId,
+        active_profile_id: nextState.activeProfileId,
+        migrated_local_state: meta.migratedLocalState,
+        updated_at: meta.updatedAt,
+      },
+      { onConflict: "user_id" },
+    );
+
+  if (upsertSettingsError) {
+    throw upsertSettingsError;
+  }
+
+  return nextState;
+}
+
+async function initializeRemoteStoredLibraryState(
+  userId: string,
+): Promise<RemoteLibraryContext> {
+  const state = createInitialRemoteStoredLibraryState();
+  const meta = {
+    migratedLocalState: hasMeaningfulStoredState(state),
+    updatedAt: new Date().toISOString(),
+  };
+
+  await persistRemoteStoredLibraryState(userId, state, meta);
+
+  return {
+    userId,
+    state,
+    meta,
+  };
+}
+
+async function readRemoteStoredLibraryContext(): Promise<RemoteLibraryContext> {
+  const client = requireSupabase();
+  const userId = await getRemoteUserId();
+  const [profilesResult, settingsResult] = await Promise.all([
+    client
+      .from(REMOTE_PROFILE_TABLE)
+      .select(
+        "id, user_id, name, created_at, updated_at, books, catalog_books, genre_interests, author_experiences, series_experiences",
+      )
+      .eq("user_id", userId)
+      .order("created_at", { ascending: true }),
+    client
+      .from(REMOTE_SETTINGS_TABLE)
+      .select("user_id, active_profile_id, migrated_local_state, updated_at")
+      .eq("user_id", userId)
+      .maybeSingle(),
+  ]);
+
+  if (profilesResult.error) {
+    throw profilesResult.error;
+  }
+
+  if (settingsResult.error) {
+    throw settingsResult.error;
+  }
+
+  const profileRows = (profilesResult.data ?? []) as RemoteProfileRow[];
+
+  if (profileRows.length === 0) {
+    return initializeRemoteStoredLibraryState(userId);
+  }
+
+  const profiles = profileRows.map(normalizeRemoteProfileRow);
+  const activeProfileId =
+    settingsResult.data?.active_profile_id &&
+    profiles.some((profile) => profile.id === settingsResult.data?.active_profile_id)
+      ? settingsResult.data.active_profile_id
+      : profiles[0].id;
+  const state = createStoredLibraryState({
+    profiles,
+    activeProfileId,
+  });
+  const meta = {
+    migratedLocalState: settingsResult.data?.migrated_local_state === true,
+    updatedAt:
+      normalizeTimestamp(settingsResult.data?.updated_at) ??
+      findActiveStoredProfile(state).meta.updatedAt,
+  };
+
+  if (!settingsResult.data || settingsResult.data.active_profile_id !== activeProfileId) {
+    await persistRemoteStoredLibraryState(userId, state, meta);
+  }
+
+  return {
+    userId,
+    state,
+    meta,
+  };
+}
+
+async function mutateRemoteStoredState<T>(
+  mutation: (context: RemoteLibraryContext) => {
+    nextState: StoredLibraryState;
+    buildResult: (meta: RemoteLibraryMeta) => T;
+    meta?: Partial<RemoteLibraryMeta>;
+  },
+) {
+  const context = await readRemoteStoredLibraryContext();
+  const { nextState, buildResult, meta } = mutation(context);
+  const nextMeta = {
+    migratedLocalState: meta?.migratedLocalState ?? context.meta.migratedLocalState,
+    updatedAt: meta?.updatedAt ?? new Date().toISOString(),
+  };
+
+  await persistRemoteStoredLibraryState(context.userId, nextState, nextMeta);
+  return buildResult(nextMeta);
 }
 
 function parseBookPayload(
@@ -1048,6 +1334,11 @@ function sanitizeBookPayload(payload: BookPayload) {
 }
 
 export async function fetchLibraryState() {
+  if (isSupabaseConfigured) {
+    const context = await readRemoteStoredLibraryContext();
+    return createRemoteStoredLibraryStateResult(context.state, context.meta);
+  }
+
   try {
     const libraryState = await requestJson<LibraryState>("/api/library");
     return withNativeRatingStats(await migrateLegacyStateIfNeeded(libraryState));
@@ -1064,6 +1355,44 @@ export async function fetchLibraryState() {
 
 export async function createProfile(name: string) {
   const nextName = name.trim().replace(/\s+/g, " ");
+
+  if (isSupabaseConfigured) {
+    return mutateRemoteStoredState(({ state }) => {
+      if (!nextName) {
+        throw new Error("Profile name is required.");
+      }
+
+      const nameTaken = state.profiles.some(
+        (profile) =>
+          profile.name.toLocaleLowerCase() === nextName.toLocaleLowerCase(),
+      );
+
+      if (nameTaken) {
+        throw new Error("A profile with that name already exists.");
+      }
+
+      const nextProfile = createStoredProfile({
+        id: createProfileId(),
+        name: nextName,
+      });
+      const nextState = createStoredLibraryState({
+        profiles: [...state.profiles, nextProfile],
+        activeProfileId: nextProfile.id,
+      });
+
+      return {
+        nextState,
+        buildResult: (meta) =>
+          createRemoteStoredLibraryStateResult(nextState, {
+            ...meta,
+            updatedAt: nextProfile.meta.updatedAt,
+          }),
+        meta: {
+          updatedAt: nextProfile.meta.updatedAt,
+        },
+      };
+    });
+  }
 
   try {
     return withNativeRatingStats(
@@ -1108,6 +1437,61 @@ export async function createProfile(name: string) {
 export async function updateProfile(profileId: string, name: string) {
   const nextProfileId = profileId.trim();
   const nextName = name.trim().replace(/\s+/g, " ");
+
+  if (isSupabaseConfigured) {
+    return mutateRemoteStoredState(({ state }) => {
+      if (!nextProfileId) {
+        throw new Error("Profile id is required.");
+      }
+
+      if (!nextName) {
+        throw new Error("Profile name is required.");
+      }
+
+      const currentProfile = state.profiles.find(
+        (profile) => profile.id === nextProfileId,
+      );
+
+      if (!currentProfile) {
+        throw new Error("Profile not found.");
+      }
+
+      const nameTaken = state.profiles.some(
+        (profile) =>
+          profile.id !== nextProfileId &&
+          profile.name.toLocaleLowerCase() === nextName.toLocaleLowerCase(),
+      );
+
+      if (nameTaken) {
+        throw new Error("A profile with that name already exists.");
+      }
+
+      const updatedAt = new Date().toISOString();
+      const nextState = createStoredLibraryState({
+        profiles: state.profiles.map((profile) =>
+          profile.id === nextProfileId
+            ? createStoredProfile({
+                ...profile,
+                name: nextName,
+                meta: {
+                  ...profile.meta,
+                  updatedAt,
+                },
+              })
+            : profile,
+        ),
+        activeProfileId: state.activeProfileId,
+      });
+
+      return {
+        nextState,
+        buildResult: (meta) => createRemoteStoredLibraryStateResult(nextState, meta),
+        meta: {
+          updatedAt,
+        },
+      };
+    });
+  }
 
   try {
     return withNativeRatingStats(
@@ -1169,6 +1553,28 @@ export async function updateProfile(profileId: string, name: string) {
 export async function setActiveProfile(profileId: string) {
   const nextProfileId = profileId.trim();
 
+  if (isSupabaseConfigured) {
+    return mutateRemoteStoredState(({ state }) => {
+      if (!nextProfileId) {
+        throw new Error("Profile id is required.");
+      }
+
+      if (!state.profiles.some((profile) => profile.id === nextProfileId)) {
+        throw new Error("Profile not found.");
+      }
+
+      const nextState = createStoredLibraryState({
+        profiles: state.profiles,
+        activeProfileId: nextProfileId,
+      });
+
+      return {
+        nextState,
+        buildResult: (meta) => createRemoteStoredLibraryStateResult(nextState, meta),
+      };
+    });
+  }
+
   try {
     return withNativeRatingStats(
       await requestJson<LibraryState>("/api/profiles/active", {
@@ -1204,6 +1610,44 @@ export async function setActiveProfile(profileId: string) {
 
 export async function deleteProfile(profileId: string) {
   const nextProfileId = profileId.trim();
+
+  if (isSupabaseConfigured) {
+    return mutateRemoteStoredState(({ state }) => {
+      if (!nextProfileId) {
+        throw new Error("Profile id is required.");
+      }
+
+      if (state.profiles.length <= 1) {
+        throw new Error("You need at least one profile.");
+      }
+
+      const profileIndex = state.profiles.findIndex(
+        (profile) => profile.id === nextProfileId,
+      );
+
+      if (profileIndex === -1) {
+        throw new Error("Profile not found.");
+      }
+
+      const nextProfiles = state.profiles.filter(
+        (profile) => profile.id !== nextProfileId,
+      );
+      const fallbackProfile =
+        nextProfiles[profileIndex] ?? nextProfiles[Math.max(0, profileIndex - 1)];
+      const nextState = createStoredLibraryState({
+        profiles: nextProfiles,
+        activeProfileId:
+          state.activeProfileId === nextProfileId
+            ? fallbackProfile.id
+            : state.activeProfileId,
+      });
+
+      return {
+        nextState,
+        buildResult: (meta) => createRemoteStoredLibraryStateResult(nextState, meta),
+      };
+    });
+  }
 
   try {
     return withNativeRatingStats(
@@ -1261,6 +1705,42 @@ export async function fetchBooks() {
 export async function createBookRecord(payload: BookPayload) {
   const sanitizedPayload = sanitizeBookPayload(payload);
 
+  if (isSupabaseConfigured) {
+    return mutateRemoteStoredState(({ state }) => {
+      const nextBook = parseBookPayload(sanitizedPayload);
+      const activeProfile = findActiveStoredProfile(state);
+      const nextId =
+        activeProfile.books.reduce((maxId, book) => Math.max(maxId, book.id), 0) + 1;
+      const updatedAt = new Date().toISOString();
+      const nextBooks = [
+        ...activeProfile.books,
+        {
+          id: nextId,
+          ...nextBook,
+        },
+      ];
+      const nextProfile = createStoredProfile({
+        ...activeProfile,
+        books: nextBooks,
+        catalogBooks: upsertCatalogBooks(activeProfile.catalogBooks, [nextBook]),
+        meta: {
+          ...activeProfile.meta,
+          seeded: false,
+          updatedAt,
+        },
+      });
+      const nextState = replaceActiveStoredProfile(state, nextProfile);
+
+      return {
+        nextState,
+        buildResult: () => applySiteRatingStats(nextBooks),
+        meta: {
+          updatedAt,
+        },
+      };
+    });
+  }
+
   try {
     return applySiteRatingStats(
       await requestJson<Book[]>("/api/books", {
@@ -1294,6 +1774,46 @@ export async function createBookRecord(payload: BookPayload) {
 
 export async function updateBookRecord(id: number, payload: BookPayload) {
   const sanitizedPayload = sanitizeBookPayload(payload);
+
+  if (isSupabaseConfigured) {
+    return mutateRemoteStoredState(({ state }) => {
+      if (!Number.isFinite(id)) {
+        throw new Error("Book id is required.");
+      }
+
+      const nextBook = parseBookPayload(sanitizedPayload);
+      const activeProfile = findActiveStoredProfile(state);
+      const hasMatch = activeProfile.books.some((book) => book.id === id);
+
+      if (!hasMatch) {
+        throw new Error("Book not found.");
+      }
+
+      const updatedAt = new Date().toISOString();
+      const nextBooks = activeProfile.books.map((book) =>
+        book.id === id ? { id: book.id, ...nextBook } : book,
+      );
+      const nextProfile = createStoredProfile({
+        ...activeProfile,
+        books: nextBooks,
+        catalogBooks: upsertCatalogBooks(activeProfile.catalogBooks, [nextBook]),
+        meta: {
+          ...activeProfile.meta,
+          seeded: false,
+          updatedAt,
+        },
+      });
+      const nextState = replaceActiveStoredProfile(state, nextProfile);
+
+      return {
+        nextState,
+        buildResult: () => applySiteRatingStats(nextBooks),
+        meta: {
+          updatedAt,
+        },
+      };
+    });
+  }
 
   try {
     return applySiteRatingStats(
@@ -1331,6 +1851,42 @@ export async function updateBookRecord(id: number, payload: BookPayload) {
 }
 
 export async function deleteBookRecord(id: number) {
+  if (isSupabaseConfigured) {
+    return mutateRemoteStoredState(({ state }) => {
+      if (!Number.isFinite(id)) {
+        throw new Error("Book id is required.");
+      }
+
+      const activeProfile = findActiveStoredProfile(state);
+      const nextBooks = activeProfile.books.filter((book) => book.id !== id);
+
+      if (nextBooks.length === activeProfile.books.length) {
+        throw new Error("Book not found.");
+      }
+
+      const updatedAt = new Date().toISOString();
+      const nextProfile = createStoredProfile({
+        ...activeProfile,
+        books: nextBooks,
+        catalogBooks: cloneCatalogBooks(activeProfile.catalogBooks),
+        meta: {
+          ...activeProfile.meta,
+          seeded: false,
+          updatedAt,
+        },
+      });
+      const nextState = replaceActiveStoredProfile(state, nextProfile);
+
+      return {
+        nextState,
+        buildResult: () => applySiteRatingStats(nextBooks),
+        meta: {
+          updatedAt,
+        },
+      };
+    });
+  }
+
   try {
     return applySiteRatingStats(
       await requestJson<Book[]>(`/api/books/${id}`, {
@@ -1366,6 +1922,39 @@ export async function readGenreInterests() {
 export async function writeGenreInterest(genre: string, interest: number) {
   const nextGenre = normalizeGenreTag(genre);
 
+  if (isSupabaseConfigured) {
+    return mutateRemoteStoredState(({ state }) => {
+      if (!nextGenre) {
+        throw new Error("Genre is required.");
+      }
+
+      const activeProfile = findActiveStoredProfile(state);
+      const updatedAt = new Date().toISOString();
+      const nextMap = {
+        ...activeProfile.genreInterests,
+        [nextGenre]: Math.max(0, Math.min(5, Number(interest))),
+      };
+      const nextProfile = createStoredProfile({
+        ...activeProfile,
+        genreInterests: nextMap,
+        meta: {
+          ...activeProfile.meta,
+          seeded: false,
+          updatedAt,
+        },
+      });
+      const nextState = replaceActiveStoredProfile(state, nextProfile);
+
+      return {
+        nextState,
+        buildResult: () => ({ ...nextMap }),
+        meta: {
+          updatedAt,
+        },
+      };
+    });
+  }
+
   try {
     return await requestJson<GenreInterestMap>(
       `/api/genre-interests/${encodeURIComponent(nextGenre)}`,
@@ -1392,6 +1981,33 @@ export async function writeGenreInterest(genre: string, interest: number) {
 export async function deleteGenreInterest(genre: string) {
   const nextGenre = normalizeGenreTag(genre);
 
+  if (isSupabaseConfigured) {
+    return mutateRemoteStoredState(({ state }) => {
+      const activeProfile = findActiveStoredProfile(state);
+      const updatedAt = new Date().toISOString();
+      const nextMap = { ...activeProfile.genreInterests };
+      delete nextMap[nextGenre];
+      const nextProfile = createStoredProfile({
+        ...activeProfile,
+        genreInterests: nextMap,
+        meta: {
+          ...activeProfile.meta,
+          seeded: false,
+          updatedAt,
+        },
+      });
+      const nextState = replaceActiveStoredProfile(state, nextProfile);
+
+      return {
+        nextState,
+        buildResult: () => ({ ...nextMap }),
+        meta: {
+          updatedAt,
+        },
+      };
+    });
+  }
+
   try {
     return await requestJson<GenreInterestMap>(
       `/api/genre-interests/${encodeURIComponent(nextGenre)}`,
@@ -1413,6 +2029,40 @@ export async function deleteGenreInterest(genre: string) {
 export async function renameGenreInterest(oldGenre: string, newGenre: string) {
   const oldValue = normalizeGenreTag(oldGenre);
   const nextValue = normalizeGenreTag(newGenre);
+
+  if (isSupabaseConfigured) {
+    return mutateRemoteStoredState(({ state }) => {
+      const activeProfile = findActiveStoredProfile(state);
+      const updatedAt = new Date().toISOString();
+      const nextMap = { ...activeProfile.genreInterests };
+
+      if (oldValue in nextMap) {
+        if (nextValue) {
+          nextMap[nextValue] = nextMap[oldValue];
+        }
+        delete nextMap[oldValue];
+      }
+
+      const nextProfile = createStoredProfile({
+        ...activeProfile,
+        genreInterests: nextMap,
+        meta: {
+          ...activeProfile.meta,
+          seeded: false,
+          updatedAt,
+        },
+      });
+      const nextState = replaceActiveStoredProfile(state, nextProfile);
+
+      return {
+        nextState,
+        buildResult: () => ({ ...nextMap }),
+        meta: {
+          updatedAt,
+        },
+      };
+    });
+  }
 
   try {
     return await requestJson<GenreInterestMap>("/api/genre-interests/rename", {
@@ -1440,6 +2090,36 @@ export async function renameGenreInterest(oldGenre: string, newGenre: string) {
 export async function renameGenreInBooks(oldGenre: string, newGenre: string) {
   const oldValue = normalizeGenreTag(oldGenre);
   const nextValue = normalizeGenreTag(newGenre);
+
+  if (isSupabaseConfigured) {
+    return mutateRemoteStoredState(({ state }) => {
+      const activeProfile = findActiveStoredProfile(state);
+      const updatedAt = new Date().toISOString();
+      const nextBooks = activeProfile.books.map((book) => ({
+        ...book,
+        genres: replaceTag(book.genres, oldValue, nextValue, normalizeGenreTag),
+      }));
+      const nextProfile = createStoredProfile({
+        ...activeProfile,
+        books: nextBooks,
+        catalogBooks: upsertCatalogBooks(activeProfile.catalogBooks, nextBooks),
+        meta: {
+          ...activeProfile.meta,
+          seeded: false,
+          updatedAt,
+        },
+      });
+      const nextState = replaceActiveStoredProfile(state, nextProfile);
+
+      return {
+        nextState,
+        buildResult: () => applySiteRatingStats(nextBooks),
+        meta: {
+          updatedAt,
+        },
+      };
+    });
+  }
 
   try {
     return applySiteRatingStats(
@@ -1474,6 +2154,41 @@ export async function readSeriesExperiences() {
 }
 
 export async function writeAuthorExperience(author: string, experience: number) {
+  if (isSupabaseConfigured) {
+    return mutateRemoteStoredState(({ state }) => {
+      const nextAuthor = author.trim();
+
+      if (!nextAuthor) {
+        throw new Error("Author is required.");
+      }
+
+      const activeProfile = findActiveStoredProfile(state);
+      const updatedAt = new Date().toISOString();
+      const nextMap = {
+        ...activeProfile.authorExperiences,
+        [nextAuthor]: Math.max(0, Math.min(5, Number(experience))),
+      };
+      const nextProfile = createStoredProfile({
+        ...activeProfile,
+        authorExperiences: nextMap,
+        meta: {
+          ...activeProfile.meta,
+          seeded: false,
+          updatedAt,
+        },
+      });
+      const nextState = replaceActiveStoredProfile(state, nextProfile);
+
+      return {
+        nextState,
+        buildResult: () => ({ ...nextMap }),
+        meta: {
+          updatedAt,
+        },
+      };
+    });
+  }
+
   try {
     return await requestJson<AuthorExperienceMap>(
       `/api/author-experiences/${encodeURIComponent(author)}`,
@@ -1500,6 +2215,33 @@ export async function writeAuthorExperience(author: string, experience: number) 
 }
 
 export async function deleteAuthorExperience(author: string) {
+  if (isSupabaseConfigured) {
+    return mutateRemoteStoredState(({ state }) => {
+      const activeProfile = findActiveStoredProfile(state);
+      const updatedAt = new Date().toISOString();
+      const nextMap = { ...activeProfile.authorExperiences };
+      delete nextMap[author.trim()];
+      const nextProfile = createStoredProfile({
+        ...activeProfile,
+        authorExperiences: nextMap,
+        meta: {
+          ...activeProfile.meta,
+          seeded: false,
+          updatedAt,
+        },
+      });
+      const nextState = replaceActiveStoredProfile(state, nextProfile);
+
+      return {
+        nextState,
+        buildResult: () => ({ ...nextMap }),
+        meta: {
+          updatedAt,
+        },
+      };
+    });
+  }
+
   try {
     return await requestJson<AuthorExperienceMap>(
       `/api/author-experiences/${encodeURIComponent(author)}`,
@@ -1520,6 +2262,39 @@ export async function deleteAuthorExperience(author: string) {
 
 export async function writeSeriesExperience(series: string, experience: number) {
   const nextSeries = normalizeSeriesName(series);
+
+  if (isSupabaseConfigured) {
+    return mutateRemoteStoredState(({ state }) => {
+      if (!nextSeries) {
+        throw new Error("Series is required.");
+      }
+
+      const activeProfile = findActiveStoredProfile(state);
+      const updatedAt = new Date().toISOString();
+      const nextMap = {
+        ...activeProfile.seriesExperiences,
+        [nextSeries]: Math.max(0, Math.min(5, Number(experience))),
+      };
+      const nextProfile = createStoredProfile({
+        ...activeProfile,
+        seriesExperiences: nextMap,
+        meta: {
+          ...activeProfile.meta,
+          seeded: false,
+          updatedAt,
+        },
+      });
+      const nextState = replaceActiveStoredProfile(state, nextProfile);
+
+      return {
+        nextState,
+        buildResult: () => ({ ...nextMap }),
+        meta: {
+          updatedAt,
+        },
+      };
+    });
+  }
 
   try {
     return await requestJson<SeriesExperienceMap>(
@@ -1547,6 +2322,33 @@ export async function writeSeriesExperience(series: string, experience: number) 
 export async function deleteSeriesExperience(series: string) {
   const nextSeries = normalizeSeriesName(series);
 
+  if (isSupabaseConfigured) {
+    return mutateRemoteStoredState(({ state }) => {
+      const activeProfile = findActiveStoredProfile(state);
+      const updatedAt = new Date().toISOString();
+      const nextMap = { ...activeProfile.seriesExperiences };
+      delete nextMap[nextSeries];
+      const nextProfile = createStoredProfile({
+        ...activeProfile,
+        seriesExperiences: nextMap,
+        meta: {
+          ...activeProfile.meta,
+          seeded: false,
+          updatedAt,
+        },
+      });
+      const nextState = replaceActiveStoredProfile(state, nextProfile);
+
+      return {
+        nextState,
+        buildResult: () => ({ ...nextMap }),
+        meta: {
+          updatedAt,
+        },
+      };
+    });
+  }
+
   try {
     return await requestJson<SeriesExperienceMap>(
       `/api/series-experiences/${encodeURIComponent(nextSeries)}`,
@@ -1569,6 +2371,42 @@ export async function renameAuthorExperience(
   oldAuthor: string,
   newAuthor: string,
 ) {
+  if (isSupabaseConfigured) {
+    return mutateRemoteStoredState(({ state }) => {
+      const activeProfile = findActiveStoredProfile(state);
+      const updatedAt = new Date().toISOString();
+      const nextMap = { ...activeProfile.authorExperiences };
+      const oldValue = oldAuthor.trim();
+      const nextValue = newAuthor.trim();
+
+      if (oldValue in nextMap) {
+        if (nextValue) {
+          nextMap[nextValue] = nextMap[oldValue];
+        }
+        delete nextMap[oldValue];
+      }
+
+      const nextProfile = createStoredProfile({
+        ...activeProfile,
+        authorExperiences: nextMap,
+        meta: {
+          ...activeProfile.meta,
+          seeded: false,
+          updatedAt,
+        },
+      });
+      const nextState = replaceActiveStoredProfile(state, nextProfile);
+
+      return {
+        nextState,
+        buildResult: () => ({ ...nextMap }),
+        meta: {
+          updatedAt,
+        },
+      };
+    });
+  }
+
   try {
     return await requestJson<AuthorExperienceMap>("/api/author-experiences/rename", {
       method: "POST",
@@ -1595,6 +2433,36 @@ export async function renameAuthorExperience(
 }
 
 export async function renameAuthorInBooks(oldAuthor: string, newAuthor: string) {
+  if (isSupabaseConfigured) {
+    return mutateRemoteStoredState(({ state }) => {
+      const activeProfile = findActiveStoredProfile(state);
+      const updatedAt = new Date().toISOString();
+      const nextBooks = activeProfile.books.map((book) => ({
+        ...book,
+        authors: replaceTag(book.authors, oldAuthor, newAuthor),
+      }));
+      const nextProfile = createStoredProfile({
+        ...activeProfile,
+        books: nextBooks,
+        catalogBooks: upsertCatalogBooks(activeProfile.catalogBooks, nextBooks),
+        meta: {
+          ...activeProfile.meta,
+          seeded: false,
+          updatedAt,
+        },
+      });
+      const nextState = replaceActiveStoredProfile(state, nextProfile);
+
+      return {
+        nextState,
+        buildResult: () => applySiteRatingStats(nextBooks),
+        meta: {
+          updatedAt,
+        },
+      };
+    });
+  }
+
   try {
     return applySiteRatingStats(
       await requestJson<Book[]>("/api/books/authors/rename", {
