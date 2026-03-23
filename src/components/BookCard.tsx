@@ -5,7 +5,8 @@ import type {
 } from "react";
 
 export function formatScore(value: number) {
-  return `${Math.round(Math.max(0, Math.min(100, (value / 5) * 100)))}%`;
+  const pct = Math.max(0, Math.min(100, (value / 5) * 100));
+  return `${pct.toFixed(1)}%`;
 }
 
 export type BookCardProps = {
