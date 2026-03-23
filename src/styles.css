@@ -1584,39 +1584,30 @@ select:focus {
 .profile-info {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     flex: 1 1 auto;
     min-width: 0;
 }
 
 .profile-avatar {
     flex-shrink: 0;
-    width: 32px;
-    height: 32px;
+    width: 30px;
+    height: 30px;
     border-radius: 50%;
     background: var(--accent);
     color: #fff;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 0.72rem;
+    font-size: 0.68rem;
     font-weight: 600;
     letter-spacing: 0.02em;
 }
 
 .profile-text {
     display: flex;
-    flex-direction: column;
-    gap: 4px;
+    align-items: center;
     min-width: 0;
-}
-
-.profile-label {
-    font-size: 0.62rem;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--muted);
 }
 
 .profile-picker-row {
@@ -1630,9 +1621,9 @@ select:focus {
     position: relative;
     display: flex;
     align-items: center;
-    flex: 0 1 180px;
+    flex: 0 1 170px;
     min-width: 0;
-    height: 36px;
+    height: 34px;
     border: 1px solid var(--line);
     border-radius: 999px;
     background: var(--surface-strong);
@@ -1657,14 +1648,14 @@ select:focus {
     width: 100%;
     min-width: 0;
     height: 100%;
-    padding: 0 34px 0 14px;
+    padding: 0 32px 0 12px;
     border: 0;
     border-radius: 999px;
     appearance: none;
     -webkit-appearance: none;
     background: transparent;
     color: var(--text);
-    font-size: 0.92rem;
+    font-size: 0.86rem;
     font-weight: 500;
     line-height: 1;
     outline: none;
@@ -1673,14 +1664,16 @@ select:focus {
 
 .profile-create-btn {
     flex-shrink: 0;
-    height: 36px;
-    padding: 0 14px;
+    width: 34px;
+    height: 34px;
+    padding: 0;
     border: 1px solid var(--line);
-    border-radius: 999px;
+    border-radius: 50%;
     background: var(--surface-strong);
     color: var(--accent);
-    font-size: 0.86rem;
-    font-weight: 500;
+    font-size: 1rem;
+    font-weight: 400;
+    line-height: 1;
     cursor: pointer;
     transition: color 160ms ease, border-color 160ms ease, background 160ms ease;
 }
@@ -1688,12 +1681,6 @@ select:focus {
 .profile-create-btn:hover:not(:disabled) {
     border-color: var(--accent);
     background: var(--accent-soft);
-}
-
-.profile-plan {
-    font-size: 0.7rem;
-    line-height: 1.1;
-    color: var(--muted);
 }
 
 .profile-select-shell:focus-within {

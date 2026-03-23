@@ -2314,12 +2314,11 @@ export default function App() {
             />
           )}
           <div className="column-footer">
-            <div className="profile-info">
-              <div className="profile-avatar">
-                {profileInitials(activeProfile?.name ?? "Book Ranker")}
-              </div>
-              <div className="profile-text">
-                <span className="profile-label">Active profile</span>
+	            <div className="profile-info">
+	              <div className="profile-avatar">
+	                {profileInitials(activeProfile?.name ?? "Book Ranker")}
+	              </div>
+	              <div className="profile-text">
 	                <div className="profile-picker-row">
 	                  <label className="sr-only" htmlFor="profile-select">
 	                    Active profile
@@ -2344,19 +2343,18 @@ export default function App() {
 	                  <button
 	                    type="button"
 	                    className="profile-create-btn"
-                    onClick={() => {
-                      void handleCreateProfile();
-                    }}
-                    disabled={profileControlDisabled}
-                  >
-                    New
-                  </button>
-                </div>
-                <span className="profile-plan">
-                  {books.length === 1 ? "1 book saved" : `${books.length} books saved`}
-                </span>
-              </div>
-            </div>
+	                    onClick={() => {
+	                      void handleCreateProfile();
+	                    }}
+	                    disabled={profileControlDisabled}
+	                    aria-label="Create profile"
+	                    title="Create profile"
+	                  >
+	                    +
+	                  </button>
+	                </div>
+	              </div>
+	            </div>
             <div className="footer-actions">
             <button
               type="button"
