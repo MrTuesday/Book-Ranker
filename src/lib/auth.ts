@@ -51,12 +51,19 @@ export async function signInWithEmail(email: string, password: string) {
   }
 }
 
-export async function signUpWithEmail(email: string, password: string) {
+export async function signUpWithEmail(
+  email: string,
+  password: string,
+  username: string,
+) {
   const client = requireSupabase();
   const { data, error } = await client.auth.signUp({
     email: email.trim(),
     password,
     options: {
+      data: {
+        username: username.trim(),
+      },
       emailRedirectTo:
         typeof window !== "undefined" ? `${window.location.origin}/` : undefined,
     },
@@ -69,6 +76,19 @@ export async function signUpWithEmail(email: string, password: string) {
   return {
     needsEmailConfirmation: data.session == null,
   };
+}
+
+export async function updateSignedInUsername(username: string) {
+  const client = requireSupabase();
+  const { error } = await client.auth.updateUser({
+    data: {
+      username: username.trim(),
+    },
+  });
+
+  if (error) {
+    throw error;
+  }
 }
 
 export async function requestPasswordReset(email: string) {

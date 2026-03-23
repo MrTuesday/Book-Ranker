@@ -1673,17 +1673,15 @@ select:focus {
     border-bottom: 1px solid var(--line);
 }
 
-.profile-menu-label {
-    font-size: 0.68rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
+.profile-menu-username {
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--text);
 }
 
 .profile-menu-email {
     font-size: 0.82rem;
-    color: var(--text);
+    color: var(--muted);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1872,6 +1870,50 @@ select:focus {
     font-size: 0.86rem;
     font-weight: 600;
     cursor: pointer;
+}
+
+.account-setup-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: rgba(245, 243, 239, 0.72);
+    backdrop-filter: blur(10px);
+}
+
+.account-setup-card {
+    width: min(420px, 100%);
+    display: grid;
+    gap: 14px;
+    padding: 28px;
+    border: 1px solid var(--line);
+    border-radius: 24px;
+    background: rgba(255, 252, 247, 0.96);
+    box-shadow: var(--shadow);
+}
+
+.account-setup-eyebrow {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.account-setup-card h2 {
+    font-size: 1.45rem;
+}
+
+.account-setup-copy {
+    font-size: 0.92rem;
+    color: var(--muted);
+}
+
+.account-setup-form {
+    display: grid;
+    gap: 12px;
 }
 
 @media (max-width: 720px) {

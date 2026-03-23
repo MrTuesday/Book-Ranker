@@ -15,9 +15,7 @@ import {
 import { createPortal } from "react-dom";
 import {
   AuthRequiredError,
-  createProfile,
   createBookRecord,
-  deleteProfile,
   deleteAuthorExperience,
   deleteBookRecord,
   deleteGenreInterest,
@@ -31,7 +29,6 @@ import {
   type ProfileSummary,
   type SeriesExperienceMap,
   normalizeGenreTag,
-  setActiveProfile,
   updateProfile,
   updateBookRecord,
   writeGenreInterest,
@@ -50,6 +47,7 @@ import {
   signUpWithEmail,
   subscribeToAuthChanges,
   type AuthSession,
+  updateSignedInUsername,
 } from "./lib/auth";
 import {
   fetchPathRecommendations,
@@ -400,6 +398,15 @@ function profileInitials(name: string) {
   return words.map((word) => word[0]?.toLocaleUpperCase() ?? "").join("");
 }
 
+function normalizeAccountUsername(value: unknown) {
+  return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
+}
+
+function isPlaceholderProfileName(value: string | null | undefined) {
+  const normalized = normalizeAccountUsername(value);
+  return !normalized || normalized === "My Profile" || normalized === "Profile";
+}
+
 function messageFromCatalogLookupError(error: unknown) {
   if (error instanceof DOMException && error.name === "AbortError") {
     return "";
@@ -433,18 +440,19 @@ export default function App() {
   const [highlightedBookId, setHighlightedBookId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [isManagingProfiles, setIsManagingProfiles] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [authStatus, setAuthStatus] = useState<AuthStatus>(
     authEnabled ? "checking" : "disabled",
   );
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
   const [authMode, setAuthMode] = useState<AuthView>("sign-in");
+  const [authUsernameInput, setAuthUsernameInput] = useState("");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authConfirmPassword, setAuthConfirmPassword] = useState("");
   const [authFeedback, setAuthFeedback] = useState<string | null>(null);
   const [isAuthBusy, setIsAuthBusy] = useState(false);
+  const [isUpdatingUsername, setIsUpdatingUsername] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
   const [pendingTagDelete, setPendingTagDelete] = useState<string | null>(null);
   const [titleSuggestions, setTitleSuggestions] = useState<CatalogSearchResult[]>(
@@ -834,12 +842,23 @@ export default function App() {
     () => profiles.find((profile) => profile.id === activeProfileId) ?? null,
     [profiles, activeProfileId],
   );
-  const displayedProfileName =
-    activeProfile?.name ?? authSession?.user.email ?? "Profile";
   const accountEmail = authSession?.user.email?.trim() ?? "";
-  const canDeleteActiveProfile = profiles.length > 1 && activeProfile != null;
+  const storedAccountUsername = normalizeAccountUsername(
+    authSession?.user.user_metadata?.username,
+  );
+  const displayedProfileName =
+    storedAccountUsername ||
+    (!isPlaceholderProfileName(activeProfile?.name) ? activeProfile?.name : "") ||
+    accountEmail.split("@")[0] ||
+    "Profile";
+  const needsUsernameSetup =
+    authEnabled &&
+    authStatus === "signed-in" &&
+    authSession != null &&
+    !storedAccountUsername &&
+    isPlaceholderProfileName(activeProfile?.name);
   const profileControlDisabled =
-    isLoading || isSaving || isManagingProfiles || isAuthBusy;
+    isLoading || isSaving || isAuthBusy || isUpdatingUsername;
 
   const isEditing = editingBookId !== null;
   const currentYearLabel = String(currentYear);
@@ -972,6 +991,10 @@ export default function App() {
         setAuthSession(session);
         setAuthStatus(session ? "signed-in" : "signed-out");
         setAuthEmail(session?.user.email ?? "");
+        setAuthUsernameInput(
+          normalizeAccountUsername(session?.user.user_metadata?.username) ||
+            (session?.user.email?.split("@")[0] ?? ""),
+        );
       })
       .catch((error) => {
         if (!isActive) {
@@ -997,11 +1020,16 @@ export default function App() {
 
       if (session) {
         setAuthEmail(session.user.email ?? "");
+        setAuthUsernameInput(
+          normalizeAccountUsername(session.user.user_metadata?.username) ||
+            (session.user.email?.split("@")[0] ?? ""),
+        );
         setAuthFeedback(null);
         setErrorMessage(null);
         return;
       }
 
+      setAuthUsernameInput("");
       resetProfileWorkspace();
       clearLibraryState();
     });
@@ -1029,6 +1057,13 @@ export default function App() {
       return;
     }
 
+    const nextUsername = normalizeAccountUsername(authUsernameInput);
+
+    if (authMode === "sign-up" && !nextUsername) {
+      setErrorMessage("Username is required.");
+      return;
+    }
+
     if (authMode === "sign-up" && authPassword !== authConfirmPassword) {
       setErrorMessage("Passwords do not match.");
       return;
@@ -1038,7 +1073,7 @@ export default function App() {
 
     try {
       if (authMode === "sign-up") {
-        const result = await signUpWithEmail(nextEmail, authPassword);
+        const result = await signUpWithEmail(nextEmail, authPassword, nextUsername);
         setAuthPassword("");
         setAuthConfirmPassword("");
 
@@ -1064,55 +1099,6 @@ export default function App() {
     }
   }
 
-  async function handleCreateProfile() {
-    setIsProfileMenuOpen(false);
-    const name = window.prompt("Name this profile");
-
-    if (name == null) {
-      return;
-    }
-
-    setIsManagingProfiles(true);
-    setIsLoading(true);
-    setErrorMessage(null);
-    resetProfileWorkspace();
-
-    try {
-      applyLibraryState(await createProfile(name));
-    } catch (error) {
-      setErrorMessage(messageFromError(error));
-    } finally {
-      setIsManagingProfiles(false);
-      setIsLoading(false);
-    }
-  }
-
-  async function handleProfileChange(nextProfileId: string) {
-    if (!nextProfileId) {
-      return;
-    }
-
-    if (nextProfileId === activeProfileId) {
-      setIsProfileMenuOpen(false);
-      return;
-    }
-
-    setIsManagingProfiles(true);
-    setIsLoading(true);
-    setErrorMessage(null);
-    setIsProfileMenuOpen(false);
-    resetProfileWorkspace();
-
-    try {
-      applyLibraryState(await setActiveProfile(nextProfileId));
-    } catch (error) {
-      setErrorMessage(messageFromError(error));
-    } finally {
-      setIsManagingProfiles(false);
-      setIsLoading(false);
-    }
-  }
-
   async function handleLogout() {
     setIsProfileMenuOpen(false);
     setErrorMessage(null);
@@ -1131,56 +1117,37 @@ export default function App() {
     }
   }
 
-  async function handleRenameActiveProfile() {
-    if (!activeProfile) {
-      return;
-    }
-
-    setIsProfileMenuOpen(false);
-    const nextName = window.prompt("Rename profile", activeProfile.name);
-
-    if (nextName == null) {
-      return;
-    }
-
-    setIsManagingProfiles(true);
+  async function handleUsernameSetupSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     setErrorMessage(null);
+    const nextUsername = normalizeAccountUsername(authUsernameInput);
+
+    if (!nextUsername) {
+      setErrorMessage("Username is required.");
+      return;
+    }
+
+    if (!authSession) {
+      setErrorMessage("Sign in required.");
+      return;
+    }
+
+    setIsUpdatingUsername(true);
 
     try {
-      applyLibraryState(await updateProfile(activeProfile.id, nextName));
+      await updateSignedInUsername(nextUsername);
+
+      if (activeProfile) {
+        applyLibraryState(await updateProfile(activeProfile.id, nextUsername));
+      }
+
+      const nextSession = await getAuthSession();
+      setAuthSession(nextSession);
+      setAuthUsernameInput(nextUsername);
     } catch (error) {
       setErrorMessage(messageFromError(error));
     } finally {
-      setIsManagingProfiles(false);
-    }
-  }
-
-  async function handleDeleteActiveProfile() {
-    if (!activeProfile || !canDeleteActiveProfile) {
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `Delete profile "${activeProfile.name}"? This removes its saved lists.`,
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
-    setIsProfileMenuOpen(false);
-    setIsManagingProfiles(true);
-    setIsLoading(true);
-    setErrorMessage(null);
-    resetProfileWorkspace();
-
-    try {
-      applyLibraryState(await deleteProfile(activeProfile.id));
-    } catch (error) {
-      setErrorMessage(messageFromError(error));
-    } finally {
-      setIsManagingProfiles(false);
-      setIsLoading(false);
+      setIsUpdatingUsername(false);
     }
   }
 
@@ -2648,6 +2615,22 @@ export default function App() {
                     disabled={isAuthBusy}
                   />
                 </label>
+                {authMode === "sign-up" ? (
+                  <label className="auth-field">
+                    <span>Username</span>
+                    <input
+                      className="auth-input"
+                      type="text"
+                      autoComplete="nickname"
+                      value={authUsernameInput}
+                      onChange={(event) => {
+                        setAuthUsernameInput(event.target.value);
+                      }}
+                      placeholder="How your name should appear"
+                      disabled={isAuthBusy}
+                    />
+                  </label>
+                ) : null}
                 {authMode !== "reset" ? (
                   <label className="auth-field">
                     <span>Password</span>
@@ -2830,7 +2813,7 @@ export default function App() {
 	                  title="Profile options"
 	                >
 	                  <div className="profile-avatar">
-	                    {profileInitials(activeProfile?.name ?? "Book Ranker")}
+	                    {profileInitials(displayedProfileName)}
 	                  </div>
 	                  <div className="profile-text">
 	                    <span className="profile-name">{displayedProfileName}</span>
@@ -2838,65 +2821,11 @@ export default function App() {
 	                </button>
 	                {isProfileMenuOpen ? (
 	                  <div className="profile-menu" role="menu" aria-label="Profile options">
-	                    {accountEmail ? (
-	                      <div className="profile-menu-account">
-	                        <span className="profile-menu-label">Signed in as</span>
+	                    <div className="profile-menu-account">
+	                      <span className="profile-menu-username">{displayedProfileName}</span>
+	                      {accountEmail ? (
 	                        <span className="profile-menu-email">{accountEmail}</span>
-	                      </div>
-	                    ) : null}
-	                    <div className="profile-menu-list">
-	                      {profiles.map((profile) => (
-	                        <button
-	                          key={profile.id}
-	                          type="button"
-	                          className={`profile-menu-item${profile.id === activeProfileId ? " is-active" : ""}`}
-	                          onClick={() => {
-	                            void handleProfileChange(profile.id);
-	                          }}
-	                          disabled={profileControlDisabled}
-	                          role="menuitem"
-	                        >
-	                          <span>{profile.name}</span>
-	                          {profile.id === activeProfileId ? (
-	                            <span className="profile-menu-state">Current</span>
-	                          ) : null}
-	                        </button>
-	                      ))}
-	                    </div>
-	                    <div className="profile-menu-actions">
-	                      <button
-	                        type="button"
-	                        className="profile-menu-link"
-	                        onClick={() => {
-	                          void handleCreateProfile();
-	                        }}
-	                        disabled={profileControlDisabled}
-	                        role="menuitem"
-	                      >
-	                        New profile
-	                      </button>
-	                      <button
-	                        type="button"
-	                        className="profile-menu-link"
-	                        onClick={() => {
-	                          void handleRenameActiveProfile();
-	                        }}
-	                        disabled={profileControlDisabled || activeProfile == null}
-	                        role="menuitem"
-	                      >
-	                        Rename profile
-	                      </button>
-	                      <button
-	                        type="button"
-	                        className="profile-menu-link is-danger"
-	                        onClick={() => {
-	                          void handleDeleteActiveProfile();
-	                        }}
-	                        disabled={profileControlDisabled || !canDeleteActiveProfile}
-	                        role="menuitem"
-	                      >
-	                        Delete profile
-	                      </button>
+	                      ) : null}
 	                    </div>
 	                    {authEnabled ? (
 	                      <button
@@ -3770,6 +3699,46 @@ export default function App() {
 	        </section>
 	        </aside>
 	      </div>
+	      {needsUsernameSetup ? (
+	        <div className="account-setup-overlay" role="dialog" aria-modal="true">
+	          <div className="account-setup-card">
+	            <p className="account-setup-eyebrow">Account setup</p>
+	            <h2>Choose a username</h2>
+	            <p className="account-setup-copy">
+	              This will appear above your email address in the account menu.
+	            </p>
+	            <form
+	              className="account-setup-form"
+	              onSubmit={(event) => {
+	                void handleUsernameSetupSubmit(event);
+	              }}
+	            >
+	              <label className="auth-field">
+	                <span>Username</span>
+	                <input
+	                  className="auth-input"
+	                  type="text"
+	                  autoComplete="nickname"
+	                  value={authUsernameInput}
+	                  onChange={(event) => {
+	                    setAuthUsernameInput(event.target.value);
+	                  }}
+	                  placeholder="How your name should appear"
+	                  disabled={isUpdatingUsername}
+	                />
+	              </label>
+	              {errorMessage ? <p className="auth-error">{errorMessage}</p> : null}
+	              <button
+	                type="submit"
+	                className="auth-submit"
+	                disabled={isUpdatingUsername}
+	              >
+	                {isUpdatingUsername ? "Saving..." : "Save username"}
+	              </button>
+	            </form>
+	          </div>
+	        </div>
+	      ) : null}
 	    </main>
 	  );
 	}

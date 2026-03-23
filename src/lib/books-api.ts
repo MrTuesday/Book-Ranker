@@ -67,6 +67,10 @@ function normalizeSeriesName(value: unknown) {
   return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
 }
 
+function normalizeProfileName(value: unknown) {
+  return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
+}
+
 function normalizeSeriesNumber(value: unknown) {
   if (value == null || value === "") {
     return undefined;
@@ -607,7 +611,7 @@ function createRemoteStoredLibraryStateResult(
   return withNativeRatingStats(withRemoteMeta(toLibraryState(state), meta));
 }
 
-async function getRemoteUserId() {
+async function getRemoteAuthUser() {
   const client = requireSupabase();
   const { data, error } = await client.auth.getSession();
 
@@ -615,21 +619,36 @@ async function getRemoteUserId() {
     throw error;
   }
 
-  const userId = data.session?.user.id;
+  const user = data.session?.user;
 
-  if (!userId) {
+  if (!user) {
     throw new AuthRequiredError();
   }
 
-  return userId;
+  return user;
 }
 
-function createInitialRemoteStoredLibraryState() {
+function createInitialRemoteStoredLibraryState(defaultProfileName?: string) {
+  const nextDefaultProfileName =
+    normalizeProfileName(defaultProfileName) || DEFAULT_PROFILE_NAME;
+
   if (!getStorage()) {
-    return createStoredLibraryState();
+    return createStoredLibraryState({
+      profiles: [createDefaultStoredProfile({ name: nextDefaultProfileName })],
+      activeProfileId: DEFAULT_PROFILE_ID,
+    });
   }
 
-  return readStoredLocalLibraryState();
+  const localState = readStoredLocalLibraryState();
+
+  if (hasMeaningfulStoredState(localState)) {
+    return localState;
+  }
+
+  return createStoredLibraryState({
+    profiles: [createDefaultStoredProfile({ name: nextDefaultProfileName })],
+    activeProfileId: DEFAULT_PROFILE_ID,
+  });
 }
 
 async function persistRemoteStoredLibraryState(
@@ -707,8 +726,9 @@ async function persistRemoteStoredLibraryState(
 
 async function initializeRemoteStoredLibraryState(
   userId: string,
+  defaultProfileName?: string,
 ): Promise<RemoteLibraryContext> {
-  const state = createInitialRemoteStoredLibraryState();
+  const state = createInitialRemoteStoredLibraryState(defaultProfileName);
   const meta = {
     migratedLocalState: hasMeaningfulStoredState(state),
     updatedAt: new Date().toISOString(),
@@ -725,7 +745,9 @@ async function initializeRemoteStoredLibraryState(
 
 async function readRemoteStoredLibraryContext(): Promise<RemoteLibraryContext> {
   const client = requireSupabase();
-  const userId = await getRemoteUserId();
+  const user = await getRemoteAuthUser();
+  const userId = user.id;
+  const username = normalizeProfileName(user.user_metadata?.username);
   const [profilesResult, settingsResult] = await Promise.all([
     client
       .from(REMOTE_PROFILE_TABLE)
@@ -752,7 +774,7 @@ async function readRemoteStoredLibraryContext(): Promise<RemoteLibraryContext> {
   const profileRows = (profilesResult.data ?? []) as RemoteProfileRow[];
 
   if (profileRows.length === 0) {
-    return initializeRemoteStoredLibraryState(userId);
+    return initializeRemoteStoredLibraryState(userId, username);
   }
 
   const profiles = profileRows.map(normalizeRemoteProfileRow);
