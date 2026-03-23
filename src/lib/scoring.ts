@@ -108,7 +108,7 @@ export type PredictiveWeightSample = {
   target: number;
 };
 
-const DEFAULT_CONNECTION_EXPONENT = 0;
+const DEFAULT_CONNECTION_EXPONENT = 0.5;
 const CONNECTION_EXPONENT_MAX = 2;
 const CONNECTION_EXPONENT_STEP = 0.25;
 
@@ -122,7 +122,7 @@ const DEFAULT_SIGNAL_WEIGHTS: SignalWeights = {
 
 const MIN_ADAPTIVE_WEIGHT_SAMPLES = 3;
 const WEIGHT_SEARCH_STEP = 0.05;
-const ADAPTIVE_WEIGHT_PRIOR_SAMPLES = 12;
+const ADAPTIVE_WEIGHT_PRIOR_SAMPLES = 6;
 
 function blendSignalWeights(
   defaults: SignalWeights,
