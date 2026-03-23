@@ -425,8 +425,8 @@ export async function searchOpenLibraryCatalog(query, options = {}) {
     };
   }
 
-  if (isCatalogDbAvailable()) {
-    const rows = searchCatalogDb(trimmedQuery, limit);
+  if (await isCatalogDbAvailable()) {
+    const rows = await searchCatalogDb(trimmedQuery, limit);
 
     return {
       provider: "openlibrary",
@@ -475,8 +475,8 @@ export async function searchOpenLibraryRecommendations(selectedTags, options = {
     };
   }
 
-  if (isCatalogDbAvailable()) {
-    return searchRecommendationsFromDb(tags, limit);
+  if (await isCatalogDbAvailable()) {
+    return await searchRecommendationsFromDb(tags, limit);
   }
 
   const endpoint = options.endpoint ?? DEFAULT_OPEN_LIBRARY_URL;
@@ -642,7 +642,7 @@ export async function searchOpenLibraryRecommendations(selectedTags, options = {
   };
 }
 
-function searchRecommendationsFromDb(tags, limit) {
+async function searchRecommendationsFromDb(tags, limit) {
   const prioritizedTags = sortRecommendationTags(tags);
   const requiredTags = prioritizedTags.filter(
     (tag) => !isBroadRecommendationTag(tag),
@@ -651,7 +651,7 @@ function searchRecommendationsFromDb(tags, limit) {
 
   // Try multi-tag search first
   if (prioritizedTags.length > 1) {
-    const multiResults = searchCatalogDbBySubjects(
+    const multiResults = await searchCatalogDbBySubjects(
       prioritizedTags.slice(0, MAX_RECOMMENDATION_EXACT_TAGS),
       limit,
     );
@@ -674,7 +674,7 @@ function searchRecommendationsFromDb(tags, limit) {
       break;
     }
 
-    const rows = searchCatalogDbBySubject(
+    const rows = await searchCatalogDbBySubject(
       tag,
       Math.max(MIN_RECOMMENDATION_RESULTS_PER_TAG, limit),
     );

@@ -1,28 +1,51 @@
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import Database from "better-sqlite3";
+import { createClient } from "@libsql/client";
 
 const rootDir = resolve(fileURLToPath(new URL("../..", import.meta.url)));
-const defaultDbPath =
-  process.env.CATALOG_DB_PATH ?? resolve(rootDir, "data", "openlibrary.db");
 
-let db = null;
+let client = null;
 
-function getDb() {
-  if (!db) {
-    db = new Database(defaultDbPath, { readonly: true });
-    db.pragma("journal_mode = WAL");
-    db.pragma("cache_size = -64000"); // 64MB cache
+function getClient() {
+  if (!client) {
+    const tursoUrl = process.env.TURSO_DATABASE_URL;
+    const tursoToken = process.env.TURSO_AUTH_TOKEN;
+
+    if (tursoUrl) {
+      // Production: connect to Turso
+      client = createClient({
+        url: tursoUrl,
+        authToken: tursoToken,
+      });
+    } else {
+      // Local development: use local SQLite file
+      const dbPath =
+        process.env.CATALOG_DB_PATH ??
+        resolve(rootDir, "data", "openlibrary-trimmed.db");
+
+      client = createClient({
+        url: `file:${dbPath}`,
+      });
+    }
   }
 
-  return db;
+  return client;
 }
 
-export function isCatalogDbAvailable() {
+let dbAvailable = null;
+
+export async function isCatalogDbAvailable() {
+  if (dbAvailable !== null) {
+    return dbAvailable;
+  }
+
   try {
-    getDb();
+    const db = getClient();
+    await db.execute("SELECT 1");
+    dbAvailable = true;
     return true;
   } catch {
+    dbAvailable = false;
     return false;
   }
 }
@@ -53,24 +76,25 @@ function escapeLike(value) {
   return value.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
 }
 
-export function searchCatalogDb(query, limit = 6) {
+export async function searchCatalogDb(query, limit = 6) {
   const trimmed = query.trim();
 
   if (!trimmed) {
     return [];
   }
 
-  const db = getDb();
+  const db = getClient();
   const escaped = escapeLike(trimmed);
-  const rows = db
-    .prepare(SEARCH_QUERY)
-    .all(`%${escaped}%`, trimmed, escaped, limit);
+  const result = await db.execute({
+    sql: SEARCH_QUERY,
+    args: [`%${escaped}%`, trimmed, escaped, limit],
+  });
 
-  return rows.map((row) => ({
+  return result.rows.map((row) => ({
     key: row.work_key,
     title: row.title,
     authors: row.author_names
-      ? row.author_names.split(",").map((name) => name.trim())
+      ? String(row.author_names).split(",").map((name) => name.trim())
       : [],
     subjects: row.subjects ? safeParseJson(row.subjects) : [],
     series: row.series ?? undefined,
@@ -117,24 +141,25 @@ const MULTI_SUBJECT_SEARCH_QUERY = `
   LIMIT ?
 `;
 
-export function searchCatalogDbBySubject(tag, limit = 12) {
+export async function searchCatalogDbBySubject(tag, limit = 12) {
   const trimmed = tag.trim();
 
   if (!trimmed) {
     return [];
   }
 
-  const db = getDb();
+  const db = getClient();
   const escaped = escapeLike(trimmed);
-  const rows = db
-    .prepare(SUBJECT_SEARCH_QUERY)
-    .all(`%"${escaped}"%`, limit);
+  const result = await db.execute({
+    sql: SUBJECT_SEARCH_QUERY,
+    args: [`%"${escaped}"%`, limit],
+  });
 
-  return rows.map((row) => ({
+  return result.rows.map((row) => ({
     key: row.work_key,
     title: row.title,
     authors: row.author_names
-      ? row.author_names.split(",").map((name) => name.trim())
+      ? String(row.author_names).split(",").map((name) => name.trim())
       : [],
     subjects: row.subjects ? safeParseJson(row.subjects) : [],
     series: row.series ?? undefined,
@@ -143,7 +168,7 @@ export function searchCatalogDbBySubject(tag, limit = 12) {
   }));
 }
 
-export function searchCatalogDbBySubjects(tags, limit = 12) {
+export async function searchCatalogDbBySubjects(tags, limit = 12) {
   if (tags.length === 0) {
     return [];
   }
@@ -152,20 +177,21 @@ export function searchCatalogDbBySubjects(tags, limit = 12) {
     return searchCatalogDbBySubject(tags[0], limit);
   }
 
-  const db = getDb();
+  const db = getClient();
   const escaped = tags.map((tag) => `%"${escapeLike(tag.trim())}"%`);
 
   // Try the first two tags combined
-  const rows = db
-    .prepare(MULTI_SUBJECT_SEARCH_QUERY)
-    .all(escaped[0], escaped[1], limit);
+  const result = await db.execute({
+    sql: MULTI_SUBJECT_SEARCH_QUERY,
+    args: [escaped[0], escaped[1], limit],
+  });
 
-  if (rows.length > 0) {
-    return rows.map((row) => ({
+  if (result.rows.length > 0) {
+    return result.rows.map((row) => ({
       key: row.work_key,
       title: row.title,
       authors: row.author_names
-        ? row.author_names.split(",").map((name) => name.trim())
+        ? String(row.author_names).split(",").map((name) => name.trim())
         : [],
       subjects: row.subjects ? safeParseJson(row.subjects) : [],
       series: row.series ?? undefined,

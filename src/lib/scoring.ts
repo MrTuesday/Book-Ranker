@@ -96,19 +96,6 @@ export type SignalWeights = {
   author: number;
   genre: number;
   series: number;
-  connectionExponent: number;
-};
-
-export type ConnectionRatios = {
-  author: number;
-  genre: number;
-  series: number;
-};
-
-export const DEFAULT_CONNECTION_RATIOS: ConnectionRatios = {
-  author: 1,
-  genre: 1,
-  series: 1,
 };
 
 export type PredictiveWeightSample = {
@@ -116,25 +103,20 @@ export type PredictiveWeightSample = {
   author: number | null;
   genre: number | null;
   series: number | null;
-  connectionRatios: ConnectionRatios;
+  genreWeightScale: number;
   target: number;
 };
-
-const DEFAULT_CONNECTION_EXPONENT = 0.5;
-const CONNECTION_EXPONENT_MAX = 2;
-const CONNECTION_EXPONENT_STEP = 0.25;
 
 const DEFAULT_SIGNAL_WEIGHTS: SignalWeights = {
   bayesian: BAYESIAN_SIGNAL_WEIGHT,
   author: AUTHOR_SIGNAL_WEIGHT,
   genre: GENRE_SIGNAL_WEIGHT,
   series: SERIES_SIGNAL_WEIGHT,
-  connectionExponent: DEFAULT_CONNECTION_EXPONENT,
 };
 
 const MIN_ADAPTIVE_WEIGHT_SAMPLES = 3;
 const WEIGHT_SEARCH_STEP = 0.05;
-const ADAPTIVE_WEIGHT_PRIOR_SAMPLES = 6;
+const ADAPTIVE_WEIGHT_PRIOR_SAMPLES = 12;
 
 function blendSignalWeights(
   defaults: SignalWeights,
@@ -147,9 +129,6 @@ function blendSignalWeights(
     author: defaults.author + (learned.author - defaults.author) * blend,
     genre: defaults.genre + (learned.genre - defaults.genre) * blend,
     series: defaults.series + (learned.series - defaults.series) * blend,
-    connectionExponent:
-      defaults.connectionExponent +
-      (learned.connectionExponent - defaults.connectionExponent) * blend,
   };
 }
 
@@ -158,22 +137,8 @@ function weightDistance(left: SignalWeights, right: SignalWeights) {
     (left.bayesian - right.bayesian) ** 2 +
     (left.author - right.author) ** 2 +
     (left.genre - right.genre) ** 2 +
-    (left.series - right.series) ** 2 +
-    (left.connectionExponent - right.connectionExponent) ** 2
+    (left.series - right.series) ** 2
   );
-}
-
-export function scaleTagWeights(
-  weights: SignalWeights,
-  ratios: ConnectionRatios,
-): SignalWeights {
-  const exp = weights.connectionExponent;
-  return {
-    ...weights,
-    author: weights.author * ratios.author ** exp,
-    genre: weights.genre * ratios.genre ** exp,
-    series: weights.series * ratios.series ** exp,
-  };
 }
 
 export function learnSignalWeights(
@@ -188,69 +153,52 @@ export function learnSignalWeights(
   let bestLoss = Number.POSITIVE_INFINITY;
   let bestDistance = 0;
   const steps = Math.round(1 / WEIGHT_SEARCH_STEP);
-  const exponentSteps = Math.round(
-    CONNECTION_EXPONENT_MAX / CONNECTION_EXPONENT_STEP,
-  );
 
-  for (
-    let exponentStep = 0;
-    exponentStep <= exponentSteps;
-    exponentStep += 1
-  ) {
-    const connectionExponent = exponentStep * CONNECTION_EXPONENT_STEP;
+  for (let bayesianStep = 0; bayesianStep <= steps; bayesianStep += 1) {
+    const bayesian = bayesianStep * WEIGHT_SEARCH_STEP;
 
-    for (let bayesianStep = 0; bayesianStep <= steps; bayesianStep += 1) {
-      const bayesian = bayesianStep * WEIGHT_SEARCH_STEP;
-
+    for (
+      let authorStep = 0;
+      authorStep <= steps - bayesianStep;
+      authorStep += 1
+    ) {
+      const author = authorStep * WEIGHT_SEARCH_STEP;
       for (
-        let authorStep = 0;
-        authorStep <= steps - bayesianStep;
-        authorStep += 1
+        let genreStep = 0;
+        genreStep <= steps - bayesianStep - authorStep;
+        genreStep += 1
       ) {
-        const author = authorStep * WEIGHT_SEARCH_STEP;
-        for (
-          let genreStep = 0;
-          genreStep <= steps - bayesianStep - authorStep;
-          genreStep += 1
+        const genre = genreStep * WEIGHT_SEARCH_STEP;
+        const series = 1 - bayesian - author - genre;
+
+        if (series < 0) {
+          continue;
+        }
+
+        const candidate = { bayesian, author, genre, series };
+        const loss =
+          samples.reduce((total, sample) => {
+            const prediction = predictiveScore(
+              sample.bayesian,
+              sample.author,
+              sample.genre,
+              sample.series,
+              candidate,
+              sample.genreWeightScale,
+            );
+            const error = prediction - sample.target;
+
+            return total + error ** 2;
+          }, 0) / samples.length;
+        const distance = weightDistance(candidate, defaults);
+
+        if (
+          loss < bestLoss ||
+          (Math.abs(loss - bestLoss) < 1e-9 && distance < bestDistance)
         ) {
-          const genre = genreStep * WEIGHT_SEARCH_STEP;
-          const series = 1 - bayesian - author - genre;
-
-          if (series < 0) {
-            continue;
-          }
-
-          const candidate: SignalWeights = {
-            bayesian,
-            author,
-            genre,
-            series,
-            connectionExponent,
-          };
-          const loss =
-            samples.reduce((total, sample) => {
-              const scaled = scaleTagWeights(candidate, sample.connectionRatios);
-              const prediction = predictiveScore(
-                sample.bayesian,
-                sample.author,
-                sample.genre,
-                sample.series,
-                scaled,
-              );
-              const error = prediction - sample.target;
-
-              return total + error ** 2;
-            }, 0) / samples.length;
-          const distance = weightDistance(candidate, defaults);
-
-          if (
-            loss < bestLoss ||
-            (Math.abs(loss - bestLoss) < 1e-9 && distance < bestDistance)
-          ) {
-            bestWeights = candidate;
-            bestLoss = loss;
-            bestDistance = distance;
-          }
+          bestWeights = candidate;
+          bestLoss = loss;
+          bestDistance = distance;
         }
       }
     }
@@ -267,6 +215,7 @@ export function predictiveScore(
   genrePref: number | null,
   seriesPref: number | null,
   weights = DEFAULT_SIGNAL_WEIGHTS,
+  genreWeightScale = 1,
 ) {
   let weightedTotal = bayesian * weights.bayesian;
   let totalWeight = weights.bayesian;
@@ -277,8 +226,10 @@ export function predictiveScore(
   }
 
   if (genrePref != null) {
-    weightedTotal += genrePref * weights.genre;
-    totalWeight += weights.genre;
+    const effectiveGenreWeight = weights.genre * Math.max(1, genreWeightScale);
+
+    weightedTotal += genrePref * effectiveGenreWeight;
+    totalWeight += effectiveGenreWeight;
   }
 
   if (seriesPref != null) {
@@ -458,6 +409,7 @@ export function scoreBook(
   authorPref: number | null,
   genrePref: number | null,
   seriesPref: number | null,
+  genreWeightScale: number,
   myRating?: number,
   progress?: number,
   readCount = 0,
@@ -469,6 +421,7 @@ export function scoreBook(
     genrePref,
     seriesPref,
     signalWeights,
+    genreWeightScale,
   );
 
   if (myRating == null) {
