@@ -13,6 +13,7 @@ import {
   GLOBAL_MEAN,
   learnSignalWeights,
   realizeArchiveScore,
+  scaleTagWeights,
   scoreBook,
   SMOOTHING_FACTOR,
   type SignalWeights,
@@ -34,7 +35,6 @@ type BookAnalyticsOptions = {
 type ScoredBook = RankedBook & {
   predictiveStarRating: number;
   predictiveRatingCount: number;
-  scoredTagCount: number;
 };
 
 export type BookAnalytics = {
@@ -88,22 +88,50 @@ function buildPredictiveBook(book: Book): Book {
   };
 }
 
-function countScoredTagsForBook(
-  book: Pick<Book, "authors" | "genres" | "series">,
-  authorExperiences: AuthorExperienceMap,
-  genreInterests: GenreInterestMap,
-  seriesExperiences: SeriesExperienceMap,
+function buildConnectionRatioMap(
+  books: Pick<Book, "id" | "authors" | "genres" | "series">[],
 ) {
-  const scoredAuthors = new Set(
-    book.authors.filter((author) => authorExperiences[author] != null),
-  ).size;
-  const scoredGenres = new Set(
-    book.genres.filter((genre) => genreInterests[genre] != null),
-  ).size;
-  const scoredSeries =
-    book.series && seriesExperiences[book.series] != null ? 1 : 0;
+  const tagFrequency = new Map<string, number>();
 
-  return scoredAuthors + scoredGenres + scoredSeries;
+  for (const book of books) {
+    for (const author of book.authors) {
+      tagFrequency.set(author, (tagFrequency.get(author) ?? 0) + 1);
+    }
+    for (const genre of book.genres) {
+      tagFrequency.set(genre, (tagFrequency.get(genre) ?? 0) + 1);
+    }
+    if (book.series) {
+      tagFrequency.set(book.series, (tagFrequency.get(book.series) ?? 0) + 1);
+    }
+  }
+
+  let totalConnections = 0;
+  const rawCounts = new Map<number, number>();
+
+  for (const book of books) {
+    let connections = 0;
+    for (const author of book.authors) {
+      connections += tagFrequency.get(author) ?? 0;
+    }
+    for (const genre of book.genres) {
+      connections += tagFrequency.get(genre) ?? 0;
+    }
+    if (book.series) {
+      connections += tagFrequency.get(book.series) ?? 0;
+    }
+    rawCounts.set(book.id, connections);
+    totalConnections += connections;
+  }
+
+  const meanConnections =
+    books.length > 0 ? totalConnections / books.length : 0;
+
+  const connectionRatios = new Map<number, number>();
+  for (const [id, count] of rawCounts) {
+    connectionRatios.set(id, meanConnections > 0 ? count / meanConnections : 1);
+  }
+
+  return connectionRatios;
 }
 
 function buildPreferenceSignals(
@@ -132,7 +160,6 @@ function buildPreferenceSignals(
 function sortScoredBooks(left: ScoredBook, right: ScoredBook) {
   return (
     right.score - left.score ||
-    right.scoredTagCount - left.scoredTagCount ||
     right.predictiveStarRating - left.predictiveStarRating ||
     right.predictiveRatingCount - left.predictiveRatingCount
   );
@@ -144,7 +171,6 @@ function finalizeRanks(books: ScoredBook[]) {
       {
         predictiveStarRating: _predictiveStarRating,
         predictiveRatingCount: _predictiveRatingCount,
-        scoredTagCount: _scoredTagCount,
         ...book
       },
       index,
@@ -163,6 +189,7 @@ function buildRankedCollection(
   seriesExperiences: SeriesExperienceMap,
   smoothingFactors: Map<number, number>,
   signalWeights: SignalWeights,
+  connectionRatios: Map<number, number>,
   archiveMode = false,
 ) {
   const scoredBooks: ScoredBook[] = sourceBooks
@@ -180,6 +207,10 @@ function buildRankedCollection(
         GLOBAL_MEAN,
         smoothingFactors.get(book.id) ?? SMOOTHING_FACTOR,
       );
+      const scaledWeights = scaleTagWeights(
+        signalWeights,
+        connectionRatios.get(book.id) ?? 1,
+      );
       const fullScore = scoreBook(
         bayesian,
         preferences.author,
@@ -188,7 +219,7 @@ function buildRankedCollection(
         book.myRating,
         book.progress,
         book.readCount ?? 0,
-        signalWeights,
+        scaledWeights,
       );
 
       if (!archiveMode) {
@@ -196,12 +227,6 @@ function buildRankedCollection(
           ...book,
           predictiveStarRating: predictiveBook.starRating ?? 0,
           predictiveRatingCount: predictiveBook.ratingCount ?? 0,
-          scoredTagCount: countScoredTagsForBook(
-            book,
-            authorExperiences,
-            genreInterests,
-            seriesExperiences,
-          ),
           score: fullScore,
           rank: 0,
         };
@@ -219,12 +244,6 @@ function buildRankedCollection(
         ...book,
         predictiveStarRating: predictiveBook.starRating ?? 0,
         predictiveRatingCount: predictiveBook.ratingCount ?? 0,
-        scoredTagCount: countScoredTagsForBook(
-          book,
-          authorExperiences,
-          genreInterests,
-          seriesExperiences,
-        ),
         score,
         archiveLabel: archiveReadiness.label,
         rank: 0,
@@ -249,6 +268,7 @@ export function buildBookAnalytics({
     predictiveBooks,
     genreInterests,
   );
+  const connectionRatios = buildConnectionRatioMap(books);
   const signalWeights = learnSignalWeights(
     books.flatMap((displayBook) => {
       if (displayBook.myRating == null) {
@@ -276,6 +296,7 @@ export function buildBookAnalytics({
           author: preferences.author,
           genre: preferences.genre,
           series: preferences.series,
+          connectionRatio: connectionRatios.get(displayBook.id) ?? 1,
           target: displayBook.myRating,
         },
       ];
@@ -293,6 +314,7 @@ export function buildBookAnalytics({
       seriesExperiences,
       smoothingFactors,
       signalWeights,
+      connectionRatios,
     ),
     readBooks: buildRankedCollection(
       books.filter((book) => book.read),
@@ -302,6 +324,7 @@ export function buildBookAnalytics({
       seriesExperiences,
       smoothingFactors,
       signalWeights,
+      connectionRatios,
       true,
     ),
   };
