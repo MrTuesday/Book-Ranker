@@ -3196,7 +3196,7 @@ export default function App() {
                   <div className="tag-entry-row">
                     <input
                       type="text"
-                      placeholder="Series name"
+                      placeholder="The Decline and Fall of the Roman Empire"
                       value={draft.series}
                       onChange={(event) =>
                         updateDraft("series", event.target.value)
@@ -3243,7 +3243,7 @@ export default function App() {
                     >
                       <input
                         type="text"
-                        placeholder="Robert A. Caro"
+                        placeholder="Edward Gibbon"
                         value={draft.authorInput}
                         autoComplete="off"
                         aria-expanded={showAuthorSuggestions}
@@ -3430,7 +3430,7 @@ export default function App() {
                     >
                       <input
                         type="text"
-                        placeholder="Biography"
+                        placeholder="History"
                         value={draft.genreInput}
                         autoComplete="off"
                         aria-expanded={showGenreSuggestions}
