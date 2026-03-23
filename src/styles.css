@@ -1587,10 +1587,24 @@ select:focus {
     gap: 8px;
     flex: 1 1 auto;
     min-width: 0;
+    position: relative;
+}
+
+.profile-menu-shell {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.profile-avatar-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    background: transparent;
+    cursor: pointer;
 }
 
 .profile-avatar {
-    flex-shrink: 0;
     width: 30px;
     height: 30px;
     border-radius: 50%;
@@ -1604,112 +1618,191 @@ select:focus {
     letter-spacing: 0.02em;
 }
 
+.profile-avatar-btn:focus-visible {
+    outline: none;
+}
+
+.profile-avatar-btn:focus-visible .profile-avatar {
+    box-shadow: 0 0 0 3px rgba(180, 83, 9, 0.12);
+}
+
+.profile-avatar-btn:disabled {
+    cursor: not-allowed;
+}
+
+.profile-avatar-btn:disabled .profile-avatar {
+    opacity: 0.55;
+}
+
 .profile-text {
     display: flex;
     align-items: center;
     min-width: 0;
 }
 
-.profile-picker-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-width: 0;
-}
-
-.profile-select-shell {
-    position: relative;
-    display: flex;
-    align-items: center;
-    flex: 0 1 170px;
-    min-width: 0;
-    height: 34px;
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    background: var(--surface-strong);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
-}
-
-.profile-select-shell::after {
-    content: "";
-    position: absolute;
-    right: 14px;
-    top: 50%;
-    width: 8px;
-    height: 8px;
-    border-right: 1.6px solid currentColor;
-    border-bottom: 1.6px solid currentColor;
-    color: var(--muted);
-    pointer-events: none;
-    transform: translateY(-60%) rotate(45deg);
-}
-
-.profile-select {
-    width: 100%;
-    min-width: 0;
-    height: 100%;
-    padding: 0 32px 0 12px;
-    border: 0;
-    border-radius: 999px;
-    appearance: none;
-    -webkit-appearance: none;
-    background: transparent;
-    color: var(--text);
+.profile-name {
     font-size: 0.86rem;
     font-weight: 500;
-    line-height: 1;
-    outline: none;
-    box-shadow: none;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-.profile-create-btn {
-    flex-shrink: 0;
-    width: 34px;
-    height: 34px;
-    padding: 0;
+.profile-menu {
+    position: absolute;
+    left: 0;
+    bottom: calc(100% + 12px);
+    z-index: 20;
+    display: grid;
+    gap: 4px;
+    min-width: 220px;
+    padding: 8px;
     border: 1px solid var(--line);
-    border-radius: 50%;
+    border-radius: 16px;
     background: var(--surface-strong);
-    color: var(--accent);
-    font-size: 1rem;
-    font-weight: 400;
-    line-height: 1;
-    cursor: pointer;
-    transition: color 160ms ease, border-color 160ms ease, background 160ms ease;
+    box-shadow: var(--shadow);
 }
 
-.profile-create-btn:hover:not(:disabled) {
-    border-color: var(--accent);
+.profile-menu-list {
+    display: grid;
+    gap: 4px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--line);
+}
+
+.profile-menu-item,
+.profile-menu-link {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 36px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--text);
+    font-size: 0.84rem;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    transition: background 140ms ease, color 140ms ease;
+}
+
+.profile-menu-item:hover:not(:disabled),
+.profile-menu-link:hover:not(:disabled) {
     background: var(--accent-soft);
 }
 
-.profile-select-shell:focus-within {
-    border-color: rgba(180, 83, 9, 0.45);
-    box-shadow: 0 0 0 3px rgba(180, 83, 9, 0.08);
+.profile-menu-item.is-active {
+    background: rgba(180, 83, 9, 0.1);
 }
 
-.profile-select-shell:has(.profile-select:disabled) {
+.profile-menu-state {
+    font-size: 0.72rem;
+    color: var(--muted);
+}
+
+.profile-menu-link.is-danger {
+    color: #a64b2a;
+}
+
+.profile-menu-item:disabled,
+.profile-menu-link:disabled {
     opacity: 0.55;
+    cursor: not-allowed;
 }
 
-.profile-select:disabled,
-.profile-create-btn:disabled {
+.profile-session-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: rgba(245, 243, 239, 0.72);
+    backdrop-filter: blur(10px);
+}
+
+.profile-session-card {
+    width: min(420px, 100%);
+    display: grid;
+    gap: 14px;
+    padding: 28px;
+    border: 1px solid var(--line);
+    border-radius: 24px;
+    background: rgba(255, 252, 247, 0.96);
+    box-shadow: var(--shadow);
+}
+
+.profile-session-eyebrow {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.profile-session-card h2 {
+    font-size: 1.45rem;
+}
+
+.profile-session-copy {
+    font-size: 0.92rem;
+    color: var(--muted);
+}
+
+.profile-session-list {
+    display: grid;
+    gap: 8px;
+}
+
+.profile-session-item,
+.profile-session-create {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 44px;
+    padding: 0 14px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--surface-strong);
+    color: var(--text);
+    font-size: 0.92rem;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
+}
+
+.profile-session-item:hover:not(:disabled),
+.profile-session-create:hover:not(:disabled) {
+    border-color: rgba(180, 83, 9, 0.4);
+    background: var(--accent-soft);
+}
+
+.profile-session-action {
+    font-size: 0.78rem;
+    color: var(--muted);
+}
+
+.profile-session-item:disabled,
+.profile-session-create:disabled {
     opacity: 0.55;
     cursor: not-allowed;
 }
 
 @media (max-width: 720px) {
     .column-footer {
-        align-items: flex-end;
+        align-items: center;
     }
 
-    .profile-picker-row {
-        flex-wrap: wrap;
-    }
-
-    .profile-select-shell {
-        flex-basis: 100%;
-        max-width: 100%;
+    .profile-menu {
+        min-width: 200px;
     }
 }
 

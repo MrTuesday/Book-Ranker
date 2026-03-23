@@ -110,6 +110,7 @@ const MAX_SUGGESTIONS = 6;
 const MAX_AUTOFILL_TOPICS = 8;
 const TITLE_SUGGESTION_FETCH_LIMIT = 6;
 const MIN_YEAR_OPTION = 1900;
+const PROFILE_LOGGED_OUT_KEY = "book-ranker.profile-logged-out.v1";
 
 function createDraft(): BookDraft {
   return {
@@ -363,6 +364,18 @@ function profileInitials(name: string) {
   return words.map((word) => word[0]?.toLocaleUpperCase() ?? "").join("");
 }
 
+function readProfileSessionLoggedOut() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  try {
+    return window.localStorage.getItem(PROFILE_LOGGED_OUT_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
 function messageFromCatalogLookupError(error: unknown) {
   if (error instanceof DOMException && error.name === "AbortError") {
     return "";
@@ -396,6 +409,10 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isManagingProfiles, setIsManagingProfiles] = useState(false);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [isSignedOut, setIsSignedOut] = useState(() =>
+    readProfileSessionLoggedOut(),
+  );
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
   const [pendingTagDelete, setPendingTagDelete] = useState<string | null>(null);
   const [titleSuggestions, setTitleSuggestions] = useState<CatalogSearchResult[]>(
@@ -442,6 +459,7 @@ export default function App() {
   const leftColumnRef = useRef<HTMLElement | null>(null);
   const rightColumnRef = useRef<HTMLElement | null>(null);
   const entryFormRef = useRef<HTMLFormElement | null>(null);
+  const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const pendingBookRectsRef = useRef<Map<number, DOMRect> | null>(null);
   const highlightClearTimeoutRef = useRef<number | null>(null);
   const titleSearchRequestRef = useRef(0);
@@ -458,6 +476,24 @@ export default function App() {
     setSeriesExperiences(libraryState.seriesExperiences ?? {});
     setProfiles(libraryState.profiles);
     setActiveProfileId(libraryState.activeProfileId);
+  }, []);
+
+  const persistSignedOutState = useCallback((nextValue: boolean) => {
+    setIsSignedOut(nextValue);
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      if (nextValue) {
+        window.localStorage.setItem(PROFILE_LOGGED_OUT_KEY, "true");
+      } else {
+        window.localStorage.removeItem(PROFILE_LOGGED_OUT_KEY);
+      }
+    } catch {
+      // Ignore storage failures and keep the in-memory state.
+    }
   }, []);
 
   const captureVisibleBookRects = useCallback(() => {
@@ -753,6 +789,9 @@ export default function App() {
     () => profiles.find((profile) => profile.id === activeProfileId) ?? null,
     [profiles, activeProfileId],
   );
+  const displayedProfileName = isSignedOut
+    ? "Signed out"
+    : activeProfile?.name ?? "Profile";
   const profileControlDisabled = isLoading || isSaving || isManagingProfiles;
 
   const isEditing = editingBookId !== null;
@@ -850,6 +889,7 @@ export default function App() {
   }, [resetDraft]);
 
   async function handleCreateProfile() {
+    setIsProfileMenuOpen(false);
     const name = window.prompt("Name this profile");
 
     if (name == null) {
@@ -863,6 +903,7 @@ export default function App() {
 
     try {
       applyLibraryState(await createProfile(name));
+      persistSignedOutState(false);
     } catch (error) {
       setErrorMessage(messageFromError(error));
     } finally {
@@ -872,17 +913,25 @@ export default function App() {
   }
 
   async function handleProfileChange(nextProfileId: string) {
-    if (!nextProfileId || nextProfileId === activeProfileId) {
+    if (!nextProfileId) {
+      return;
+    }
+
+    if (nextProfileId === activeProfileId) {
+      setIsProfileMenuOpen(false);
+      persistSignedOutState(false);
       return;
     }
 
     setIsManagingProfiles(true);
     setIsLoading(true);
     setErrorMessage(null);
+    setIsProfileMenuOpen(false);
     resetProfileWorkspace();
 
     try {
       applyLibraryState(await setActiveProfile(nextProfileId));
+      persistSignedOutState(false);
     } catch (error) {
       setErrorMessage(messageFromError(error));
     } finally {
@@ -890,6 +939,46 @@ export default function App() {
       setIsLoading(false);
     }
   }
+
+  function handleLogout() {
+    setIsProfileMenuOpen(false);
+    setErrorMessage(null);
+    resetProfileWorkspace();
+    persistSignedOutState(true);
+  }
+
+  useEffect(() => {
+    if (!isProfileMenuOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target;
+
+      if (
+        target instanceof Node &&
+        profileMenuRef.current?.contains(target)
+      ) {
+        return;
+      }
+
+      setIsProfileMenuOpen(false);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsProfileMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isProfileMenuOpen]);
 
   useEffect(() => {
     if (scrollToForm) {
@@ -923,6 +1012,10 @@ export default function App() {
       }
 
       if (rightColumnRef.current?.contains(target)) {
+        return;
+      }
+
+      if (profileMenuRef.current?.contains(target)) {
         return;
       }
 
@@ -2313,49 +2406,74 @@ export default function App() {
               }}
             />
           )}
-          <div className="column-footer">
-	            <div className="profile-info">
-	              <div className="profile-avatar">
-	                {profileInitials(activeProfile?.name ?? "Book Ranker")}
-	              </div>
-	              <div className="profile-text">
-	                <div className="profile-picker-row">
-	                  <label className="sr-only" htmlFor="profile-select">
-	                    Active profile
-	                  </label>
-	                  <div className="profile-select-shell">
-	                    <select
-	                      id="profile-select"
-	                      className="profile-select"
-	                      value={activeProfileId ?? ""}
-	                      onChange={(event) => {
-	                        void handleProfileChange(event.target.value);
+	          <div className="column-footer">
+	            <div ref={profileMenuRef} className="profile-info">
+	              <div className="profile-menu-shell">
+	                <button
+	                  type="button"
+	                  className="profile-avatar-btn"
+	                  onClick={() => {
+	                    setIsProfileMenuOpen((current) => !current);
+	                  }}
+	                  disabled={profileControlDisabled}
+	                  aria-haspopup="menu"
+	                  aria-expanded={isProfileMenuOpen}
+	                  aria-label="Open profile options"
+	                  title="Profile options"
+	                >
+	                  <div className="profile-avatar">
+	                    {profileInitials(activeProfile?.name ?? "Book Ranker")}
+	                  </div>
+	                </button>
+	                {isProfileMenuOpen ? (
+	                  <div className="profile-menu" role="menu" aria-label="Profile options">
+	                    <div className="profile-menu-list">
+	                      {profiles.map((profile) => (
+	                        <button
+	                          key={profile.id}
+	                          type="button"
+	                          className={`profile-menu-item${profile.id === activeProfileId && !isSignedOut ? " is-active" : ""}`}
+	                          onClick={() => {
+	                            void handleProfileChange(profile.id);
+	                          }}
+	                          disabled={profileControlDisabled}
+	                          role="menuitem"
+	                        >
+	                          <span>{profile.name}</span>
+	                          {profile.id === activeProfileId && !isSignedOut ? (
+	                            <span className="profile-menu-state">Current</span>
+	                          ) : null}
+	                        </button>
+	                      ))}
+	                    </div>
+	                    <button
+	                      type="button"
+	                      className="profile-menu-link"
+	                      onClick={() => {
+	                        void handleCreateProfile();
 	                      }}
 	                      disabled={profileControlDisabled}
+	                      role="menuitem"
 	                    >
-	                      {profiles.map((profile) => (
-	                        <option key={profile.id} value={profile.id}>
-	                          {profile.name}
-	                        </option>
-	                      ))}
-	                    </select>
+	                      Create profile
+	                    </button>
+	                    <button
+	                      type="button"
+	                      className="profile-menu-link is-danger"
+	                      onClick={handleLogout}
+	                      disabled={profileControlDisabled || isSignedOut}
+	                      role="menuitem"
+	                    >
+	                      Log out
+	                    </button>
 	                  </div>
-	                  <button
-	                    type="button"
-	                    className="profile-create-btn"
-	                    onClick={() => {
-	                      void handleCreateProfile();
-	                    }}
-	                    disabled={profileControlDisabled}
-	                    aria-label="Create profile"
-	                    title="Create profile"
-	                  >
-	                    +
-	                  </button>
-	                </div>
+	                ) : null}
+	              </div>
+	              <div className="profile-text">
+	                <span className="profile-name">{displayedProfileName}</span>
 	              </div>
 	            </div>
-            <div className="footer-actions">
+	            <div className="footer-actions">
             <button
               type="button"
               className="archive-toggle icon-btn-danger"
@@ -3155,9 +3273,46 @@ export default function App() {
               </button>
             </div>
           </form>
-        </section>
-        </aside>
-      </div>
-    </main>
-  );
-}
+	        </section>
+	        </aside>
+	      </div>
+	      {isSignedOut ? (
+	        <div className="profile-session-overlay" role="dialog" aria-modal="true">
+	          <div className="profile-session-card">
+	            <p className="profile-session-eyebrow">Profiles</p>
+	            <h2>Choose a profile</h2>
+	            <p className="profile-session-copy">
+	              Pick a profile to continue, or create a new one.
+	            </p>
+	            <div className="profile-session-list">
+	              {profiles.map((profile) => (
+	                <button
+	                  key={profile.id}
+	                  type="button"
+	                  className="profile-session-item"
+	                  onClick={() => {
+	                    void handleProfileChange(profile.id);
+	                  }}
+	                  disabled={profileControlDisabled}
+	                >
+	                  <span>{profile.name}</span>
+	                  <span className="profile-session-action">Continue</span>
+	                </button>
+	              ))}
+	            </div>
+	            <button
+	              type="button"
+	              className="profile-session-create"
+	              onClick={() => {
+	                void handleCreateProfile();
+	              }}
+	              disabled={profileControlDisabled}
+	            >
+	              Create profile
+	            </button>
+	          </div>
+	        </div>
+	      ) : null}
+	    </main>
+	  );
+	}
