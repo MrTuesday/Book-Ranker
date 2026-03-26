@@ -271,7 +271,7 @@ export async function searchOpenLibraryCatalog(query, options = {}) {
   const trimmedQuery = normalizeString(query);
   const limit = clampLimit(options.limit);
 
-  if (!trimmedQuery || !isCatalogDbAvailable()) {
+  if (!trimmedQuery || !(await isCatalogDbAvailable())) {
     return {
       provider: "openlibrary",
       query,
@@ -279,7 +279,7 @@ export async function searchOpenLibraryCatalog(query, options = {}) {
     };
   }
 
-  const rows = searchCatalogDb(trimmedQuery, limit);
+  const rows = await searchCatalogDb(trimmedQuery, limit);
 
   return {
     provider: "openlibrary",
@@ -299,7 +299,7 @@ export async function searchOpenLibraryRecommendations(selectedTags, options = {
   ).slice(0, MAX_RECOMMENDATION_TAGS);
   const limit = clampRecommendationLimit(options.limit);
 
-  if (tags.length === 0 || !isCatalogDbAvailable()) {
+  if (tags.length === 0 || !(await isCatalogDbAvailable())) {
     return {
       provider: "openlibrary",
       query: "",
