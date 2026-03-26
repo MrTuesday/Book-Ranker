@@ -861,7 +861,30 @@ async function readRemoteStoredLibraryContext(): Promise<RemoteLibraryContext> {
     return initializeRemoteStoredLibraryState(userId, username);
   }
 
-  const profiles = profileRows.map(normalizeRemoteProfileRow);
+  // One-time reset: clear book data from remote profiles if local reset was applied
+  const storage = getStorage();
+  const wasReset = storage?.getItem(BOOK_DATA_RESET_KEY);
+  const remoteResetKey = "book-ranker.remote-book-data-reset.v1";
+  const needsRemoteReset = wasReset && !storage?.getItem(remoteResetKey);
+
+  const profiles = profileRows.map((row) => {
+    const normalized = normalizeRemoteProfileRow(row);
+    if (needsRemoteReset) {
+      return {
+        ...normalized,
+        books: [],
+        catalogBooks: [],
+        genreInterests: {},
+        authorExperiences: {},
+        seriesExperiences: {},
+      };
+    }
+    return normalized;
+  });
+
+  if (needsRemoteReset) {
+    storage?.setItem(remoteResetKey, new Date().toISOString());
+  }
   const activeProfileId =
     settingsResult.data?.active_profile_id &&
     profiles.some((profile) => profile.id === settingsResult.data?.active_profile_id)
@@ -1139,12 +1162,45 @@ function sameLibraryData(
   );
 }
 
+const BOOK_DATA_RESET_KEY = "book-ranker.book-data-reset.v1";
+
+function applyOneTimeBookDataReset(storage: Storage) {
+  if (storage.getItem(BOOK_DATA_RESET_KEY)) return;
+  // Clear all book-related localStorage keys
+  storage.removeItem(STORAGE_KEY);
+  storage.removeItem(CATALOG_STORAGE_KEY);
+  storage.removeItem(GENRE_INTEREST_KEY);
+  storage.removeItem(AUTHOR_EXP_KEY);
+  storage.removeItem(SERIES_EXP_KEY);
+  // Clear book data from profile storage while keeping profiles themselves
+  const rawProfiles = storage.getItem(PROFILES_STORAGE_KEY);
+  if (rawProfiles) {
+    try {
+      const profiles = JSON.parse(rawProfiles);
+      if (Array.isArray(profiles)) {
+        const cleaned = profiles.map((p: Record<string, unknown>) => ({
+          ...p,
+          books: [],
+          catalogBooks: [],
+          genreInterests: {},
+          authorExperiences: {},
+          seriesExperiences: {},
+        }));
+        storage.setItem(PROFILES_STORAGE_KEY, JSON.stringify(cleaned));
+      }
+    } catch { /* ignore parse errors */ }
+  }
+  storage.setItem(BOOK_DATA_RESET_KEY, new Date().toISOString());
+}
+
 function readStoredLocalLibraryState(): StoredLibraryState {
   const storage = getStorage();
 
   if (!storage) {
     return createStoredLibraryState();
   }
+
+  applyOneTimeBookDataReset(storage);
 
   try {
     const rawProfiles = storage.getItem(PROFILES_STORAGE_KEY);

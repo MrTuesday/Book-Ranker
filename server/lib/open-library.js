@@ -425,7 +425,7 @@ export async function searchOpenLibraryCatalog(query, options = {}) {
     };
   }
 
-  if (await isCatalogDbAvailable()) {
+  try {
     const rows = await searchCatalogDb(trimmedQuery, limit);
 
     return {
@@ -436,6 +436,8 @@ export async function searchOpenLibraryCatalog(query, options = {}) {
         .filter((result) => result !== null)
         .slice(0, limit),
     };
+  } catch {
+    // Fall through to API if DB unavailable
   }
 
   const endpoint = options.endpoint ?? DEFAULT_OPEN_LIBRARY_URL;
@@ -475,8 +477,10 @@ export async function searchOpenLibraryRecommendations(selectedTags, options = {
     };
   }
 
-  if (await isCatalogDbAvailable()) {
+  try {
     return await searchRecommendationsFromDb(tags, limit);
+  } catch {
+    // Fall through to API if DB unavailable
   }
 
   const endpoint = options.endpoint ?? DEFAULT_OPEN_LIBRARY_URL;

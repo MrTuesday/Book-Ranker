@@ -107,6 +107,16 @@ async function handleApi(request, response, url) {
     return sendJson(response, 200, await getLibraryState(stateStore));
   }
 
+  if (request.method === "GET" && path === "/api/catalog/debug") {
+    const { isCatalogDbAvailable } = await import("./lib/catalog-db.js");
+    const available = await isCatalogDbAvailable();
+    return sendJson(response, 200, {
+      available,
+      hasTursoUrl: !!process.env.TURSO_DATABASE_URL,
+      hasTursoToken: !!process.env.TURSO_AUTH_TOKEN,
+    });
+  }
+
   if (request.method === "GET" && path === "/api/catalog/search") {
     return sendJson(
       response,
