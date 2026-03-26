@@ -5,7 +5,6 @@ import {
   searchCatalogDbBySubjects,
 } from "./catalog-db.js";
 
-const DEFAULT_OPEN_LIBRARY_URL = "https://openlibrary.org/search.json";
 const DEFAULT_RESULT_LIMIT = 6;
 const MAX_RESULT_LIMIT = 10;
 const DEFAULT_RECOMMENDATION_LIMIT = 20;
@@ -14,18 +13,9 @@ const MAX_RECOMMENDATION_TAGS = 4;
 const MAX_RECOMMENDATION_EXACT_TAGS = 2;
 const MAX_RECOMMENDATION_FALLBACK_TAGS = 3;
 const MIN_RECOMMENDATION_RESULTS_PER_TAG = 5;
-const MAX_RECOMMENDATION_RESULTS_PER_TAG = 12;
 const MAX_TOPIC_COUNT = 12;
 const MAX_TAG_COUNT = 8;
 const MAX_GENRE_COUNT = 6;
-const SEARCH_FIELDS = [
-  "key",
-  "title",
-  "author_name",
-  "subject",
-  "first_publish_year",
-  "edition_count",
-].join(",");
 
 const NOISY_SUBJECT_PATTERNS = [
   /^open library/i,
@@ -106,16 +96,6 @@ function normalizeString(value) {
   return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
 }
 
-function buildTitleSearchTerm(query) {
-  const trimmed = normalizeString(query).replace(/\*+$/g, "");
-
-  if (!trimmed) {
-    return "";
-  }
-
-  return `${trimmed}*`;
-}
-
 function toDisplayLabel(value) {
   const trimmed = normalizeString(value);
 
@@ -184,59 +164,6 @@ function isGenreLikeSubject(subject) {
   return GENRE_KEYWORDS.some((keyword) => normalized.includes(keyword));
 }
 
-function extractSearchSubjects(rawResult) {
-  const result =
-    rawResult && typeof rawResult === "object" && !Array.isArray(rawResult)
-      ? rawResult
-      : null;
-
-  return uniqueStrings(
-    normalizeStringArray(result?.subject)
-      .map(toDisplayLabel)
-      .filter(isUsefulSubject),
-  );
-}
-
-function normalizeSearchResult(rawResult) {
-  const result =
-    rawResult && typeof rawResult === "object" && !Array.isArray(rawResult)
-      ? rawResult
-      : null;
-  const title = normalizeString(result?.title);
-
-  if (!title) {
-    return null;
-  }
-
-  const authors = normalizeStringArray(result?.author_name);
-  const subjects = extractSearchSubjects(result);
-  const genres = subjects.filter(isGenreLikeSubject).slice(0, MAX_GENRE_COUNT);
-  const tags = subjects.slice(0, MAX_TAG_COUNT);
-  const topics = subjects.slice(0, MAX_TOPIC_COUNT);
-  const key = normalizeString(result?.key);
-  const editionCount = Number.isFinite(Number(result?.edition_count))
-    ? Number(result.edition_count)
-    : undefined;
-  const firstPublishYear = Number.isFinite(Number(result?.first_publish_year))
-    ? Number(result.first_publish_year)
-    : undefined;
-  const description =
-    firstPublishYear != null ? `First published ${firstPublishYear}.` : undefined;
-
-  return {
-    id: key ? `openlibrary:${key}` : `openlibrary:${title}::${authors[0] ?? ""}`,
-    title,
-    authors,
-    genres,
-    tags,
-    moods: [],
-    topics,
-    ...(editionCount != null ? { usersCount: editionCount } : {}),
-    ...(description ? { description } : {}),
-    ...(key ? { infoLink: `https://openlibrary.org${key}` } : {}),
-  };
-}
-
 function normalizeDbResult(row) {
   const title = normalizeString(row.title);
 
@@ -271,28 +198,6 @@ function normalizeDbResult(row) {
   };
 }
 
-function mergeNormalizedSearchResult(current, incoming) {
-  return {
-    ...current,
-    authors:
-      current.authors.length > 0
-        ? uniqueStrings(current.authors)
-        : uniqueStrings(incoming.authors),
-    genres: uniqueStrings([...current.genres, ...incoming.genres]).slice(
-      0,
-      MAX_GENRE_COUNT,
-    ),
-    tags: uniqueStrings([...current.tags, ...incoming.tags]).slice(0, MAX_TAG_COUNT),
-    topics: uniqueStrings([...current.topics, ...incoming.topics]).slice(
-      0,
-      MAX_TOPIC_COUNT,
-    ),
-    usersCount: current.usersCount ?? incoming.usersCount,
-    description: current.description ?? incoming.description,
-    infoLink: current.infoLink ?? incoming.infoLink,
-  };
-}
-
 function isBroadRecommendationTag(tag) {
   return BROAD_RECOMMENDATION_TAG_PATTERNS.some((pattern) => pattern.test(tag));
 }
@@ -317,14 +222,6 @@ function sortRecommendationTags(tags) {
       left.localeCompare(right)
     );
   });
-}
-
-function escapeSearchLiteral(value) {
-  return normalizeString(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-}
-
-function buildExactSubjectQuery(tags) {
-  return tags.map((tag) => `subject:"${escapeSearchLiteral(tag)}"`).join(" AND ");
 }
 
 function subjectMatchScore(subjects, tag) {
@@ -370,54 +267,11 @@ function subjectMatchScore(subjects, tag) {
   return 0;
 }
 
-function mergeRecommendationResult(current, incoming) {
-  return {
-    result: mergeNormalizedSearchResult(current.result, incoming.result),
-    subjects: uniqueStrings([...current.subjects, ...incoming.subjects]),
-    exactQueryTags: new Set([...current.exactQueryTags, ...incoming.exactQueryTags]),
-    fallbackQueryTags: new Set([
-      ...current.fallbackQueryTags,
-      ...incoming.fallbackQueryTags,
-    ]),
-  };
-}
-
-async function fetchRecommendationPlan(endpoint, userAgent, plan, limit) {
-  const url = new URL(endpoint);
-
-  if (plan.kind === "exact") {
-    url.searchParams.set("q", buildExactSubjectQuery(plan.tags));
-  } else {
-    url.searchParams.set("subject", plan.tags[0]);
-  }
-
-  url.searchParams.set("fields", SEARCH_FIELDS);
-  url.searchParams.set("limit", String(limit));
-
-  return fetchOpenLibraryDocs(url, userAgent);
-}
-
-async function fetchOpenLibraryDocs(url, userAgent) {
-  const response = await fetch(url, {
-    headers: {
-      Accept: "application/json",
-      "User-Agent": userAgent,
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Open Library lookup failed (${response.status}).`);
-  }
-
-  const payload = await response.json();
-  return Array.isArray(payload?.docs) ? payload.docs : [];
-}
-
 export async function searchOpenLibraryCatalog(query, options = {}) {
   const trimmedQuery = normalizeString(query);
   const limit = clampLimit(options.limit);
 
-  if (!trimmedQuery) {
+  if (!trimmedQuery || !isCatalogDbAvailable()) {
     return {
       provider: "openlibrary",
       query,
@@ -425,37 +279,13 @@ export async function searchOpenLibraryCatalog(query, options = {}) {
     };
   }
 
-  try {
-    const rows = await searchCatalogDb(trimmedQuery, limit);
-
-    return {
-      provider: "openlibrary",
-      query,
-      results: rows
-        .map(normalizeDbResult)
-        .filter((result) => result !== null)
-        .slice(0, limit),
-    };
-  } catch {
-    // Fall through to API if DB unavailable
-  }
-
-  const endpoint = options.endpoint ?? DEFAULT_OPEN_LIBRARY_URL;
-  const userAgent =
-    options.userAgent ??
-    process.env.OPEN_LIBRARY_USER_AGENT ??
-    "book-ranker/0.1.0 openlibrary-lookup";
-  const url = new URL(endpoint);
-  url.searchParams.set("title", buildTitleSearchTerm(trimmedQuery));
-  url.searchParams.set("fields", SEARCH_FIELDS);
-  url.searchParams.set("limit", String(limit));
-  const docs = await fetchOpenLibraryDocs(url, userAgent);
+  const rows = searchCatalogDb(trimmedQuery, limit);
 
   return {
     provider: "openlibrary",
     query,
-    results: docs
-      .map(normalizeSearchResult)
+    results: rows
+      .map(normalizeDbResult)
       .filter((result) => result !== null)
       .slice(0, limit),
   };
@@ -469,7 +299,7 @@ export async function searchOpenLibraryRecommendations(selectedTags, options = {
   ).slice(0, MAX_RECOMMENDATION_TAGS);
   const limit = clampRecommendationLimit(options.limit);
 
-  if (tags.length === 0) {
+  if (tags.length === 0 || !isCatalogDbAvailable()) {
     return {
       provider: "openlibrary",
       query: "",
@@ -477,173 +307,7 @@ export async function searchOpenLibraryRecommendations(selectedTags, options = {
     };
   }
 
-  try {
-    return await searchRecommendationsFromDb(tags, limit);
-  } catch {
-    // Fall through to API if DB unavailable
-  }
-
-  const endpoint = options.endpoint ?? DEFAULT_OPEN_LIBRARY_URL;
-  const userAgent =
-    options.userAgent ??
-    process.env.OPEN_LIBRARY_USER_AGENT ??
-    "book-ranker/0.1.0 openlibrary-lookup";
-
-  const prioritizedTags = sortRecommendationTags(tags);
-  const exactTags = prioritizedTags.slice(0, MAX_RECOMMENDATION_EXACT_TAGS);
-  const requiredTags = prioritizedTags.filter((tag) => !isBroadRecommendationTag(tag));
-  const exactPlans = [];
-
-  if (exactTags.length > 1) {
-    exactPlans.push({
-      kind: "exact",
-      tags: exactTags,
-    });
-  }
-
-  for (const tag of requiredTags.slice(0, MAX_RECOMMENDATION_EXACT_TAGS)) {
-    exactPlans.push({
-      kind: "exact",
-      tags: [tag],
-    });
-  }
-
-  if (exactPlans.length === 0) {
-    exactPlans.push({
-      kind: "exact",
-      tags: [prioritizedTags[0]],
-    });
-  }
-
-  const fallbackPlans = prioritizedTags
-    .slice(0, MAX_RECOMMENDATION_FALLBACK_TAGS)
-    .map((tag) => ({
-      kind: "fallback",
-      tags: [tag],
-    }));
-  const perTagLimit = Math.max(
-    MIN_RECOMMENDATION_RESULTS_PER_TAG,
-    Math.min(
-      MAX_RECOMMENDATION_RESULTS_PER_TAG,
-      Math.ceil((limit * 2) / tags.length),
-    ),
-  );
-
-  const byIdentity = new Map();
-
-  async function collectPlans(plans) {
-    const docsByPlan = await Promise.all(
-      plans.map(async (plan) => ({
-        plan,
-        docs: await fetchRecommendationPlan(
-          endpoint,
-          userAgent,
-          plan,
-          perTagLimit,
-        ),
-      })),
-    );
-
-    for (const { plan, docs } of docsByPlan) {
-      for (const doc of docs) {
-        const result = normalizeSearchResult(doc);
-
-        if (!result) {
-          continue;
-        }
-
-        const identityKey = normalizeIdentityKey(result.title, result.authors);
-        const current = byIdentity.get(identityKey);
-        const nextEntry = {
-          result,
-          subjects: extractSearchSubjects(doc),
-          exactQueryTags: new Set(plan.kind === "exact" ? plan.tags : []),
-          fallbackQueryTags: new Set(plan.kind === "fallback" ? plan.tags : []),
-        };
-
-        byIdentity.set(
-          identityKey,
-          current ? mergeRecommendationResult(current, nextEntry) : nextEntry,
-        );
-      }
-    }
-  }
-
-  await collectPlans(exactPlans);
-
-  if (byIdentity.size < limit) {
-    await collectPlans(fallbackPlans);
-  }
-
-  let rankedResults = Array.from(byIdentity.values()).map((entry) => {
-    const matchedTags = tags.filter((tag) => {
-      return (
-        entry.exactQueryTags.has(tag) ||
-        entry.fallbackQueryTags.has(tag) ||
-        subjectMatchScore(entry.subjects, tag) > 0
-      );
-    });
-    const matchedRequiredTags = requiredTags.filter((tag) => matchedTags.includes(tag));
-    const tagsForDisplay = uniqueStrings([...matchedTags, ...entry.result.tags]).slice(
-      0,
-      MAX_TAG_COUNT,
-    );
-    const topicsForDisplay = uniqueStrings([
-      ...matchedTags,
-      ...entry.result.topics,
-      ...entry.result.tags,
-      ...entry.subjects,
-    ]).slice(0, MAX_TOPIC_COUNT);
-
-    return {
-      ...entry.result,
-      tags: tagsForDisplay,
-      topics: topicsForDisplay,
-      _matchedTagCount: matchedTags.length,
-      _matchedRequiredTagCount: matchedRequiredTags.length,
-      _exactQueryTagCount: entry.exactQueryTags.size,
-      _queryTagCount: uniqueStrings([
-        ...entry.exactQueryTags,
-        ...entry.fallbackQueryTags,
-      ]).length,
-    };
-  });
-
-  if (requiredTags.length > 0) {
-    const requiredMatches = rankedResults.filter(
-      (result) => result._matchedRequiredTagCount > 0,
-    );
-
-    if (requiredMatches.length > 0) {
-      rankedResults = requiredMatches;
-    }
-  }
-
-  return {
-    provider: "openlibrary",
-    query: tags.join(", "),
-    results: rankedResults
-      .sort((left, right) => {
-        return (
-          right._matchedRequiredTagCount - left._matchedRequiredTagCount ||
-          right._matchedTagCount - left._matchedTagCount ||
-          right._exactQueryTagCount - left._exactQueryTagCount ||
-          right._queryTagCount - left._queryTagCount ||
-          (right.usersCount ?? 0) - (left.usersCount ?? 0) ||
-          left.title.localeCompare(right.title)
-        );
-      })
-      .slice(0, limit)
-      .map(
-        ({
-          _matchedTagCount,
-          _matchedRequiredTagCount,
-          _exactQueryTagCount,
-          _queryTagCount,
-          ...result
-        }) => result,
-      ),
-  };
+  return searchRecommendationsFromDb(tags, limit);
 }
 
 async function searchRecommendationsFromDb(tags, limit) {
