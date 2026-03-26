@@ -901,7 +901,7 @@ async function readRemoteStoredLibraryContext(): Promise<RemoteLibraryContext> {
       findActiveStoredProfile(state).meta.updatedAt,
   };
 
-  if (!settingsResult.data || settingsResult.data.active_profile_id !== activeProfileId) {
+  if (needsRemoteReset || !settingsResult.data || settingsResult.data.active_profile_id !== activeProfileId) {
     await persistRemoteStoredLibraryState(userId, state, meta);
   }
 
