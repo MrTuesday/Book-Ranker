@@ -598,6 +598,50 @@ h3 {
     text-transform: uppercase;
 }
 
+.layer-toggles {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    z-index: 10;
+    display: flex;
+    gap: 6px;
+}
+
+.layer-toggle {
+    padding: 4px 12px;
+    border-radius: 999px;
+    border: 1.5px solid;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    background: transparent;
+    transition: all 0.15s;
+}
+
+.layer-toggle.is-active {
+    color: #fff;
+}
+
+.layer-toggle-genre {
+    border-color: rgba(180, 83, 9, 0.5);
+    color: rgba(180, 83, 9, 0.8);
+}
+
+.layer-toggle-genre.is-active {
+    background: rgba(180, 83, 9, 0.85);
+    border-color: rgba(180, 83, 9, 0.85);
+}
+
+.layer-toggle-credential {
+    border-color: rgba(139, 92, 246, 0.5);
+    color: rgba(139, 92, 246, 0.8);
+}
+
+.layer-toggle-credential.is-active {
+    background: rgba(139, 92, 246, 0.85);
+    border-color: rgba(139, 92, 246, 0.85);
+}
+
 .interest-map-plot {
     overflow: hidden;
     padding: 6px;
