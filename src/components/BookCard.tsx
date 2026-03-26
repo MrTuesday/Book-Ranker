@@ -3,6 +3,7 @@ import type {
   MouseEvent as ReactMouseEvent,
   ReactNode,
 } from "react";
+import type { AuthorCredentialMap } from "../lib/books-api";
 
 export function formatScore(value: number) {
   const pct = Math.max(0, Math.min(100, (value / 5) * 100));
@@ -16,6 +17,7 @@ export type BookCardProps = {
   series?: string;
   seriesNumber?: number;
   authors: string[];
+  authorCredentials?: AuthorCredentialMap;
   score: number;
   /** Extra CSS classes on the root <article> */
   className?: string;
@@ -62,6 +64,7 @@ export function BookCard({
   series,
   seriesNumber,
   authors,
+  authorCredentials,
   score,
   className,
   animationDelay,
@@ -134,7 +137,28 @@ export function BookCard({
             ) : null}
             <h3>{title}</h3>
             <p className="ranking-author">
-              {authors.join(", ") || "Unknown author"}
+              {authors.length === 0 ? (
+                "Unknown author"
+              ) : (
+                authors.map((author, i) => {
+                  const credentials = authorCredentials?.[author];
+                  return (
+                    <span key={author} className="ranking-author-entry">
+                      {i > 0 ? ", " : null}
+                      {author}
+                      {credentials && credentials.length > 0 ? (
+                        <span className="author-credentials">
+                          {credentials.map((cred) => (
+                            <span key={cred} className="author-credential">
+                              {cred}
+                            </span>
+                          ))}
+                        </span>
+                      ) : null}
+                    </span>
+                  );
+                })
+              )}
             </p>
           </div>
           <strong className="score-value">

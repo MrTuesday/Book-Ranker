@@ -39,6 +39,10 @@ import {
   renameAuthorInBooks,
   resolveBookGenres,
   computeGenreOverrides,
+  fetchAuthorCredentials,
+  addAuthorCredential,
+  removeAuthorCredential,
+  type AuthorCredentialMap,
 } from "./lib/books-api";
 import {
   getAuthSession,
@@ -416,6 +420,8 @@ export default function App() {
   const [isUsernameEditorOpen, setIsUsernameEditorOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
   const [pendingTagDelete, setPendingTagDelete] = useState<string | null>(null);
+  const [credentialInput, setCredentialInput] = useState("");
+  const [credentialAuthor, setCredentialAuthor] = useState<string | null>(null);
   const [titleSuggestions, setTitleSuggestions] = useState<CatalogSearchResult[]>(
     [],
   );
@@ -444,6 +450,8 @@ export default function App() {
     useState<AuthorExperienceMap>({});
   const [seriesExperiences, setSeriesExperiences] =
     useState<SeriesExperienceMap>({});
+  const [authorCredentials, setAuthorCredentials] =
+    useState<AuthorCredentialMap>({});
   const [recommendations, setRecommendations] =
     useState<PathRecommendationResponse | null>(null);
   const [isLoadingRecs, setIsLoadingRecs] = useState(false);
@@ -958,6 +966,20 @@ export default function App() {
     setAddedRecIds(new Set());
     setGraphEditingNode(null);
   }, [resetDraft]);
+
+  useEffect(() => {
+    if (knownAuthors.length === 0) return;
+
+    let isActive = true;
+
+    void fetchAuthorCredentials(knownAuthors).then((creds) => {
+      if (isActive) setAuthorCredentials(creds);
+    }).catch(() => {
+      // Credentials are non-critical — silently ignore failures
+    });
+
+    return () => { isActive = false; };
+  }, [knownAuthors]);
 
   useEffect(() => {
     if (!authEnabled) {
@@ -2279,6 +2301,30 @@ export default function App() {
     }
   }
 
+  async function handleAddCredential(author: string, credential: string) {
+    try {
+      await addAuthorCredential(author, credential);
+      setAuthorCredentials((prev) => ({
+        ...prev,
+        [author]: [...(prev[author] ?? []), credential],
+      }));
+    } catch (error) {
+      setErrorMessage(messageFromError(error));
+    }
+  }
+
+  async function handleRemoveCredential(author: string, credential: string) {
+    try {
+      await removeAuthorCredential(author, credential);
+      setAuthorCredentials((prev) => ({
+        ...prev,
+        [author]: (prev[author] ?? []).filter((c) => c !== credential),
+      }));
+    } catch (error) {
+      setErrorMessage(messageFromError(error));
+    }
+  }
+
   async function removeBook(id: number) {
     setPendingDeleteId(id);
     setErrorMessage(null);
@@ -2742,6 +2788,7 @@ export default function App() {
               title="Reading list"
               totalCount={rankedBooks.length}
               books={visibleRankedBooks}
+              authorCredentials={authorCredentials}
               isLoading={isLoading}
               emptyMessage="No books yet. Add your first book to get started."
               emptyFilteredMessage="No books in your reading list match the selected nodes."
@@ -2776,6 +2823,7 @@ export default function App() {
               title="Books to revisit"
               totalCount={readBooks.length}
               books={visibleReadBooks}
+              authorCredentials={authorCredentials}
               emptyMessage="No read books yet."
               emptyFilteredMessage="No rereads match the selected nodes."
               readMode
@@ -3086,6 +3134,7 @@ export default function App() {
                     series={rec.series}
                     seriesNumber={rec.seriesNumber}
                     authors={rec.authors}
+                    authorCredentials={authorCredentials}
                     score={rec.score}
                     className={[
                       addedRecIds.has(rec.id) ? "is-added" : "",
@@ -3415,6 +3464,95 @@ export default function App() {
                 ) : null}
               </div>
             </div>
+
+            {draft.authors.length > 0 ? (
+              <div className="field entry-credentials">
+                <span>Author credentials</span>
+                {draft.authors.map((author) => {
+                  const creds = authorCredentials[author] ?? [];
+                  return (
+                    <div key={author} className="tag-editor">
+                      <span className="credentials-author-label">{author}</span>
+                      <div className="tag-entry-group">
+                        <div className="tag-entry-row">
+                          <input
+                            type="text"
+                            placeholder="e.g. Oncologist"
+                            value={
+                              credentialAuthor === author
+                                ? credentialInput
+                                : ""
+                            }
+                            onChange={(e) => {
+                              setCredentialAuthor(author);
+                              setCredentialInput(e.target.value);
+                            }}
+                            onFocus={() => {
+                              if (credentialAuthor !== author) {
+                                setCredentialAuthor(author);
+                                setCredentialInput("");
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                const trimmed = credentialInput.trim();
+                                if (trimmed) {
+                                  void handleAddCredential(author, trimmed);
+                                }
+                                setCredentialInput("");
+                              } else if (e.key === "Escape") {
+                                setCredentialInput("");
+                                setCredentialAuthor(null);
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            className="graph-add-btn"
+                            disabled={
+                              credentialAuthor !== author ||
+                              !credentialInput.trim()
+                            }
+                            onClick={() => {
+                              const trimmed = credentialInput.trim();
+                              if (trimmed) {
+                                void handleAddCredential(author, trimmed);
+                              }
+                              setCredentialInput("");
+                            }}
+                            aria-label={`Add credential for ${author}`}
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                      {creds.length > 0 ? (
+                        <div className="draft-tag-list">
+                          {creds.map((cred) => (
+                            <span key={cred} className="genre-tag draft-tag-chip">
+                              <span className="genre-tag-name">{cred}</span>
+                              <button
+                                type="button"
+                                className="tag-remove"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() =>
+                                  void handleRemoveCredential(author, cred)
+                                }
+                                aria-label={`Remove ${cred}`}
+                                title={`Remove ${cred}`}
+                              >
+                                x
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
 
             <div className="field entry-genre">
               <span>Genre(s) / topic(s) + my current interest in them</span>
