@@ -864,7 +864,7 @@ async function readRemoteStoredLibraryContext(): Promise<RemoteLibraryContext> {
   // One-time reset: clear book data from remote profiles if local reset was applied
   const storage = getStorage();
   const wasReset = storage?.getItem(BOOK_DATA_RESET_KEY);
-  const remoteResetKey = "book-ranker.remote-book-data-reset.v1";
+  const remoteResetKey = "book-ranker.remote-book-data-reset.v2";
   const needsRemoteReset = wasReset && !storage?.getItem(remoteResetKey);
 
   const profiles = profileRows.map((row) => {
@@ -1162,7 +1162,7 @@ function sameLibraryData(
   );
 }
 
-const BOOK_DATA_RESET_KEY = "book-ranker.book-data-reset.v1";
+const BOOK_DATA_RESET_KEY = "book-ranker.book-data-reset.v2";
 
 function applyOneTimeBookDataReset(storage: Storage) {
   if (storage.getItem(BOOK_DATA_RESET_KEY)) return;
