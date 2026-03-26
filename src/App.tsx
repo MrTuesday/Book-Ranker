@@ -2346,14 +2346,15 @@ export default function App() {
   async function addGraphGenreInterest() {
     const nextGenre = normalizeGenreTag(graphAddGenreInput);
 
-    if (!nextGenre || graphAddGenreRating == null) {
+    if (!nextGenre) {
       return;
     }
 
+    const rating = graphAddGenreRating ?? 3;
     setErrorMessage(null);
 
     try {
-      const nextInterests = await writeGenreInterest(nextGenre, graphAddGenreRating);
+      const nextInterests = await writeGenreInterest(nextGenre, rating);
       setGenreInterests(nextInterests);
       setGraphAddGenreInput("");
       setGraphAddGenreRating(null);
@@ -2985,10 +2986,7 @@ export default function App() {
                         return;
                       }
 
-                      if (
-                        graphAddGenreInput.trim() &&
-                        graphAddGenreRating != null
-                      ) {
+                      if (graphAddGenreInput.trim()) {
                         void addGraphGenreInterest();
                       }
                     }}
@@ -3022,9 +3020,9 @@ export default function App() {
                 <button
                   type="button"
                   className="graph-add-btn"
-                  disabled={!graphAddGenreInput.trim() || graphAddGenreRating == null}
+                  disabled={!graphAddGenreInput.trim()}
                   onClick={() => {
-                    if (graphAddGenreInput.trim() && graphAddGenreRating != null) {
+                    if (graphAddGenreInput.trim()) {
                       void addGraphGenreInterest();
                     }
                   }}
