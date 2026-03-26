@@ -2551,7 +2551,17 @@ export default function App() {
 
   // Auto-build reading list when at least one node is selected
   useEffect(() => {
+    const genreTags = selectedInterestPath.filter((s) => s.layer === "genre").map((s) => s.tag);
+
     if (selectedInterestPath.length < 1) {
+      setRecommendations(null);
+      setRecError(null);
+      setIsLoadingRecs(false);
+      return;
+    }
+
+    // Credential-only selections filter the book list but can't drive recommendations
+    if (genreTags.length === 0) {
       setRecommendations(null);
       setRecError(null);
       setIsLoadingRecs(false);
@@ -2568,7 +2578,7 @@ export default function App() {
       try {
         const result = await fetchPathRecommendations(
           {
-          selectedTags: selectedInterestPath.filter((s) => s.layer === "genre").map((s) => s.tag),
+          selectedTags: genreTags,
           profile: {
             books: predictiveBooks,
             genreInterests,
