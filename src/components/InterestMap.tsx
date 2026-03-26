@@ -1724,21 +1724,6 @@ function InterestMapView({
                     {node.interest}
                   </text>
                 ) : null}
-                {node.count > 0 && node.layer === "credential" ? (
-                  <text
-                    className="interest-map-score"
-                    x={node.x}
-                    y={node.y}
-                    textAnchor="middle"
-                    dominantBaseline="central"
-                    fontSize={interestNodeScoreFontSize(node.radius)}
-                    fill="white"
-                    fontWeight="600"
-                    pointerEvents="none"
-                  >
-                    {node.count}
-                  </text>
-                ) : null}
                 {!compact ? (
                   <text
                     className="interest-map-label"
