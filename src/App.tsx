@@ -56,6 +56,7 @@ import {
   updateSignedInUsername,
 } from "./lib/auth";
 import {
+  fetchCredentialRecommendations,
   fetchPathRecommendations,
   type PathRecommendationResponse,
   type RecommendedBook,
@@ -2560,13 +2561,7 @@ export default function App() {
       return;
     }
 
-    // Credential-only selections filter the book list but can't drive recommendations
-    if (genreTags.length === 0) {
-      setRecommendations(null);
-      setRecError(null);
-      setIsLoadingRecs(false);
-      return;
-    }
+    const credentialTags = selectedInterestPath.filter((s) => s.layer === "credential").map((s) => s.tag);
 
     let cancelled = false;
     let controller: AbortController | null = null;
@@ -2576,18 +2571,29 @@ export default function App() {
       controller = new AbortController();
 
       try {
-        const result = await fetchPathRecommendations(
-          {
-          selectedTags: genreTags,
-          profile: {
-            books: predictiveBooks,
-            genreInterests,
-            authorExperiences,
-            seriesExperiences,
-          },
-          },
-          controller.signal,
-        );
+        let result: PathRecommendationResponse;
+
+        if (genreTags.length === 0 && credentialTags.length > 0) {
+          // Credential-only: search for books by authors with those credentials
+          result = await fetchCredentialRecommendations(
+            credentialTags,
+            authorCredentials,
+            controller.signal,
+          );
+        } else {
+          result = await fetchPathRecommendations(
+            {
+            selectedTags: genreTags,
+            profile: {
+              books: predictiveBooks,
+              genreInterests,
+              authorExperiences,
+              seriesExperiences,
+            },
+            },
+            controller.signal,
+          );
+        }
         if (!cancelled) setRecommendations(result);
       } catch (error) {
         if (
@@ -2618,6 +2624,7 @@ export default function App() {
     genreInterests,
     authorExperiences,
     seriesExperiences,
+    authorCredentials,
   ]);
 
 

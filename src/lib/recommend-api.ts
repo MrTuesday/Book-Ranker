@@ -1,4 +1,5 @@
 import type {
+  AuthorCredentialMap,
   AuthorExperienceMap,
   Book,
   GenreInterestMap,
@@ -482,5 +483,83 @@ export async function fetchPathRecommendations(
     queries: [...localResponse.queries],
     bestMatch: candidates[0] ?? null,
     candidates,
+  };
+}
+
+/**
+ * Fetch recommendations based on credential selections only.
+ * Finds authors with matching credentials, then searches the catalog for their books.
+ */
+export async function fetchCredentialRecommendations(
+  selectedCredentials: string[],
+  authorCredentials: AuthorCredentialMap,
+  signal?: AbortSignal,
+): Promise<PathRecommendationResponse> {
+  // Find authors who have ALL selected credentials
+  const credSet = new Set(selectedCredentials);
+  const matchingAuthors: string[] = [];
+  for (const [author, creds] of Object.entries(authorCredentials)) {
+    if ([...credSet].every((c) => creds.includes(c))) {
+      matchingAuthors.push(author);
+    }
+  }
+
+  if (matchingAuthors.length === 0) {
+    return {
+      provider: "credential-search",
+      queries: [...selectedCredentials],
+      bestMatch: null,
+      candidates: [],
+    };
+  }
+
+  // Search catalog for each matching author (in parallel, up to 5)
+  const searchAuthors = matchingAuthors.slice(0, 5);
+  const responses = await Promise.all(
+    searchAuthors.map(async (author) => {
+      try {
+        const res = await fetch(
+          `/api/catalog/search?query=${encodeURIComponent(author)}&limit=10`,
+          { signal, headers: { Accept: "application/json" } },
+        );
+        if (!res.ok) return [];
+        const payload = await res.json();
+        return Array.isArray(payload?.results) ? payload.results : [];
+      } catch {
+        return [];
+      }
+    }),
+  );
+
+  const seen = new Set<string>();
+  const candidates: RecommendedBook[] = [];
+  for (const results of responses) {
+    for (const r of results) {
+      const id = r.id || r.key || r.title;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      candidates.push({
+        id,
+        provider: "credential-search",
+        title: r.title ?? "",
+        series: r.series,
+        seriesNumber: r.seriesNumber,
+        authors: Array.isArray(r.authors) ? r.authors : [],
+        genres: Array.isArray(r.genres) ? r.genres : Array.isArray(r.subjects) ? r.subjects : [],
+        tags: [],
+        topics: [],
+        averageRating: r.averageRating,
+        ratingsCount: r.ratingsCount,
+        score: 1,
+        tagOverlap: 1,
+      });
+    }
+  }
+
+  return {
+    provider: "credential-search",
+    queries: [...selectedCredentials],
+    bestMatch: candidates[0] ?? null,
+    candidates: candidates.slice(0, 20),
   };
 }
