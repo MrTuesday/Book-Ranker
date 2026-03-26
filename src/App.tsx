@@ -82,6 +82,8 @@ import { BookListSection } from "./components/BookListSection";
 import { buildBookAnalytics } from "./lib/ranking";
 import { searchOpenLibraryCatalog } from "./lib/open-library";
 
+import type { NodeLayer, SelectedNode } from "./components/InterestMap";
+
 const InterestMap = lazy(() => import("./components/InterestMap"));
 
 type BookDraft = {
@@ -379,16 +381,41 @@ function messageFromCatalogLookupError(error: unknown) {
   return "Catalog lookup is unavailable right now.";
 }
 
-function matchesSelectedGenres(
-  genres: string[],
-  selectedGenres: string[],
+function matchesSelectedNodes(
+  book: Book,
+  selectedNodes: SelectedNode[],
+  authorCredentials: AuthorCredentialMap,
 ) {
-  if (selectedGenres.length === 0) {
+  if (selectedNodes.length === 0) {
     return true;
   }
 
-  const genreSet = new Set(uniqueTags(genres));
-  return selectedGenres.every((genre) => genreSet.has(genre));
+  const genreSelections = selectedNodes.filter((s) => s.layer === "genre");
+  const credentialSelections = selectedNodes.filter((s) => s.layer === "credential");
+
+  if (genreSelections.length > 0) {
+    const genreSet = new Set(uniqueTags(book.genres));
+    if (!genreSelections.every((s) => genreSet.has(s.tag))) {
+      return false;
+    }
+  }
+
+  if (credentialSelections.length > 0) {
+    const bookCredentials = new Set<string>();
+    for (const author of book.authors) {
+      const creds = authorCredentials[author.trim()];
+      if (creds) {
+        for (const cred of creds) {
+          bookCredentials.add(cred);
+        }
+      }
+    }
+    if (!credentialSelections.every((s) => bookCredentials.has(s.tag))) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 export default function App() {
@@ -441,8 +468,11 @@ export default function App() {
     field: SuggestionField;
     tag: string | null;
   } | null>(null);
-  const [selectedInterestPath, setSelectedInterestPath] = useState<string[]>(
+  const [selectedInterestPath, setSelectedInterestPath] = useState<SelectedNode[]>(
     [],
+  );
+  const [activeLayers, setActiveLayers] = useState<Set<NodeLayer>>(
+    () => new Set<NodeLayer>(["genre"]),
   );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [genreInterests, setGenreInterests] = useState<GenreInterestMap>({});
@@ -556,11 +586,11 @@ export default function App() {
 
       setShowArchive(Boolean(book.read));
       setSelectedInterestPath((current) =>
-        matchesSelectedGenres(book.genres, current) ? current : [],
+        matchesSelectedNodes(book, current, authorCredentials) ? current : [],
       );
       queueBookReveal(book.id);
     },
-    [queueBookReveal],
+    [queueBookReveal, authorCredentials],
   );
 
   useLayoutEffect(() => {
@@ -746,15 +776,17 @@ export default function App() {
     };
   }, [applyLibraryState, authEnabled, authStatus, clearLibraryState]);
 
-  const toggleInterestPathTag = useCallback((tag: string) => {
+  const toggleInterestPathTag = useCallback((node: SelectedNode) => {
     setSelectedInterestPath((current) => {
-      const existingIndex = current.indexOf(tag);
+      const existingIndex = current.findIndex(
+        (s) => s.tag === node.tag && s.layer === node.layer,
+      );
 
       if (existingIndex === -1) {
-        return [...current, tag];
+        return [...current, node];
       }
 
-      return current.filter((currentTag) => currentTag !== tag);
+      return current.filter((_, index) => index !== existingIndex);
     });
   }, []);
 
@@ -799,19 +831,40 @@ export default function App() {
     ).sort((left, right) => left.localeCompare(right));
   }, [resolvedBooks, genreInterests]);
 
+  const visibleGraphCredentials = useMemo(() => {
+    const credSet = new Set<string>();
+    for (const book of resolvedBooks) {
+      for (const author of book.authors) {
+        const creds = authorCredentials[author.trim()];
+        if (creds) {
+          for (const cred of creds) {
+            credSet.add(cred);
+          }
+        }
+      }
+    }
+    return Array.from(credSet).sort((a, b) => a.localeCompare(b));
+  }, [resolvedBooks, authorCredentials]);
+
   useEffect(() => {
-    const visibleGraphTags = new Set(visibleGraphGenres);
+    const visibleGenreTags = new Set(visibleGraphGenres);
+    const visibleCredTags = new Set(visibleGraphCredentials);
 
     setSelectedInterestPath((current) =>
-      current.filter((tag) => visibleGraphTags.has(tag)),
+      current.filter((s) =>
+        s.layer === "genre"
+          ? visibleGenreTags.has(s.tag)
+          : visibleCredTags.has(s.tag),
+      ),
     );
-  }, [visibleGraphGenres]);
+  }, [visibleGraphGenres, visibleGraphCredentials]);
 
   useEffect(() => {
     setGraphEditingNode((current) =>
       current &&
       selectedInterestPath.length === 1 &&
-      selectedInterestPath.includes(current.tag)
+      selectedInterestPath[0].layer === "genre" &&
+      selectedInterestPath[0].tag === current.tag
         ? current
         : null,
     );
@@ -831,17 +884,17 @@ export default function App() {
   const visibleRankedBooks = useMemo(
     () =>
       rankedBooks.filter((book) =>
-        matchesSelectedGenres(book.genres, selectedInterestPath),
+        matchesSelectedNodes(book, selectedInterestPath, authorCredentials),
       ),
-    [rankedBooks, selectedInterestPath],
+    [rankedBooks, selectedInterestPath, authorCredentials],
   );
 
   const visibleReadBooks = useMemo(
     () =>
       readBooks.filter((book) =>
-        matchesSelectedGenres(book.genres, selectedInterestPath),
+        matchesSelectedNodes(book, selectedInterestPath, authorCredentials),
       ),
-    [readBooks, selectedInterestPath],
+    [readBooks, selectedInterestPath, authorCredentials],
   );
 
   const hasSelectedNodeFilter = selectedInterestPath.length > 0;
@@ -2364,7 +2417,7 @@ export default function App() {
   }
 
   function focusGraphGenre(tag: string) {
-    setSelectedInterestPath([tag]);
+    setSelectedInterestPath([{ tag, layer: "genre" }]);
     setGraphAddGenreInput(tag);
     setGraphAddGenreRating(genreInterests[tag] ?? null);
     setIsGraphGenreSuggestionActive(false);
@@ -2379,11 +2432,19 @@ export default function App() {
 
       applyBooksUpdate(nextBooks);
       setGenreInterests(nextInterests);
-      setSelectedInterestPath((current) =>
-        uniqueTags(
-          current.map((tag) => (tag === oldName ? newName : tag)),
-        ),
-      );
+      setSelectedInterestPath((current) => {
+        const updated = current.map((s) =>
+          s.layer === "genre" && s.tag === oldName ? { ...s, tag: newName } : s,
+        );
+        // Deduplicate by layer:tag
+        const seen = new Set<string>();
+        return updated.filter((s) => {
+          const key = `${s.layer}:${s.tag}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      });
       setGraphEditingNode((current) =>
         current && current.tag === oldName ? { ...current, tag: newName } : current,
       );
@@ -2507,7 +2568,7 @@ export default function App() {
       try {
         const result = await fetchPathRecommendations(
           {
-          selectedTags: selectedInterestPath,
+          selectedTags: selectedInterestPath.filter((s) => s.layer === "genre").map((s) => s.tag),
           profile: {
             books: predictiveBooks,
             genreInterests,
@@ -3037,6 +3098,42 @@ export default function App() {
               />
             </div>
           </div>
+          <div className="layer-toggles">
+            <button
+              type="button"
+              className={`layer-toggle layer-toggle-genre${activeLayers.has("genre") ? " is-active" : ""}`}
+              onClick={() =>
+                setActiveLayers((current) => {
+                  const next = new Set(current);
+                  if (next.has("genre")) {
+                    next.delete("genre");
+                  } else {
+                    next.add("genre");
+                  }
+                  return next;
+                })
+              }
+            >
+              Interests
+            </button>
+            <button
+              type="button"
+              className={`layer-toggle layer-toggle-credential${activeLayers.has("credential") ? " is-active" : ""}`}
+              onClick={() =>
+                setActiveLayers((current) => {
+                  const next = new Set(current);
+                  if (next.has("credential")) {
+                    next.delete("credential");
+                  } else {
+                    next.add("credential");
+                  }
+                  return next;
+                })
+              }
+            >
+              Credentials
+            </button>
+          </div>
           <Suspense
             fallback={
               <div className="interest-map">
@@ -3047,6 +3144,8 @@ export default function App() {
             <InterestMap
               books={books}
               interests={genreInterests}
+              authorCredentials={authorCredentials}
+              activeLayers={activeLayers}
               selectedPath={selectedInterestPath}
               onSelectTag={toggleInterestPathTag}
               onClearSelection={() => setSelectedInterestPath([])}
