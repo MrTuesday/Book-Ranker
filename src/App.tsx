@@ -1027,7 +1027,7 @@ export default function App() {
     let isActive = true;
 
     void fetchAuthorCredentials(knownAuthors).then((creds) => {
-      if (isActive) setAuthorCredentials(creds);
+      if (isActive) setAuthorCredentials((prev) => ({ ...prev, ...creds }));
     }).catch(() => {
       // Credentials are non-critical — silently ignore failures
     });
