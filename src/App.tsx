@@ -376,7 +376,7 @@ function messageFromCatalogLookupError(error: unknown) {
     return "";
   }
 
-  return "Open Library lookup is unavailable right now.";
+  return "Catalog lookup is unavailable right now.";
 }
 
 function matchesSelectedGenres(
