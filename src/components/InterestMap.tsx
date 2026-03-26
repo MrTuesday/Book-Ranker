@@ -484,7 +484,6 @@ function InterestMapView({
       : [];
 
     // --- Credential nodes ---
-    const bookAuthors = new Set(books.flatMap((book) => book.authors.map((a) => a.trim())).filter(Boolean));
     const credentialCounts = new Map<string, number>();
 
     if (credentialLayerActive) {
