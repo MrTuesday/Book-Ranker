@@ -39,6 +39,10 @@ import {
   renameAuthorInBooks,
   resolveBookGenres,
   computeGenreOverrides,
+  fetchAuthorCredentials,
+  addAuthorCredential,
+  removeAuthorCredential,
+  type AuthorCredentialMap,
 } from "./lib/books-api";
 import {
   getAuthSession,
@@ -52,6 +56,7 @@ import {
   updateSignedInUsername,
 } from "./lib/auth";
 import {
+  fetchCredentialRecommendations,
   fetchPathRecommendations,
   type PathRecommendationResponse,
   type RecommendedBook,
@@ -77,6 +82,8 @@ import {
 import { BookListSection } from "./components/BookListSection";
 import { buildBookAnalytics } from "./lib/ranking";
 import { searchOpenLibraryCatalog } from "./lib/open-library";
+
+import type { NodeLayer, SelectedNode } from "./components/InterestMap";
 
 const InterestMap = lazy(() => import("./components/InterestMap"));
 
@@ -372,19 +379,44 @@ function messageFromCatalogLookupError(error: unknown) {
     return "";
   }
 
-  return "Open Library lookup is unavailable right now.";
+  return "Catalog lookup is unavailable right now.";
 }
 
-function matchesSelectedGenres(
-  genres: string[],
-  selectedGenres: string[],
+function matchesSelectedNodes(
+  book: Book,
+  selectedNodes: SelectedNode[],
+  authorCredentials: AuthorCredentialMap,
 ) {
-  if (selectedGenres.length === 0) {
+  if (selectedNodes.length === 0) {
     return true;
   }
 
-  const genreSet = new Set(uniqueTags(genres));
-  return selectedGenres.every((genre) => genreSet.has(genre));
+  const genreSelections = selectedNodes.filter((s) => s.layer === "genre");
+  const credentialSelections = selectedNodes.filter((s) => s.layer === "credential");
+
+  if (genreSelections.length > 0) {
+    const genreSet = new Set(uniqueTags(book.genres));
+    if (!genreSelections.every((s) => genreSet.has(s.tag))) {
+      return false;
+    }
+  }
+
+  if (credentialSelections.length > 0) {
+    const bookCredentials = new Set<string>();
+    for (const author of book.authors) {
+      const creds = authorCredentials[author.trim()];
+      if (creds) {
+        for (const cred of creds) {
+          bookCredentials.add(cred);
+        }
+      }
+    }
+    if (!credentialSelections.every((s) => bookCredentials.has(s.tag))) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 export default function App() {
@@ -416,6 +448,8 @@ export default function App() {
   const [isUsernameEditorOpen, setIsUsernameEditorOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
   const [pendingTagDelete, setPendingTagDelete] = useState<string | null>(null);
+  const [credentialInput, setCredentialInput] = useState("");
+  const [credentialAuthor, setCredentialAuthor] = useState<string | null>(null);
   const [titleSuggestions, setTitleSuggestions] = useState<CatalogSearchResult[]>(
     [],
   );
@@ -435,8 +469,11 @@ export default function App() {
     field: SuggestionField;
     tag: string | null;
   } | null>(null);
-  const [selectedInterestPath, setSelectedInterestPath] = useState<string[]>(
+  const [selectedInterestPath, setSelectedInterestPath] = useState<SelectedNode[]>(
     [],
+  );
+  const [activeLayers, setActiveLayers] = useState<Set<NodeLayer>>(
+    () => new Set<NodeLayer>(["genre"]),
   );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [genreInterests, setGenreInterests] = useState<GenreInterestMap>({});
@@ -444,6 +481,8 @@ export default function App() {
     useState<AuthorExperienceMap>({});
   const [seriesExperiences, setSeriesExperiences] =
     useState<SeriesExperienceMap>({});
+  const [authorCredentials, setAuthorCredentials] =
+    useState<AuthorCredentialMap>({});
   const [recommendations, setRecommendations] =
     useState<PathRecommendationResponse | null>(null);
   const [isLoadingRecs, setIsLoadingRecs] = useState(false);
@@ -548,11 +587,11 @@ export default function App() {
 
       setShowArchive(Boolean(book.read));
       setSelectedInterestPath((current) =>
-        matchesSelectedGenres(book.genres, current) ? current : [],
+        matchesSelectedNodes(book, current, authorCredentials) ? current : [],
       );
       queueBookReveal(book.id);
     },
-    [queueBookReveal],
+    [queueBookReveal, authorCredentials],
   );
 
   useLayoutEffect(() => {
@@ -738,15 +777,17 @@ export default function App() {
     };
   }, [applyLibraryState, authEnabled, authStatus, clearLibraryState]);
 
-  const toggleInterestPathTag = useCallback((tag: string) => {
+  const toggleInterestPathTag = useCallback((node: SelectedNode) => {
     setSelectedInterestPath((current) => {
-      const existingIndex = current.indexOf(tag);
+      const existingIndex = current.findIndex(
+        (s) => s.tag === node.tag && s.layer === node.layer,
+      );
 
       if (existingIndex === -1) {
-        return [...current, tag];
+        return [...current, node];
       }
 
-      return current.filter((currentTag) => currentTag !== tag);
+      return current.filter((_, index) => index !== existingIndex);
     });
   }, []);
 
@@ -791,19 +832,40 @@ export default function App() {
     ).sort((left, right) => left.localeCompare(right));
   }, [resolvedBooks, genreInterests]);
 
+  const visibleGraphCredentials = useMemo(() => {
+    const credSet = new Set<string>();
+    for (const book of resolvedBooks) {
+      for (const author of book.authors) {
+        const creds = authorCredentials[author.trim()];
+        if (creds) {
+          for (const cred of creds) {
+            credSet.add(cred);
+          }
+        }
+      }
+    }
+    return Array.from(credSet).sort((a, b) => a.localeCompare(b));
+  }, [resolvedBooks, authorCredentials]);
+
   useEffect(() => {
-    const visibleGraphTags = new Set(visibleGraphGenres);
+    const visibleGenreTags = new Set(visibleGraphGenres);
+    const visibleCredTags = new Set(visibleGraphCredentials);
 
     setSelectedInterestPath((current) =>
-      current.filter((tag) => visibleGraphTags.has(tag)),
+      current.filter((s) =>
+        s.layer === "genre"
+          ? visibleGenreTags.has(s.tag)
+          : visibleCredTags.has(s.tag),
+      ),
     );
-  }, [visibleGraphGenres]);
+  }, [visibleGraphGenres, visibleGraphCredentials]);
 
   useEffect(() => {
     setGraphEditingNode((current) =>
       current &&
       selectedInterestPath.length === 1 &&
-      selectedInterestPath.includes(current.tag)
+      selectedInterestPath[0].layer === "genre" &&
+      selectedInterestPath[0].tag === current.tag
         ? current
         : null,
     );
@@ -823,17 +885,17 @@ export default function App() {
   const visibleRankedBooks = useMemo(
     () =>
       rankedBooks.filter((book) =>
-        matchesSelectedGenres(book.genres, selectedInterestPath),
+        matchesSelectedNodes(book, selectedInterestPath, authorCredentials),
       ),
-    [rankedBooks, selectedInterestPath],
+    [rankedBooks, selectedInterestPath, authorCredentials],
   );
 
   const visibleReadBooks = useMemo(
     () =>
       readBooks.filter((book) =>
-        matchesSelectedGenres(book.genres, selectedInterestPath),
+        matchesSelectedNodes(book, selectedInterestPath, authorCredentials),
       ),
-    [readBooks, selectedInterestPath],
+    [readBooks, selectedInterestPath, authorCredentials],
   );
 
   const hasSelectedNodeFilter = selectedInterestPath.length > 0;
@@ -958,6 +1020,20 @@ export default function App() {
     setAddedRecIds(new Set());
     setGraphEditingNode(null);
   }, [resetDraft]);
+
+  useEffect(() => {
+    if (knownAuthors.length === 0) return;
+
+    let isActive = true;
+
+    void fetchAuthorCredentials(knownAuthors).then((creds) => {
+      if (isActive) setAuthorCredentials((prev) => ({ ...prev, ...creds }));
+    }).catch(() => {
+      // Credentials are non-critical — silently ignore failures
+    });
+
+    return () => { isActive = false; };
+  }, [knownAuthors]);
 
   useEffect(() => {
     if (!authEnabled) {
@@ -2279,6 +2355,30 @@ export default function App() {
     }
   }
 
+  async function handleAddCredential(author: string, credential: string) {
+    try {
+      await addAuthorCredential(author, credential);
+      setAuthorCredentials((prev) => ({
+        ...prev,
+        [author]: [...(prev[author] ?? []), credential],
+      }));
+    } catch (error) {
+      setErrorMessage(messageFromError(error));
+    }
+  }
+
+  async function handleRemoveCredential(author: string, credential: string) {
+    try {
+      await removeAuthorCredential(author, credential);
+      setAuthorCredentials((prev) => ({
+        ...prev,
+        [author]: (prev[author] ?? []).filter((c) => c !== credential),
+      }));
+    } catch (error) {
+      setErrorMessage(messageFromError(error));
+    }
+  }
+
   async function removeBook(id: number) {
     setPendingDeleteId(id);
     setErrorMessage(null);
@@ -2300,14 +2400,15 @@ export default function App() {
   async function addGraphGenreInterest() {
     const nextGenre = normalizeGenreTag(graphAddGenreInput);
 
-    if (!nextGenre || graphAddGenreRating == null) {
+    if (!nextGenre) {
       return;
     }
 
+    const rating = graphAddGenreRating ?? 3;
     setErrorMessage(null);
 
     try {
-      const nextInterests = await writeGenreInterest(nextGenre, graphAddGenreRating);
+      const nextInterests = await writeGenreInterest(nextGenre, rating);
       setGenreInterests(nextInterests);
       setGraphAddGenreInput("");
       setGraphAddGenreRating(null);
@@ -2317,7 +2418,7 @@ export default function App() {
   }
 
   function focusGraphGenre(tag: string) {
-    setSelectedInterestPath([tag]);
+    setSelectedInterestPath([{ tag, layer: "genre" }]);
     setGraphAddGenreInput(tag);
     setGraphAddGenreRating(genreInterests[tag] ?? null);
     setIsGraphGenreSuggestionActive(false);
@@ -2332,11 +2433,19 @@ export default function App() {
 
       applyBooksUpdate(nextBooks);
       setGenreInterests(nextInterests);
-      setSelectedInterestPath((current) =>
-        uniqueTags(
-          current.map((tag) => (tag === oldName ? newName : tag)),
-        ),
-      );
+      setSelectedInterestPath((current) => {
+        const updated = current.map((s) =>
+          s.layer === "genre" && s.tag === oldName ? { ...s, tag: newName } : s,
+        );
+        // Deduplicate by layer:tag
+        const seen = new Set<string>();
+        return updated.filter((s) => {
+          const key = `${s.layer}:${s.tag}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      });
       setGraphEditingNode((current) =>
         current && current.tag === oldName ? { ...current, tag: newName } : current,
       );
@@ -2443,12 +2552,16 @@ export default function App() {
 
   // Auto-build reading list when at least one node is selected
   useEffect(() => {
+    const genreTags = selectedInterestPath.filter((s) => s.layer === "genre").map((s) => s.tag);
+
     if (selectedInterestPath.length < 1) {
       setRecommendations(null);
       setRecError(null);
       setIsLoadingRecs(false);
       return;
     }
+
+    const credentialTags = selectedInterestPath.filter((s) => s.layer === "credential").map((s) => s.tag);
 
     let cancelled = false;
     let controller: AbortController | null = null;
@@ -2458,18 +2571,29 @@ export default function App() {
       controller = new AbortController();
 
       try {
-        const result = await fetchPathRecommendations(
-          {
-          selectedTags: selectedInterestPath,
-          profile: {
-            books: predictiveBooks,
-            genreInterests,
-            authorExperiences,
-            seriesExperiences,
-          },
-          },
-          controller.signal,
-        );
+        let result: PathRecommendationResponse;
+
+        if (genreTags.length === 0 && credentialTags.length > 0) {
+          // Credential-only: search for books by authors with those credentials
+          result = await fetchCredentialRecommendations(
+            credentialTags,
+            authorCredentials,
+            controller.signal,
+          );
+        } else {
+          result = await fetchPathRecommendations(
+            {
+            selectedTags: genreTags,
+            profile: {
+              books: predictiveBooks,
+              genreInterests,
+              authorExperiences,
+              seriesExperiences,
+            },
+            },
+            controller.signal,
+          );
+        }
         if (!cancelled) setRecommendations(result);
       } catch (error) {
         if (
@@ -2500,6 +2624,7 @@ export default function App() {
     genreInterests,
     authorExperiences,
     seriesExperiences,
+    authorCredentials,
   ]);
 
 
@@ -2742,6 +2867,7 @@ export default function App() {
               title="Reading list"
               totalCount={rankedBooks.length}
               books={visibleRankedBooks}
+              authorCredentials={authorCredentials}
               isLoading={isLoading}
               emptyMessage="No books yet. Add your first book to get started."
               emptyFilteredMessage="No books in your reading list match the selected nodes."
@@ -2776,6 +2902,7 @@ export default function App() {
               title="Books to revisit"
               totalCount={readBooks.length}
               books={visibleReadBooks}
+              authorCredentials={authorCredentials}
               emptyMessage="No read books yet."
               emptyFilteredMessage="No rereads match the selected nodes."
               readMode
@@ -2937,10 +3064,7 @@ export default function App() {
                         return;
                       }
 
-                      if (
-                        graphAddGenreInput.trim() &&
-                        graphAddGenreRating != null
-                      ) {
+                      if (graphAddGenreInput.trim()) {
                         void addGraphGenreInterest();
                       }
                     }}
@@ -2974,9 +3098,9 @@ export default function App() {
                 <button
                   type="button"
                   className="graph-add-btn"
-                  disabled={!graphAddGenreInput.trim() || graphAddGenreRating == null}
+                  disabled={!graphAddGenreInput.trim()}
                   onClick={() => {
-                    if (graphAddGenreInput.trim() && graphAddGenreRating != null) {
+                    if (graphAddGenreInput.trim()) {
                       void addGraphGenreInterest();
                     }
                   }}
@@ -2991,6 +3115,42 @@ export default function App() {
               />
             </div>
           </div>
+          <div className="layer-toggles">
+            <button
+              type="button"
+              className={`layer-toggle layer-toggle-genre${activeLayers.has("genre") ? " is-active" : ""}`}
+              onClick={() =>
+                setActiveLayers((current) => {
+                  const next = new Set(current);
+                  if (next.has("genre")) {
+                    next.delete("genre");
+                  } else {
+                    next.add("genre");
+                  }
+                  return next;
+                })
+              }
+            >
+              Interests
+            </button>
+            <button
+              type="button"
+              className={`layer-toggle layer-toggle-credential${activeLayers.has("credential") ? " is-active" : ""}`}
+              onClick={() =>
+                setActiveLayers((current) => {
+                  const next = new Set(current);
+                  if (next.has("credential")) {
+                    next.delete("credential");
+                  } else {
+                    next.add("credential");
+                  }
+                  return next;
+                })
+              }
+            >
+              Credentials
+            </button>
+          </div>
           <Suspense
             fallback={
               <div className="interest-map">
@@ -3001,6 +3161,8 @@ export default function App() {
             <InterestMap
               books={books}
               interests={genreInterests}
+              authorCredentials={authorCredentials}
+              activeLayers={activeLayers}
               selectedPath={selectedInterestPath}
               onSelectTag={toggleInterestPathTag}
               onClearSelection={() => setSelectedInterestPath([])}
@@ -3086,6 +3248,7 @@ export default function App() {
                     series={rec.series}
                     seriesNumber={rec.seriesNumber}
                     authors={rec.authors}
+                    authorCredentials={authorCredentials}
                     score={rec.score}
                     className={[
                       addedRecIds.has(rec.id) ? "is-added" : "",
@@ -3415,6 +3578,95 @@ export default function App() {
                 ) : null}
               </div>
             </div>
+
+            {draft.authors.length > 0 ? (
+              <div className="field entry-credentials">
+                <span>Author credentials</span>
+                {draft.authors.map((author) => {
+                  const creds = authorCredentials[author] ?? [];
+                  return (
+                    <div key={author} className="tag-editor">
+                      <span className="credentials-author-label">{author}</span>
+                      <div className="tag-entry-group">
+                        <div className="tag-entry-row">
+                          <input
+                            type="text"
+                            placeholder="e.g. Oncologist"
+                            value={
+                              credentialAuthor === author
+                                ? credentialInput
+                                : ""
+                            }
+                            onChange={(e) => {
+                              setCredentialAuthor(author);
+                              setCredentialInput(e.target.value);
+                            }}
+                            onFocus={() => {
+                              if (credentialAuthor !== author) {
+                                setCredentialAuthor(author);
+                                setCredentialInput("");
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                const trimmed = credentialInput.trim();
+                                if (trimmed) {
+                                  void handleAddCredential(author, trimmed);
+                                }
+                                setCredentialInput("");
+                              } else if (e.key === "Escape") {
+                                setCredentialInput("");
+                                setCredentialAuthor(null);
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            className="graph-add-btn"
+                            disabled={
+                              credentialAuthor !== author ||
+                              !credentialInput.trim()
+                            }
+                            onClick={() => {
+                              const trimmed = credentialInput.trim();
+                              if (trimmed) {
+                                void handleAddCredential(author, trimmed);
+                              }
+                              setCredentialInput("");
+                            }}
+                            aria-label={`Add credential for ${author}`}
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                      {creds.length > 0 ? (
+                        <div className="draft-tag-list">
+                          {creds.map((cred) => (
+                            <span key={cred} className="genre-tag draft-tag-chip">
+                              <span className="genre-tag-name">{cred}</span>
+                              <button
+                                type="button"
+                                className="tag-remove"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() =>
+                                  void handleRemoveCredential(author, cred)
+                                }
+                                aria-label={`Remove ${cred}`}
+                                title={`Remove ${cred}`}
+                              >
+                                x
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
 
             <div className="field entry-genre">
               <span>Genre(s) / topic(s) + my current interest in them</span>

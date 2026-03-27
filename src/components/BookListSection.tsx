@@ -6,11 +6,13 @@ import {
   StarRating,
 } from "./LibraryControls";
 import type { RankedBook } from "../lib/ranking";
+import type { AuthorCredentialMap } from "../lib/books-api";
 
 type BookListSectionProps = {
   title: string;
   totalCount: number;
   books: RankedBook[];
+  authorCredentials?: AuthorCredentialMap;
   isLoading?: boolean;
   emptyMessage: string;
   emptyFilteredMessage: string;
@@ -46,6 +48,7 @@ export function BookListSection({
   title,
   totalCount,
   books,
+  authorCredentials,
   isLoading = false,
   emptyMessage,
   emptyFilteredMessage,
@@ -92,6 +95,7 @@ export function BookListSection({
                 series={book.series}
                 seriesNumber={book.seriesNumber}
                 authors={book.authors}
+                authorCredentials={authorCredentials}
                 score={book.score}
                 scoreOverride={readMode ? book.archiveLabel ?? "Not yet" : undefined}
                 rankClass={buildRankClass(book.rank)}

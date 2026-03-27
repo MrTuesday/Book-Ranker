@@ -2653,3 +2653,36 @@ export async function renameAuthorInBooks(oldAuthor: string, newAuthor: string) 
     return writeLocalBooks(applySiteRatingStats(nextBooks));
   }
 }
+
+export type AuthorCredentialMap = Record<string, string[]>;
+
+export async function fetchAuthorCredentials(
+  authors: string[],
+): Promise<AuthorCredentialMap> {
+  if (authors.length === 0) return {};
+
+  return requestJson<AuthorCredentialMap>("/api/author-credentials", {
+    method: "POST",
+    body: JSON.stringify({ authors }),
+  });
+}
+
+export async function addAuthorCredential(
+  author: string,
+  credential: string,
+): Promise<void> {
+  await requestJson("/api/author-credentials/add", {
+    method: "PUT",
+    body: JSON.stringify({ author, credential }),
+  });
+}
+
+export async function removeAuthorCredential(
+  author: string,
+  credential: string,
+): Promise<void> {
+  await requestJson("/api/author-credentials/remove", {
+    method: "DELETE",
+    body: JSON.stringify({ author, credential }),
+  });
+}

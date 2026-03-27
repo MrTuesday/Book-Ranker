@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 
-import type { Book, GenreInterestMap } from "../lib/books-api";
+import type { Book, GenreInterestMap, AuthorCredentialMap } from "../lib/books-api";
 
 const MIN_INTEREST_MAP_ZOOM = 0.75;
 const MAX_INTEREST_MAP_ZOOM = 2.5;
@@ -30,8 +30,12 @@ type LabelBox = {
   bottom: number;
 };
 
+export type NodeLayer = "genre" | "credential";
+
 type InterestMapNode = {
+  key: string;
   tag: string;
+  layer: NodeLayer;
   count: number;
   interest: number;
   degree: number;
@@ -46,12 +50,16 @@ type InterestMapNode = {
   restY: number;
 };
 
+export type SelectedNode = { tag: string; layer: NodeLayer };
+
 export type InterestMapProps = {
   books: Book[];
   interests: GenreInterestMap;
+  authorCredentials?: AuthorCredentialMap;
+  activeLayers?: Set<NodeLayer>;
   compact?: boolean;
-  selectedPath?: string[];
-  onSelectTag?: (tag: string) => void;
+  selectedPath?: SelectedNode[];
+  onSelectTag?: (node: SelectedNode) => void;
   onClearSelection?: () => void;
   onEditingNodeChange?: (node: {
     tag: string;
@@ -101,6 +109,10 @@ function normalizedGenreSignature(book: Book) {
   return uniqueTags(book.genres).sort((left, right) => left.localeCompare(right));
 }
 
+function normalizedAuthorSignature(book: Book) {
+  return uniqueTags(book.authors).sort((left, right) => left.localeCompare(right));
+}
+
 function sameGraphBooks(left: Book[], right: Book[]) {
   if (left.length !== right.length) {
     return false;
@@ -119,6 +131,13 @@ function sameGraphBooks(left: Book[], right: Book[]) {
     const rightGenres = normalizedGenreSignature(rightBook);
 
     if (!sameStringList(leftGenres, rightGenres)) {
+      return false;
+    }
+
+    const leftAuthors = normalizedAuthorSignature(leftBook);
+    const rightAuthors = normalizedAuthorSignature(rightBook);
+
+    if (!sameStringList(leftAuthors, rightAuthors)) {
       return false;
     }
   }
@@ -144,6 +163,93 @@ function sameInterestMap(
   }
 
   return true;
+}
+
+function sameCredentialMap(
+  left: AuthorCredentialMap,
+  right: AuthorCredentialMap,
+) {
+  const leftKeys = Object.keys(left).sort((a, b) => a.localeCompare(b));
+  const rightKeys = Object.keys(right).sort((a, b) => a.localeCompare(b));
+
+  if (!sameStringList(leftKeys, rightKeys)) {
+    return false;
+  }
+
+  for (const key of leftKeys) {
+    const leftVals = [...left[key]].sort((a, b) => a.localeCompare(b));
+    const rightVals = [...right[key]].sort((a, b) => a.localeCompare(b));
+
+    if (!sameStringList(leftVals, rightVals)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function sameSelectedPath(left: SelectedNode[], right: SelectedNode[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index].tag !== right[index].tag || left[index].layer !== right[index].layer) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function sameLayers(left: Set<NodeLayer>, right: Set<NodeLayer>) {
+  if (left.size !== right.size) {
+    return false;
+  }
+
+  for (const item of left) {
+    if (!right.has(item)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function nodeKey(layer: NodeLayer, tag: string) {
+  return `${layer}:${tag}`;
+}
+
+const GENRE_COLOR = {
+  fill: "rgba(180, 83, 9, 0.55)",
+  fillSelected: "rgba(180, 83, 9, 0.85)",
+  stroke: "rgba(180, 83, 9, 0.3)",
+  haloFill: "rgba(180, 83, 9, 0.12)",
+  haloStroke: "rgba(180, 83, 9, 0.7)",
+  link: "rgba(180, 83, 9, 0.22)",
+  linkHighlight: "rgba(180, 83, 9, 0.78)",
+  bubbleFill: "rgba(252, 248, 241, 0.78)",
+  bubbleFillSelected: "rgba(255, 247, 237, 0.92)",
+  bubbleStroke: "rgba(180, 83, 9, 0.14)",
+  bubbleStrokeSelected: "rgba(180, 83, 9, 0.3)",
+};
+
+const CREDENTIAL_COLOR = {
+  fill: "rgba(139, 92, 246, 0.55)",
+  fillSelected: "rgba(139, 92, 246, 0.85)",
+  stroke: "rgba(139, 92, 246, 0.3)",
+  haloFill: "rgba(139, 92, 246, 0.12)",
+  haloStroke: "rgba(139, 92, 246, 0.7)",
+  link: "rgba(139, 92, 246, 0.22)",
+  linkHighlight: "rgba(139, 92, 246, 0.78)",
+  bubbleFill: "rgba(245, 243, 255, 0.78)",
+  bubbleFillSelected: "rgba(243, 237, 255, 0.92)",
+  bubbleStroke: "rgba(139, 92, 246, 0.14)",
+  bubbleStrokeSelected: "rgba(139, 92, 246, 0.3)",
+};
+
+function layerColor(layer: NodeLayer) {
+  return layer === "credential" ? CREDENTIAL_COLOR : GENRE_COLOR;
 }
 
 function zoomInterestMapViewport(
@@ -316,9 +422,13 @@ function buildInterestBubblePlacement(
   };
 }
 
+const DEFAULT_ACTIVE_LAYERS: Set<NodeLayer> = new Set(["genre"]);
+
 function InterestMapView({
   books,
   interests,
+  authorCredentials = {},
+  activeLayers = DEFAULT_ACTIVE_LAYERS,
   compact = false,
   selectedPath = [],
   onSelectTag,
@@ -326,6 +436,10 @@ function InterestMapView({
   onEditingNodeChange,
 }: InterestMapProps) {
   const data = useMemo(() => {
+    const genreLayerActive = activeLayers.has("genre");
+    const credentialLayerActive = activeLayers.has("credential");
+
+    // --- Genre nodes (existing logic) ---
     const tagCounts = new Map<string, number>();
     const pairCounts = new Map<string, number>();
 
@@ -345,27 +459,92 @@ function InterestMapView({
           const [left, right] = [tags[index], tags[pairIndex]].sort((a, b) =>
             a.localeCompare(b),
           );
-          const key = `${left}\u0000${right}`;
+          const key = `genre:${left}\u0000genre:${right}`;
 
           pairCounts.set(key, (pairCounts.get(key) ?? 0) + 1);
         }
       }
     }
 
-    const nodes = Array.from(tagCounts.entries())
-      .sort(
-        ([leftTag, leftCount], [rightTag, rightCount]) =>
-          rightCount - leftCount ||
-          (interests[rightTag] ?? 0) - (interests[leftTag] ?? 0) ||
-          leftTag.localeCompare(rightTag),
-      )
-      .map(([tag, count]) => ({
-        tag,
-        count,
-        interest: interests[tag] ?? 0,
-      }));
+    const genreNodes: Array<{ key: string; tag: string; layer: NodeLayer; count: number; interest: number }> = genreLayerActive
+      ? Array.from(tagCounts.entries())
+          .sort(
+            ([leftTag, leftCount], [rightTag, rightCount]) =>
+              rightCount - leftCount ||
+              (interests[rightTag] ?? 0) - (interests[leftTag] ?? 0) ||
+              leftTag.localeCompare(rightTag),
+          )
+          .map(([tag, count]) => ({
+            key: nodeKey("genre", tag),
+            tag,
+            layer: "genre" as NodeLayer,
+            count,
+            interest: interests[tag] ?? 0,
+          }))
+      : [];
 
-    const selectedTags = new Set(nodes.map((node) => node.tag));
+    // --- Credential nodes ---
+    const credentialCounts = new Map<string, number>();
+
+    if (credentialLayerActive) {
+      for (const book of books) {
+        const bookCredentials = new Set<string>();
+        for (const author of book.authors) {
+          const creds = authorCredentials[author.trim()];
+          if (creds) {
+            for (const cred of creds) {
+              bookCredentials.add(cred);
+            }
+          }
+        }
+        for (const cred of bookCredentials) {
+          credentialCounts.set(cred, (credentialCounts.get(cred) ?? 0) + 1);
+        }
+      }
+    }
+
+    const credentialNodes: Array<{ key: string; tag: string; layer: NodeLayer; count: number; interest: number }> = credentialLayerActive
+      ? Array.from(credentialCounts.entries())
+          .sort(
+            ([leftTag, leftCount], [rightTag, rightCount]) =>
+              rightCount - leftCount || leftTag.localeCompare(rightTag),
+          )
+          .map(([tag, count]) => ({
+            key: nodeKey("credential", tag),
+            tag,
+            layer: "credential" as NodeLayer,
+            count,
+            interest: 0,
+          }))
+      : [];
+
+    // --- Credential-genre cross links ---
+    if (credentialLayerActive && genreLayerActive) {
+      for (const book of books) {
+        const tags = uniqueTags(book.genres).filter((tag) => interests[tag] != null);
+        const bookCredentials = new Set<string>();
+        for (const author of book.authors) {
+          const creds = authorCredentials[author.trim()];
+          if (creds) {
+            for (const cred of creds) {
+              bookCredentials.add(cred);
+            }
+          }
+        }
+        for (const cred of bookCredentials) {
+          for (const tag of tags) {
+            const [left, right] = [`credential:${cred}`, `genre:${tag}`].sort((a, b) =>
+              a.localeCompare(b),
+            );
+            const key = `${left}\u0000${right}`;
+            pairCounts.set(key, (pairCounts.get(key) ?? 0) + 1);
+          }
+        }
+      }
+    }
+
+    const allNodes = [...genreNodes, ...credentialNodes];
+    const selectedKeys = new Set(allNodes.map((node) => node.key));
     const links = Array.from(pairCounts.entries())
       .map(([key, count]) => {
         const [source, target] = key.split("\u0000");
@@ -373,7 +552,7 @@ function InterestMapView({
       })
       .filter(
         ({ source, target }) =>
-          selectedTags.has(source) && selectedTags.has(target),
+          selectedKeys.has(source) && selectedKeys.has(target),
       )
       .sort(
         (left, right) =>
@@ -382,8 +561,8 @@ function InterestMapView({
           left.target.localeCompare(right.target),
       );
 
-    return { nodes, links };
-  }, [books, interests]);
+    return { nodes: allNodes, links };
+  }, [books, interests, authorCredentials, activeLayers]);
 
   const initialLayout = useMemo(() => {
     if (data.nodes.length === 0) {
@@ -393,7 +572,7 @@ function InterestMapView({
     const degreeMap = new Map<string, number>();
 
     for (const node of data.nodes) {
-      degreeMap.set(node.tag, 0);
+      degreeMap.set(node.key, 0);
     }
 
     for (const link of data.links) {
@@ -408,21 +587,21 @@ function InterestMapView({
     }
 
     const connectedNodes = [...data.nodes]
-      .filter((node) => (degreeMap.get(node.tag) ?? 0) > 0)
+      .filter((node) => (degreeMap.get(node.key) ?? 0) > 0)
       .sort(
         (left, right) =>
-          (degreeMap.get(right.tag) ?? 0) - (degreeMap.get(left.tag) ?? 0) ||
+          (degreeMap.get(right.key) ?? 0) - (degreeMap.get(left.key) ?? 0) ||
           right.count - left.count ||
           right.interest - left.interest ||
-          left.tag.localeCompare(right.tag),
+          left.key.localeCompare(right.key),
       );
     const isolatedNodes = [...data.nodes]
-      .filter((node) => (degreeMap.get(node.tag) ?? 0) === 0)
+      .filter((node) => (degreeMap.get(node.key) ?? 0) === 0)
       .sort(
         (left, right) =>
           right.count - left.count ||
           right.interest - left.interest ||
-          left.tag.localeCompare(right.tag),
+          left.key.localeCompare(right.key),
       );
     const rankedNodes = [...connectedNodes, ...isolatedNodes];
     const ringCapacities = [5, 8, 10, 12, 14];
@@ -451,7 +630,7 @@ function InterestMapView({
     const maxLinkCount = Math.max(...data.links.map((link) => link.count), 1);
 
     const positionedNodes: InterestMapNode[] = rankedNodes.map((node, index) => {
-      const seed = hashTag(node.tag);
+      const seed = hashTag(node.key);
       const radius = 6 + (node.count / maxNodeCount) * 6;
       let x = centerX;
       let y = centerY;
@@ -478,7 +657,7 @@ function InterestMapView({
 
       return {
         ...node,
-        degree: degreeMap.get(node.tag) ?? 0,
+        degree: degreeMap.get(node.key) ?? 0,
         x,
         y,
         vx: 0,
@@ -493,7 +672,7 @@ function InterestMapView({
 
     if (positionedNodes.length > 1) {
       const nodeIndex = new Map(
-        positionedNodes.map((node, index) => [node.tag, index] as const),
+        positionedNodes.map((node, index) => [node.key, index] as const),
       );
 
       for (let iteration = 0; iteration < 220; iteration += 1) {
@@ -572,7 +751,7 @@ function InterestMapView({
           const edgeBias =
             node.degree > 0
               ? 0
-              : ((hashTag(`${node.tag}:edge`) % 3) - 1) * 0.015;
+              : ((hashTag(`${node.key}:edge`) % 3) - 1) * 0.015;
 
           node.vx =
             (node.vx +
@@ -633,7 +812,7 @@ function InterestMapView({
     }
 
     const nodeIndexMap = new Map(
-      positionedNodes.map((node, index) => [node.tag, index] as const),
+      positionedNodes.map((node, index) => [node.key, index] as const),
     );
 
     return {
@@ -836,7 +1015,7 @@ function InterestMapView({
           continue;
         }
 
-        const swaySeed = hashTag(node.tag);
+        const swaySeed = hashTag(node.key);
         const swayX =
           Math.sin(animationTimeRef.current * 0.44 + (swaySeed & 0xff) * 0.027) *
           0.0018;
@@ -1276,7 +1455,7 @@ function InterestMapView({
     height: initialLayout.height,
   };
   const isInteracting = dragRef.current != null || panRef.current != null;
-  const selectedPathSet = new Set(selectedPath);
+  const selectedPathSet = new Set(selectedPath.map((s) => nodeKey(s.layer, s.tag)));
   const centerX = initialLayout.width / 2;
   const centerY = initialLayout.height / 2;
   const renderNodes = currentNodes.map((node, index) => {
@@ -1305,7 +1484,7 @@ function InterestMapView({
       bubbleBox: placement.bubbleBox,
     };
   });
-  const nodeMap = new Map(renderNodes.map((node) => [node.tag, node] as const));
+  const nodeMap = new Map(renderNodes.map((node) => [node.key, node] as const));
   const hasLinks = data.links.length > 0;
   const interestLabel =
     data.nodes.length === 1 ? "1 interest" : `${data.nodes.length} interests`;
@@ -1340,7 +1519,7 @@ function InterestMapView({
 
   function handleNodeKeyDown(
     event: ReactKeyboardEvent<SVGGElement>,
-    node: { tag: string; x: number; y: number },
+    node: { tag: string; layer: NodeLayer; key: string; x: number; y: number },
   ) {
     if (!onSelectTag) {
       return;
@@ -1354,7 +1533,7 @@ function InterestMapView({
 
   function handleNodeClick(
     event: Pick<React.MouseEvent<SVGGElement>, "stopPropagation">,
-    node: { tag: string; x: number; y: number },
+    node: { tag: string; layer: NodeLayer; key: string; x: number; y: number },
   ) {
     event.stopPropagation();
 
@@ -1364,9 +1543,11 @@ function InterestMapView({
     }
 
     const willBeOnlySelectedNode =
-      !selectedPath.includes(node.tag) && selectedPath.length === 0;
+      !selectedPath.some((s) => s.tag === node.tag && s.layer === node.layer) &&
+      selectedPath.length === 0;
 
-    if (willBeOnlySelectedNode) {
+    // Only show editing popover for genre nodes
+    if (willBeOnlySelectedNode && node.layer === "genre") {
       const svg = svgRef.current;
 
       if (svg) {
@@ -1388,7 +1569,7 @@ function InterestMapView({
       setEditingNode(null);
     }
 
-    onSelectTag?.(node.tag);
+    onSelectTag?.({ tag: node.tag, layer: node.layer });
   }
 
   return (
@@ -1418,6 +1599,10 @@ function InterestMapView({
             }
 
             const segment = buildLinkSegment(source, target);
+            const linkColor =
+              source.layer === target.layer
+                ? layerColor(source.layer).link
+                : "rgba(120, 90, 140, 0.22)";
 
             return (
               <g key={`${link.source}-${link.target}`}>
@@ -1426,7 +1611,7 @@ function InterestMapView({
                   y1={segment.startY}
                   x2={segment.endX}
                   y2={segment.endY}
-                  stroke="rgba(180, 83, 9, 0.22)"
+                  stroke={linkColor}
                   strokeOpacity={
                     0.2 + (link.count / initialLayout.maxLinkCount) * 0.2
                   }
@@ -1447,6 +1632,10 @@ function InterestMapView({
             }
 
             const segment = buildLinkSegment(source, target);
+            const highlightColor =
+              source.layer === target.layer
+                ? layerColor(source.layer).linkHighlight
+                : "rgba(120, 90, 140, 0.78)";
 
             return (
               <line
@@ -1455,104 +1644,100 @@ function InterestMapView({
                 y1={segment.startY}
                 x2={segment.endX}
                 y2={segment.endY}
-                stroke="rgba(180, 83, 9, 0.78)"
+                stroke={highlightColor}
                 strokeWidth={1.8 + (link.count / initialLayout.maxLinkCount) * 1.6}
                 strokeLinecap="round"
               />
             );
           })}
-          {renderNodes.map((node) => (
-            <g
-              key={node.tag}
-              className={`interest-map-node${isSelectable ? " is-selectable" : ""}${selectedPathSet.has(node.tag) ? " is-selected" : ""}`}
-              onClick={
-                onSelectTag
-                  ? (event: React.MouseEvent) => handleNodeClick(event, node)
-                  : undefined
-              }
-              onPointerDown={
-                !compact
-                  ? (event) => handleNodePointerDown(event, node.index)
-                  : undefined
-              }
-              onKeyDown={
-                onSelectTag
-                  ? (event) => handleNodeKeyDown(event, node)
-                  : undefined
-              }
-            >
-              {!compact ? (
-                <rect
-                  className="interest-map-bubble"
-                  x={node.bubbleBox.left}
-                  y={node.bubbleBox.top}
-                  width={node.bubbleBox.right - node.bubbleBox.left}
-                  height={node.bubbleBox.bottom - node.bubbleBox.top}
-                  rx="16"
-                  fill={
-                    selectedPathSet.has(node.tag)
-                      ? "rgba(255, 247, 237, 0.92)"
-                      : "rgba(252, 248, 241, 0.78)"
-                  }
-                  stroke={
-                    selectedPathSet.has(node.tag)
-                      ? "rgba(180, 83, 9, 0.3)"
-                      : "rgba(180, 83, 9, 0.14)"
-                  }
-                  strokeWidth={selectedPathSet.has(node.tag) ? "1.6" : "1"}
-                />
-              ) : null}
-              <title>{`${node.tag}: ${node.count} book${node.count === 1 ? "" : "s"}, interest ${node.interest}/5`}</title>
-              {selectedPathSet.has(node.tag) ? (
+          {renderNodes.map((node) => {
+            const colors = layerColor(node.layer);
+            const isSelected = selectedPathSet.has(node.key);
+            const titleText = node.layer === "credential"
+              ? `${node.tag}: ${node.count} book${node.count === 1 ? "" : "s"}`
+              : `${node.tag}: ${node.count} book${node.count === 1 ? "" : "s"}, interest ${node.interest}/5`;
+
+            return (
+              <g
+                key={node.key}
+                className={`interest-map-node${isSelectable ? " is-selectable" : ""}${isSelected ? " is-selected" : ""}`}
+                onClick={
+                  onSelectTag
+                    ? (event: React.MouseEvent) => handleNodeClick(event, node)
+                    : undefined
+                }
+                onPointerDown={
+                  !compact
+                    ? (event) => handleNodePointerDown(event, node.index)
+                    : undefined
+                }
+                onKeyDown={
+                  onSelectTag
+                    ? (event) => handleNodeKeyDown(event, node)
+                    : undefined
+                }
+              >
+                {!compact ? (
+                  <rect
+                    className="interest-map-bubble"
+                    x={node.bubbleBox.left}
+                    y={node.bubbleBox.top}
+                    width={node.bubbleBox.right - node.bubbleBox.left}
+                    height={node.bubbleBox.bottom - node.bubbleBox.top}
+                    rx="16"
+                    fill={isSelected ? colors.bubbleFillSelected : colors.bubbleFill}
+                    stroke={isSelected ? colors.bubbleStrokeSelected : colors.bubbleStroke}
+                    strokeWidth={isSelected ? "1.6" : "1"}
+                  />
+                ) : null}
+                <title>{titleText}</title>
+                {isSelected ? (
+                  <circle
+                    cx={node.x}
+                    cy={node.y}
+                    r={node.radius + 5}
+                    fill={colors.haloFill}
+                    stroke={colors.haloStroke}
+                    strokeWidth="2"
+                  />
+                ) : null}
                 <circle
                   cx={node.x}
                   cy={node.y}
-                  r={node.radius + 5}
-                  fill="rgba(180, 83, 9, 0.12)"
-                  stroke="rgba(180, 83, 9, 0.7)"
-                  strokeWidth="2"
+                  r={node.radius}
+                  fill={isSelected ? colors.fillSelected : colors.fill}
+                  stroke={colors.stroke}
+                  strokeWidth="1"
                 />
-              ) : null}
-              <circle
-                cx={node.x}
-                cy={node.y}
-                r={node.radius}
-                fill={
-                  selectedPathSet.has(node.tag)
-                    ? "rgba(180, 83, 9, 0.85)"
-                    : "rgba(180, 83, 9, 0.55)"
-                }
-                stroke="rgba(180, 83, 9, 0.3)"
-                strokeWidth="1"
-              />
-              {node.count > 0 ? (
-                <text
-                  className="interest-map-score"
-                  x={node.x}
-                  y={node.y}
-                  textAnchor="middle"
-                  dominantBaseline="central"
-                  fontSize={interestNodeScoreFontSize(node.radius)}
-                  fill="white"
-                  fontWeight="600"
-                  pointerEvents="none"
-                >
-                  {node.interest}
-                </text>
-              ) : null}
-              {!compact ? (
-                <text
-                  className="interest-map-label"
-                  x={node.labelX}
-                  y={node.labelY}
-                  textAnchor={node.labelAnchor}
-                  style={{ fontSize: `${node.labelFontSize}px` }}
-                >
-                  {node.labelText}
-                </text>
-              ) : null}
-            </g>
-          ))}
+                {node.count > 0 && node.layer === "genre" ? (
+                  <text
+                    className="interest-map-score"
+                    x={node.x}
+                    y={node.y}
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    fontSize={interestNodeScoreFontSize(node.radius)}
+                    fill="white"
+                    fontWeight="600"
+                    pointerEvents="none"
+                  >
+                    {node.interest}
+                  </text>
+                ) : null}
+                {!compact ? (
+                  <text
+                    className="interest-map-label"
+                    x={node.labelX}
+                    y={node.labelY}
+                    textAnchor={node.labelAnchor}
+                    style={{ fontSize: `${node.labelFontSize}px` }}
+                  >
+                    {node.labelText}
+                  </text>
+                ) : null}
+              </g>
+            );
+          })}
         </svg>
       </div>
       {!compact ? (
@@ -1570,9 +1755,11 @@ const InterestMap = memo(
   InterestMapView,
   (previousProps, nextProps) =>
     previousProps.compact === nextProps.compact &&
-    sameStringList(previousProps.selectedPath ?? [], nextProps.selectedPath ?? []) &&
+    sameSelectedPath(previousProps.selectedPath ?? [], nextProps.selectedPath ?? []) &&
     sameGraphBooks(previousProps.books, nextProps.books) &&
-    sameInterestMap(previousProps.interests, nextProps.interests),
+    sameInterestMap(previousProps.interests, nextProps.interests) &&
+    sameCredentialMap(previousProps.authorCredentials ?? {}, nextProps.authorCredentials ?? {}) &&
+    sameLayers(previousProps.activeLayers ?? DEFAULT_ACTIVE_LAYERS, nextProps.activeLayers ?? DEFAULT_ACTIVE_LAYERS),
 );
 
 export default InterestMap;

@@ -32,6 +32,11 @@ import {
 import { createSeedState } from "./lib/seed-state.js";
 import { JsonStateStore } from "./lib/state-store.js";
 import { HttpError, notFound, readJson, sendJson } from "./lib/http.js";
+import {
+  getAuthorCredentials,
+  addAuthorCredential,
+  removeAuthorCredential,
+} from "./lib/author-credentials.js";
 
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const distDir = join(rootDir, "dist");
@@ -136,6 +141,24 @@ async function handleApi(request, response, url) {
         limit: body?.limit,
       }),
     );
+  }
+
+  if (request.method === "POST" && path === "/api/author-credentials") {
+    const body = await readJson(request);
+    const authors = Array.isArray(body?.authors) ? body.authors : [];
+    return sendJson(response, 200, getAuthorCredentials(authors));
+  }
+
+  if (request.method === "PUT" && path === "/api/author-credentials/add") {
+    const body = await readJson(request);
+    addAuthorCredential(body?.author, body?.credential);
+    return sendJson(response, 200, { ok: true });
+  }
+
+  if (request.method === "DELETE" && path === "/api/author-credentials/remove") {
+    const body = await readJson(request);
+    removeAuthorCredential(body?.author, body?.credential);
+    return sendJson(response, 200, { ok: true });
   }
 
   if (request.method === "POST" && path === "/api/library/import") {
