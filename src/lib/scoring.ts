@@ -10,12 +10,12 @@ export const SERIES_SIGNAL_WEIGHT = 1 / 4;
 export const REREAD_DECAY = 0.65;
 export const ARCHIVE_SCORE_FLOOR = 0.2;
 export const ARCHIVE_COOLDOWN_YEARS = 10;
-export const ARCHIVE_NOT_YET_MAX = 1.75;
-export const ARCHIVE_SOON_MAX = 2.75;
-export const ARCHIVE_READY_MAX = 3.5;
-export const ARCHIVE_DUE_MAX = 4.25;
+export const ARCHIVE_NOT_YET_MAX = 3;
+export const ARCHIVE_SOON_MAX = 3.5;
+export const ARCHIVE_READY_MIN = 3.5;
+export const ARCHIVE_OVERDUE_MIN = 4;
 export const ARCHIVE_AVOID_MAX =
-  ARCHIVE_DUE_MAX * ARCHIVE_SCORE_FLOOR - 0.01;
+  ARCHIVE_READY_MIN * ARCHIVE_SCORE_FLOOR - 0.01;
 
 export function bayesianScore(R: number, v: number, C: number, m: number) {
   const smoothingFactor = Math.max(0, m);
@@ -350,7 +350,7 @@ export function realizeArchiveScore(
 }
 
 export function capArchiveScore(realizedScore: number, fullScore: number) {
-  if (fullScore < ARCHIVE_DUE_MAX) {
+  if (fullScore < ARCHIVE_READY_MIN) {
     return Math.min(realizedScore, ARCHIVE_AVOID_MAX);
   }
 
@@ -361,7 +361,7 @@ export function archiveReadinessFromScores(
   realizedScore: number,
   fullScore: number,
 ) {
-  if (fullScore < ARCHIVE_DUE_MAX) {
+  if (fullScore < ARCHIVE_READY_MIN) {
     return { label: "Avoid", tone: "avoid" as const };
   }
 
@@ -375,12 +375,8 @@ export function archiveReadinessFromScores(
     return { label: "Soon", tone: "soon" as const };
   }
 
-  if (normalizedScore < ARCHIVE_READY_MAX) {
+  if (normalizedScore < ARCHIVE_OVERDUE_MIN) {
     return { label: "Ready", tone: "ready" as const };
-  }
-
-  if (normalizedScore < ARCHIVE_DUE_MAX) {
-    return { label: "Due", tone: "due" as const };
   }
 
   return { label: "Overdue", tone: "overdue" as const };
