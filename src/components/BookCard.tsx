@@ -178,22 +178,26 @@ export function BookCard({
           <strong className="score-value">
             {scoreOverride ?? formatScore(score)}
           </strong>
-          {progressBar ? (
-            <div
-              className={`ranking-progress-row${rank != null ? " has-rank" : ""}`}
-            >
-              {rank != null ? (
-                <div className="rank-badge ranking-progress-spacer" aria-hidden="true">
-                  #{rank}
+          {progressBar || stars || subMeta ? (
+            <div className={`ranking-metrics${rank != null ? " has-rank" : ""}`}>
+              {progressBar ? (
+                <div
+                  className={`ranking-progress-row${rank != null ? " has-rank" : ""}`}
+                >
+                  {rank != null ? (
+                    <div className="rank-badge ranking-progress-spacer" aria-hidden="true">
+                      #{rank}
+                    </div>
+                  ) : null}
+                  {progressBar}
                 </div>
               ) : null}
-              {progressBar}
-            </div>
-          ) : null}
-          {stars || subMeta ? (
-            <div className={`ranking-detail-row${rank != null ? " has-rank" : ""}`}>
-              {stars}
-              {subMeta}
+              {stars || subMeta ? (
+                <div className={`ranking-detail-row${rank != null ? " has-rank" : ""}`}>
+                  {stars}
+                  {subMeta}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>

@@ -1345,6 +1345,13 @@ select:focus {
     grid-column: 2;
 }
 
+.ranking-metrics {
+    display: grid;
+    gap: 4px;
+    grid-column: 1 / -1;
+    margin-top: 8px;
+}
+
 .ranking-detail-row {
     display: flex;
     align-items: center;
@@ -1641,6 +1648,7 @@ select:focus {
     display: inline-flex;
     align-items: center;
     gap: 4px;
+    min-height: 26px;
 }
 
 .read-count-stepper-btn {
@@ -2249,7 +2257,9 @@ select:focus {
 
 .my-rating-stars {
     display: inline-flex;
+    align-items: center;
     gap: 2px;
+    min-height: 26px;
 }
 
 .my-rating-star {
