@@ -143,37 +143,41 @@ export function BookCard({
                 ) : null}
               </p>
             ) : null}
-            <h3>{title}</h3>
-            {visibleInterestTags.length > 0 ? (
-              <div className="book-card-tag-list book-card-interest-tags">
-                {visibleInterestTags.map((tag) => (
-                  <span key={tag} className="book-card-chip book-card-chip-interest">
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-            <p className="ranking-author">
-              {authors.length === 0 ? "Unknown author" : authors.join(", ")}
-            </p>
-            {authorsWithCredentials.length > 0 ? (
-              <div className="book-card-credentials">
-                {authorsWithCredentials.map(({ author, credentials }) => (
-                  <div key={author} className="book-card-credential-row">
-                    {showCredentialAuthorLabels ? (
-                      <span className="credentials-author-label">{author}</span>
-                    ) : null}
-                    <div className="book-card-tag-list author-credentials">
-                      {credentials.map((cred) => (
-                        <span key={cred} className="book-card-chip author-credential">
-                          {cred}
-                        </span>
-                      ))}
+            <div className="book-card-pair">
+              <h3>{title}</h3>
+              {visibleInterestTags.length > 0 ? (
+                <div className="book-card-tag-list book-card-interest-tags">
+                  {visibleInterestTags.map((tag) => (
+                    <span key={tag} className="book-card-chip book-card-chip-interest">
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            <div className="book-card-pair">
+              <p className="ranking-author">
+                {authors.length === 0 ? "Unknown author" : authors.join(", ")}
+              </p>
+              {authorsWithCredentials.length > 0 ? (
+                <div className="book-card-credentials">
+                  {authorsWithCredentials.map(({ author, credentials }) => (
+                    <div key={author} className="book-card-credential-row">
+                      {showCredentialAuthorLabels ? (
+                        <span className="credentials-author-label">{author}</span>
+                      ) : null}
+                      <div className="book-card-tag-list author-credentials">
+                        {credentials.map((cred) => (
+                          <span key={cred} className="book-card-chip author-credential">
+                            {cred}
+                          </span>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            ) : null}
+                  ))}
+                </div>
+              ) : null}
+            </div>
           </div>
           <strong className="score-value">
             {scoreOverride ?? formatScore(score)}
@@ -194,8 +198,15 @@ export function BookCard({
               ) : null}
               {stars || subMeta ? (
                 <div className={`ranking-detail-row${rank != null ? " has-rank" : ""}`}>
-                  {stars}
-                  {subMeta}
+                  {rank != null ? (
+                    <div className="rank-badge ranking-progress-spacer" aria-hidden="true">
+                      #{rank}
+                    </div>
+                  ) : null}
+                  <div className="ranking-detail-content">
+                    {stars}
+                    {subMeta}
+                  </div>
                 </div>
               ) : null}
             </div>

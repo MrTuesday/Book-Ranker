@@ -1292,6 +1292,8 @@ select:focus {
 }
 
 .ranking-topline {
+    --book-card-pair-gap: 2px;
+    --book-card-group-gap: 6px;
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     column-gap: 6px;
@@ -1306,7 +1308,7 @@ select:focus {
 
 .ranking-info {
     display: grid;
-    gap: 4px;
+    gap: var(--book-card-group-gap);
     min-width: 0;
 }
 
@@ -1347,26 +1349,35 @@ select:focus {
 
 .ranking-metrics {
     display: grid;
-    gap: 4px;
+    gap: var(--book-card-pair-gap);
     grid-column: 1 / -1;
-    margin-top: 8px;
+    margin-top: var(--book-card-group-gap);
 }
 
 .ranking-detail-row {
+    width: 100%;
+    min-width: 0;
+}
+
+.ranking-detail-row.has-rank {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: 6px;
+    align-items: center;
+    grid-column: 1 / -1;
+}
+
+.ranking-detail-row:not(.has-rank) {
+    grid-column: 1 / -1;
+}
+
+.ranking-detail-content {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
     width: 100%;
     min-width: 0;
-}
-
-.ranking-detail-row.has-rank {
-    grid-column: 2 / -1;
-}
-
-.ranking-detail-row:not(.has-rank) {
-    grid-column: 1 / -1;
 }
 
 .recommendation-source {
@@ -1424,20 +1435,20 @@ select:focus {
     line-height: 1.45;
 }
 
-.book-card-credentials {
+.book-card-pair {
     display: grid;
-    gap: 4px;
-    margin-top: 2px;
+    gap: var(--book-card-pair-gap);
+    min-width: 0;
 }
 
-.book-card-interest-tags {
-    margin-top: 2px;
-    margin-bottom: 6px;
+.book-card-credentials {
+    display: grid;
+    gap: var(--book-card-pair-gap);
 }
 
 .book-card-credential-row {
     display: grid;
-    gap: 4px;
+    gap: var(--book-card-pair-gap);
 }
 
 .book-card-tag-list {
