@@ -1414,14 +1414,23 @@ select:focus {
     color: var(--muted);
     font-size: 0.78rem;
     line-height: 1.6;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 2px 0;
+}
+
+.book-card-credentials {
+    display: grid;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.book-card-credential-row {
+    display: grid;
+    gap: 4px;
 }
 
 .author-credentials {
-    margin-left: 4px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
 }
 
 .author-credential {
@@ -1429,7 +1438,6 @@ select:focus {
     align-items: center;
     gap: 3px;
     padding: 1px 5px;
-    margin-left: 2px;
     border-radius: 3px;
     background: var(--accent);
     color: #fff;

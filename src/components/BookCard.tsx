@@ -80,6 +80,11 @@ export function BookCard({
   const cardStyle = animationDelay ? { animationDelay } : undefined;
   const trimmedSeries = series?.trim() ?? "";
   const hasSeries = trimmedSeries.length > 0;
+  const authorsWithCredentials = authors.flatMap((author) => {
+    const credentials = authorCredentials?.[author]?.filter(Boolean) ?? [];
+    return credentials.length > 0 ? [{ author, credentials }] : [];
+  });
+  const showCredentialAuthorLabels = authorsWithCredentials.length > 1;
 
   function handleClick(event: ReactMouseEvent<HTMLElement>) {
     if (!onToggle || !shouldToggleFromTarget(event.target)) {
@@ -137,29 +142,26 @@ export function BookCard({
             ) : null}
             <h3>{title}</h3>
             <p className="ranking-author">
-              {authors.length === 0 ? (
-                "Unknown author"
-              ) : (
-                authors.map((author, i) => {
-                  const credentials = authorCredentials?.[author];
-                  return (
-                    <span key={author} className="ranking-author-entry">
-                      {i > 0 ? ", " : null}
-                      {author}
-                      {credentials && credentials.length > 0 ? (
-                        <span className="author-credentials">
-                          {credentials.map((cred) => (
-                            <span key={cred} className="author-credential">
-                              {cred}
-                            </span>
-                          ))}
-                        </span>
-                      ) : null}
-                    </span>
-                  );
-                })
-              )}
+              {authors.length === 0 ? "Unknown author" : authors.join(", ")}
             </p>
+            {authorsWithCredentials.length > 0 ? (
+              <div className="book-card-credentials">
+                {authorsWithCredentials.map(({ author, credentials }) => (
+                  <div key={author} className="book-card-credential-row">
+                    {showCredentialAuthorLabels ? (
+                      <span className="credentials-author-label">{author}</span>
+                    ) : null}
+                    <div className="author-credentials">
+                      {credentials.map((cred) => (
+                        <span key={cred} className="author-credential">
+                          {cred}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
           <strong className="score-value">
             {scoreOverride ?? formatScore(score)}
