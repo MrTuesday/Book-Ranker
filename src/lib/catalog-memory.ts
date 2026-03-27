@@ -1,3 +1,5 @@
+import { normalizeTitleText } from "./title-case";
+
 export type CatalogBook = {
   title: string;
   series?: string;
@@ -28,7 +30,7 @@ function normalizeTitledTag(value: string) {
 }
 
 function normalizeSeriesName(value: unknown) {
-  return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
+  return normalizeTitleText(value);
 }
 
 function normalizeSeriesNumber(value: unknown) {
@@ -83,7 +85,7 @@ function uniqueStrings(values: string[]) {
 
 export function normalizeCatalogBook(value: unknown): CatalogBook | null {
   const book = value as CatalogSource | null;
-  const title = typeof book?.title === "string" ? book.title.trim() : "";
+  const title = normalizeTitleText(book?.title);
   const authors = normalizeTagList(book?.authors ?? book?.author);
   const genres = normalizeTagList(book?.genres ?? book?.genre, normalizeTitledTag);
   const series = normalizeSeriesName(book?.series);

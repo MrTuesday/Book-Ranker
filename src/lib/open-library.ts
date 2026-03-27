@@ -1,4 +1,5 @@
 import type { CatalogSearchResponse } from "./catalog-api";
+import { normalizeTitleText } from "./title-case";
 
 const DEFAULT_LIMIT = 6;
 
@@ -52,6 +53,12 @@ export async function searchOpenLibraryCatalog(
     provider:
       typeof payload.provider === "string" ? payload.provider : "openlibrary",
     query: typeof payload.query === "string" ? payload.query : query,
-    results: Array.isArray(payload.results) ? payload.results : [],
+    results: Array.isArray(payload.results)
+      ? payload.results.map((result) => ({
+          ...result,
+          title: normalizeTitleText(result.title),
+          ...(result.series ? { series: normalizeTitleText(result.series) } : {}),
+        }))
+      : [],
   };
 }

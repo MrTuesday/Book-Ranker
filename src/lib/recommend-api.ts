@@ -7,6 +7,7 @@ import type {
 } from "./books-api";
 import { GLOBAL_MEAN, bayesianScore } from "./scoring";
 import { buildSiteCatalogResults } from "./catalog-api";
+import { normalizeTitleText } from "./title-case";
 
 export type PathRecommendationRequest = {
   selectedTags: string[];
@@ -429,8 +430,8 @@ export async function fetchPathRecommendations(
             {
               id: candidate.id,
               provider: "openlibrary",
-              title: candidate.title,
-              ...(candidate.series ? { series: candidate.series } : {}),
+              title: normalizeTitleText(candidate.title),
+              ...(candidate.series ? { series: normalizeTitleText(candidate.series) } : {}),
               ...(candidate.seriesNumber != null
                 ? { seriesNumber: candidate.seriesNumber }
                 : {}),
@@ -541,8 +542,8 @@ export async function fetchCredentialRecommendations(
       candidates.push({
         id,
         provider: "credential-search",
-        title: r.title ?? "",
-        series: r.series,
+        title: normalizeTitleText(r.title ?? ""),
+        series: r.series ? normalizeTitleText(r.series) : undefined,
         seriesNumber: r.seriesNumber,
         authors: Array.isArray(r.authors) ? r.authors : [],
         genres: Array.isArray(r.genres) ? r.genres : Array.isArray(r.subjects) ? r.subjects : [],

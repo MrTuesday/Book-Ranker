@@ -71,6 +71,7 @@ import {
   type CatalogBook,
   upsertCatalogBooks,
 } from "./lib/catalog-memory";
+import { normalizeTitleText } from "./lib/title-case";
 import { BookCard } from "./components/BookCard";
 import {
   ArchiveShelfIcon,
@@ -1748,8 +1749,8 @@ export default function App() {
 
       return {
         ...baseDraft,
-        title: result.title,
-        series: result.series ?? "",
+        title: normalizeTitleText(result.title),
+        series: result.series ? normalizeTitleText(result.series) : "",
         seriesNumber:
           result.seriesNumber != null
             ? String(result.seriesNumber)
@@ -2195,7 +2196,8 @@ export default function App() {
         ? Number(draft.progress)
         : undefined;
       const sourceCatalogBookId = selectedCatalogBookId;
-      const draftTitle = draft.title.trim();
+      const draftTitle = normalizeTitleText(draft.title);
+      const draftSeries = normalizeTitleText(draft.series);
       const catalogKey = buildCatalogIdentityKey({
         title: draftTitle,
         authors: draft.authors,
@@ -2214,8 +2216,8 @@ export default function App() {
 
       const payload = {
         title: draftTitle,
-        ...(draft.series.trim() ? { series: draft.series.trim() } : {}),
-        ...(draft.series.trim() && draft.seriesNumber.trim()
+        ...(draftSeries ? { series: draftSeries } : {}),
+        ...(draftSeries && draft.seriesNumber.trim()
           ? { seriesNumber: Number(draft.seriesNumber) }
           : {}),
         authors: draft.authors,
@@ -3311,6 +3313,12 @@ export default function App() {
                       onChange={(event) =>
                         updateDraft("title", event.target.value)
                       }
+                      onBlur={() =>
+                        setDraft((current) => ({
+                          ...current,
+                          title: normalizeTitleText(current.title),
+                        }))
+                      }
                     />
                     {showTitleSuggestions ? (
                       <div
@@ -3366,6 +3374,12 @@ export default function App() {
                       value={draft.series}
                       onChange={(event) =>
                         updateDraft("series", event.target.value)
+                      }
+                      onBlur={() =>
+                        setDraft((current) => ({
+                          ...current,
+                          series: normalizeTitleText(current.series),
+                        }))
                       }
                     />
                     <input

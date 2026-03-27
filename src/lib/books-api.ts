@@ -6,6 +6,7 @@ import {
 } from "./catalog-memory";
 import { applySiteRatingStats } from "./site-books";
 import { isSupabaseConfigured, requireSupabase } from "./supabase";
+import { normalizeTitleText } from "./title-case";
 
 export type Book = {
   id: number;
@@ -66,7 +67,7 @@ type LegacyBook = Partial<Book> & {
 };
 
 function normalizeSeriesName(value: unknown) {
-  return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
+  return normalizeTitleText(value);
 }
 
 function normalizeProfileName(value: unknown) {
@@ -384,7 +385,7 @@ function normalizeReadCount(
 
 function normalizeBook(value: unknown): Book | null {
   const book = value as LegacyBook | null;
-  const title = typeof book?.title === "string" ? book.title.trim() : "";
+  const title = normalizeTitleText(book?.title);
   const series = normalizeSeriesName((book as Record<string, unknown>)?.series);
   const seriesNumber = normalizeSeriesNumber(
     (book as Record<string, unknown>)?.seriesNumber,
@@ -936,7 +937,7 @@ function parseBookPayload(
       genre: string;
     }>,
 ) {
-  const title = typeof value?.title === "string" ? value.title.trim() : "";
+  const title = normalizeTitleText(value?.title);
   const series = normalizeSeriesName((value as Record<string, unknown>)?.series);
   const seriesNumber = normalizeSeriesNumber(
     (value as Record<string, unknown>)?.seriesNumber,
