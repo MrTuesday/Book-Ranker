@@ -1414,17 +1414,18 @@ select:focus {
 .ranking-author {
     color: var(--muted);
     font-size: 0.78rem;
-    line-height: 1.6;
+    line-height: 1.45;
 }
 
 .book-card-credentials {
     display: grid;
-    gap: 6px;
-    margin-top: 4px;
+    gap: 4px;
+    margin-top: 2px;
 }
 
 .book-card-interest-tags {
-    margin-top: 6px;
+    margin-top: 2px;
+    margin-bottom: 6px;
 }
 
 .book-card-credential-row {
