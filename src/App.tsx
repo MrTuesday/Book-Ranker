@@ -2868,6 +2868,7 @@ export default function App() {
               totalCount={rankedBooks.length}
               books={visibleRankedBooks}
               authorCredentials={authorCredentials}
+              genreInterests={genreInterests}
               isLoading={isLoading}
               emptyMessage="No books yet. Add your first book to get started."
               emptyFilteredMessage="No books in your reading list match the selected nodes."
@@ -2903,6 +2904,7 @@ export default function App() {
               totalCount={readBooks.length}
               books={visibleReadBooks}
               authorCredentials={authorCredentials}
+              genreInterests={genreInterests}
               emptyMessage="No read books yet."
               emptyFilteredMessage="No rereads match the selected nodes."
               readMode
@@ -3248,6 +3250,7 @@ export default function App() {
                     series={rec.series}
                     seriesNumber={rec.seriesNumber}
                     authors={rec.authors}
+                    interestTags={rec.genres.filter((genre) => genreInterests[genre] != null)}
                     authorCredentials={authorCredentials}
                     score={rec.score}
                     className={[

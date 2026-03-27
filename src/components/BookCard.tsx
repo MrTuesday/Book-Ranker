@@ -17,6 +17,7 @@ export type BookCardProps = {
   series?: string;
   seriesNumber?: number;
   authors: string[];
+  interestTags?: string[];
   authorCredentials?: AuthorCredentialMap;
   score: number;
   /** Extra CSS classes on the root <article> */
@@ -64,6 +65,7 @@ export function BookCard({
   series,
   seriesNumber,
   authors,
+  interestTags,
   authorCredentials,
   score,
   className,
@@ -80,6 +82,7 @@ export function BookCard({
   const cardStyle = animationDelay ? { animationDelay } : undefined;
   const trimmedSeries = series?.trim() ?? "";
   const hasSeries = trimmedSeries.length > 0;
+  const visibleInterestTags = Array.from(new Set((interestTags ?? []).filter(Boolean)));
   const authorsWithCredentials = authors.flatMap((author) => {
     const credentials = authorCredentials?.[author]?.filter(Boolean) ?? [];
     return credentials.length > 0 ? [{ author, credentials }] : [];
@@ -141,6 +144,15 @@ export function BookCard({
               </p>
             ) : null}
             <h3>{title}</h3>
+            {visibleInterestTags.length > 0 ? (
+              <div className="book-card-tag-list book-card-interest-tags">
+                {visibleInterestTags.map((tag) => (
+                  <span key={tag} className="book-card-chip book-card-chip-interest">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            ) : null}
             <p className="ranking-author">
               {authors.length === 0 ? "Unknown author" : authors.join(", ")}
             </p>
@@ -151,9 +163,9 @@ export function BookCard({
                     {showCredentialAuthorLabels ? (
                       <span className="credentials-author-label">{author}</span>
                     ) : null}
-                    <div className="author-credentials">
+                    <div className="book-card-tag-list author-credentials">
                       {credentials.map((cred) => (
-                        <span key={cred} className="author-credential">
+                        <span key={cred} className="book-card-chip author-credential">
                           {cred}
                         </span>
                       ))}

@@ -9,6 +9,7 @@
     --line-strong: rgba(23, 20, 17, 0.18);
     --accent: #b45309;
     --accent-soft: rgba(180, 83, 9, 0.08);
+    --credential-accent: #8b5cf6;
     --shadow: 0 18px 50px rgba(52, 42, 30, 0.08);
     --radius-xl: 32px;
     --radius-lg: 22px;
@@ -1422,24 +1423,27 @@ select:focus {
     margin-top: 4px;
 }
 
+.book-card-interest-tags {
+    margin-top: 6px;
+}
+
 .book-card-credential-row {
     display: grid;
     gap: 4px;
 }
 
-.author-credentials {
+.book-card-tag-list {
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
 }
 
-.author-credential {
+.book-card-chip {
     display: inline-flex;
     align-items: center;
     gap: 3px;
     padding: 1px 5px;
     border-radius: 3px;
-    background: var(--accent);
     color: #fff;
     -webkit-text-fill-color: #fff;
     font-size: 0.6rem;
@@ -1448,6 +1452,14 @@ select:focus {
     font-family: "Avenir Next", "Segoe UI", sans-serif;
     vertical-align: middle;
     letter-spacing: 0.01em;
+}
+
+.book-card-chip-interest {
+    background: var(--accent);
+}
+
+.author-credential {
+    background: var(--credential-accent);
 }
 
 .entry-credentials {
