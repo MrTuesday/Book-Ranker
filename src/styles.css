@@ -1297,7 +1297,7 @@ select:focus {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     column-gap: 6px;
-    row-gap: 4px;
+    row-gap: var(--book-card-group-gap);
     align-items: baseline;
     min-width: 0;
 }
@@ -1351,7 +1351,6 @@ select:focus {
     display: grid;
     gap: var(--book-card-pair-gap);
     grid-column: 1 / -1;
-    margin-top: var(--book-card-group-gap);
 }
 
 .ranking-detail-row {
