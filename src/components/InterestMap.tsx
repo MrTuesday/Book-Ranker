@@ -221,31 +221,31 @@ function nodeKey(layer: NodeLayer, tag: string) {
 }
 
 const GENRE_COLOR = {
-  fill: "rgba(37, 99, 235, 0.94)",
-  fillSelected: "rgba(29, 78, 216, 1)",
-  stroke: "rgba(191, 219, 254, 0.46)",
-  haloFill: "rgba(59, 130, 246, 0.14)",
-  haloStroke: "rgba(191, 219, 254, 0.44)",
-  link: "rgba(96, 165, 250, 0.18)",
-  linkHighlight: "rgba(147, 197, 253, 0.46)",
-  bubbleFill: "rgba(219, 234, 254, 0.98)",
-  bubbleFillSelected: "rgba(239, 246, 255, 1)",
-  bubbleStroke: "rgba(96, 165, 250, 0.42)",
-  bubbleStrokeSelected: "rgba(37, 99, 235, 0.6)",
+  fill: "rgba(180, 83, 9, 0.55)",
+  fillSelected: "rgba(180, 83, 9, 0.85)",
+  stroke: "rgba(180, 83, 9, 0.3)",
+  haloFill: "rgba(180, 83, 9, 0.12)",
+  haloStroke: "rgba(180, 83, 9, 0.7)",
+  link: "rgba(180, 83, 9, 0.22)",
+  linkHighlight: "rgba(180, 83, 9, 0.78)",
+  bubbleFill: "rgba(252, 248, 241, 0.78)",
+  bubbleFillSelected: "rgba(255, 247, 237, 0.92)",
+  bubbleStroke: "rgba(180, 83, 9, 0.14)",
+  bubbleStrokeSelected: "rgba(180, 83, 9, 0.3)",
 };
 
 const CREDENTIAL_COLOR = {
-  fill: "rgba(71, 85, 105, 0.92)",
-  fillSelected: "rgba(51, 65, 85, 1)",
-  stroke: "rgba(226, 232, 240, 0.38)",
-  haloFill: "rgba(148, 163, 184, 0.12)",
-  haloStroke: "rgba(203, 213, 225, 0.34)",
-  link: "rgba(148, 163, 184, 0.16)",
-  linkHighlight: "rgba(203, 213, 225, 0.34)",
-  bubbleFill: "rgba(241, 245, 249, 0.98)",
-  bubbleFillSelected: "rgba(255, 255, 255, 1)",
-  bubbleStroke: "rgba(148, 163, 184, 0.42)",
-  bubbleStrokeSelected: "rgba(71, 85, 105, 0.56)",
+  fill: "rgba(139, 92, 246, 0.55)",
+  fillSelected: "rgba(139, 92, 246, 0.85)",
+  stroke: "rgba(139, 92, 246, 0.3)",
+  haloFill: "rgba(139, 92, 246, 0.12)",
+  haloStroke: "rgba(139, 92, 246, 0.7)",
+  link: "rgba(139, 92, 246, 0.22)",
+  linkHighlight: "rgba(139, 92, 246, 0.78)",
+  bubbleFill: "rgba(245, 243, 255, 0.78)",
+  bubbleFillSelected: "rgba(243, 237, 255, 0.92)",
+  bubbleStroke: "rgba(139, 92, 246, 0.14)",
+  bubbleStrokeSelected: "rgba(139, 92, 246, 0.3)",
 };
 
 function layerColor(layer: NodeLayer) {
@@ -1618,7 +1618,7 @@ function InterestMapView({
             const linkColor =
               source.layer === target.layer
                 ? layerColor(source.layer).link
-                : "rgba(148, 163, 184, 0.14)";
+                : "rgba(120, 90, 140, 0.22)";
 
             return (
               <g key={`${link.source}-${link.target}`}>
@@ -1651,7 +1651,7 @@ function InterestMapView({
             const highlightColor =
               source.layer === target.layer
                 ? layerColor(source.layer).linkHighlight
-                : "rgba(203, 213, 225, 0.34)";
+                : "rgba(120, 90, 140, 0.78)";
 
             return (
               <line
@@ -1733,7 +1733,7 @@ function InterestMapView({
                     textAnchor="middle"
                     dominantBaseline="central"
                     fontSize={interestNodeScoreFontSize(node.radius)}
-                    fill="#102033"
+                    fill="white"
                     fontWeight="600"
                     pointerEvents="none"
                   >
