@@ -135,7 +135,7 @@ h3 {
     display: grid;
     grid-template-rows: 1fr auto;
     overflow: hidden;
-    padding: 16px;
+    padding: 0;
     position: relative;
 }
 
@@ -143,8 +143,8 @@ h3 {
 
 .graph-edit-toolbar {
     position: absolute;
-    top: 12px;
-    left: 12px;
+    top: 20px;
+    left: 20px;
     z-index: 10;
     display: flex;
     align-items: flex-start;
@@ -550,6 +550,7 @@ h3 {
     height: 100%;
     grid-template-rows: 1fr;
     gap: 0;
+    min-height: 0;
 }
 
 .center-column .interest-map-meta,
@@ -563,14 +564,18 @@ h3 {
     border: none;
     background: transparent;
     padding: 0;
-    overflow: visible;
+    overflow: hidden;
     height: 100%;
     position: relative;
+    border-radius: 0;
+    box-shadow: none;
+    backdrop-filter: none;
 }
 
 .center-column .interest-map-chart {
     width: 100%;
     height: 100%;
+    display: block;
 }
 
 .distribution-chart {
@@ -601,8 +606,8 @@ h3 {
 
 .layer-toggles {
     position: absolute;
-    top: 12px;
-    right: 12px;
+    top: 20px;
+    right: 20px;
     z-index: 10;
     display: flex;
     gap: 6px;
@@ -3347,6 +3352,14 @@ select:focus,
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.03),
         0 20px 48px rgba(2, 8, 23, 0.34);
+}
+
+.center-column .interest-map-plot {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    backdrop-filter: none;
 }
 
 .overlay-backdrop,
