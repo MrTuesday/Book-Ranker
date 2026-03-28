@@ -3913,6 +3913,95 @@ select:focus,
     -webkit-text-fill-color: #eef7c7;
 }
 
+.ranking-row {
+    background: #dcebff;
+    border-color: rgba(126, 172, 233, 0.62);
+}
+
+.ranking-row.is-selected {
+    background: #fff0c9;
+    border-color: rgba(232, 190, 92, 0.72);
+}
+
+.ranking-row.is-toggleable:hover {
+    background: #edf5ff;
+    border-color: rgba(86, 150, 229, 0.78);
+}
+
+.ranking-row:focus-within,
+.ranking-row:has(.icon-btn:active),
+.ranking-row:has(.my-rating-star:active),
+.ranking-row:has(.read-count-stepper-btn:active),
+.ranking-row:has(.reading-progress:active),
+.ranking-row.is-editing {
+    border-color: rgba(232, 190, 92, 0.82);
+}
+
+.ranking-row .ranking-info h3,
+.ranking-row .score-value,
+.ranking-row .credentials-author-label {
+    color: #12253d;
+    -webkit-text-fill-color: #12253d;
+}
+
+.ranking-row .ranking-author,
+.ranking-row .ranking-series,
+.ranking-row .rank-badge {
+    color: #35506d;
+}
+
+.score-value {
+    color: #1d4370;
+}
+
+.recommendation-source {
+    background: #ffc897;
+    color: #3d2405;
+}
+
+.recommendation-source.is-openlibrary,
+.ranking-series-number {
+    background: #ffe08f;
+    color: #3a2a00;
+}
+
+.genre-tag,
+.book-card-chip {
+    background: #7fc7ff;
+    color: #06233c;
+    -webkit-text-fill-color: #06233c;
+    box-shadow: none;
+}
+
+.genre-tag-interest,
+.archive-count,
+.tag-remove {
+    background: #ffe08f;
+    color: #332300;
+}
+
+.entry-credentials .genre-tag {
+    background: #d9ef8b;
+    color: #1f2d09;
+}
+
+.entry-credentials .tag-remove {
+    background: #b9d65a;
+    color: #1a2407;
+}
+
+.author-credential {
+    color: #f0cf63;
+    -webkit-text-fill-color: #f0cf63;
+}
+
+.interest-map-label {
+    fill: #0f2035;
+    stroke: rgba(255, 255, 255, 0.18);
+    stroke-width: 0.35px;
+    paint-order: stroke;
+}
+
 @keyframes rankingRowReveal {
     0% {
         box-shadow: 0 0 0 0 rgba(103, 232, 249, 0);
