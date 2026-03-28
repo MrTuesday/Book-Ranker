@@ -221,31 +221,31 @@ function nodeKey(layer: NodeLayer, tag: string) {
 }
 
 const GENRE_COLOR = {
-  fill: "rgba(163, 176, 194, 0.34)",
-  fillSelected: "rgba(184, 195, 211, 0.74)",
-  stroke: "rgba(184, 195, 211, 0.22)",
-  haloFill: "rgba(184, 195, 211, 0.08)",
-  haloStroke: "rgba(184, 195, 211, 0.22)",
-  link: "rgba(184, 195, 211, 0.1)",
-  linkHighlight: "rgba(184, 195, 211, 0.34)",
-  bubbleFill: "rgba(28, 33, 40, 0.96)",
-  bubbleFillSelected: "rgba(34, 40, 48, 0.98)",
-  bubbleStroke: "rgba(255, 255, 255, 0.05)",
-  bubbleStrokeSelected: "rgba(184, 195, 211, 0.12)",
+  fill: "rgba(188, 198, 212, 0.46)",
+  fillSelected: "rgba(216, 224, 234, 0.86)",
+  stroke: "rgba(216, 224, 234, 0.26)",
+  haloFill: "rgba(216, 224, 234, 0.08)",
+  haloStroke: "rgba(216, 224, 234, 0.24)",
+  link: "rgba(216, 224, 234, 0.12)",
+  linkHighlight: "rgba(216, 224, 234, 0.4)",
+  bubbleFill: "rgba(40, 48, 58, 0.98)",
+  bubbleFillSelected: "rgba(52, 61, 73, 1)",
+  bubbleStroke: "rgba(216, 224, 234, 0.2)",
+  bubbleStrokeSelected: "rgba(232, 238, 245, 0.42)",
 };
 
 const CREDENTIAL_COLOR = {
-  fill: "rgba(166, 176, 160, 0.32)",
-  fillSelected: "rgba(184, 194, 176, 0.68)",
-  stroke: "rgba(184, 194, 176, 0.22)",
-  haloFill: "rgba(184, 194, 176, 0.08)",
-  haloStroke: "rgba(184, 194, 176, 0.22)",
-  link: "rgba(184, 194, 176, 0.1)",
-  linkHighlight: "rgba(184, 194, 176, 0.32)",
-  bubbleFill: "rgba(28, 33, 40, 0.96)",
-  bubbleFillSelected: "rgba(34, 40, 48, 0.98)",
-  bubbleStroke: "rgba(255, 255, 255, 0.05)",
-  bubbleStrokeSelected: "rgba(184, 194, 176, 0.12)",
+  fill: "rgba(188, 198, 178, 0.44)",
+  fillSelected: "rgba(214, 222, 202, 0.82)",
+  stroke: "rgba(214, 222, 202, 0.24)",
+  haloFill: "rgba(214, 222, 202, 0.08)",
+  haloStroke: "rgba(214, 222, 202, 0.22)",
+  link: "rgba(214, 222, 202, 0.12)",
+  linkHighlight: "rgba(214, 222, 202, 0.36)",
+  bubbleFill: "rgba(43, 48, 40, 0.98)",
+  bubbleFillSelected: "rgba(56, 62, 52, 1)",
+  bubbleStroke: "rgba(214, 222, 202, 0.2)",
+  bubbleStrokeSelected: "rgba(231, 236, 224, 0.38)",
 };
 
 function layerColor(layer: NodeLayer) {

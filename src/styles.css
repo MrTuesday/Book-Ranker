@@ -3764,6 +3764,16 @@ select:focus,
 
 .interest-map-label {
     fill: #cbd3dc;
+    font-weight: 600;
+    letter-spacing: 0.015em;
+}
+
+.interest-map-bubble {
+    filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.22));
+}
+
+.interest-map-score {
+    font-weight: 700;
 }
 
 .genre-tag {
