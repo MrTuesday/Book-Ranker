@@ -235,17 +235,17 @@ const GENRE_COLOR = {
 };
 
 const CREDENTIAL_COLOR = {
-  fill: "rgba(208, 234, 129, 0.92)",
-  fillSelected: "rgba(186, 221, 84, 1)",
-  stroke: "rgba(53, 72, 16, 0.18)",
-  haloFill: "rgba(208, 234, 129, 0.22)",
-  haloStroke: "rgba(235, 247, 177, 0.52)",
-  link: "rgba(216, 238, 150, 0.22)",
-  linkHighlight: "rgba(231, 247, 179, 0.46)",
-  bubbleFill: "rgba(236, 247, 181, 0.98)",
-  bubbleFillSelected: "rgba(244, 251, 214, 1)",
-  bubbleStroke: "rgba(181, 202, 88, 0.5)",
-  bubbleStrokeSelected: "rgba(154, 178, 58, 0.72)",
+  fill: "rgba(255, 198, 92, 0.92)",
+  fillSelected: "rgba(255, 183, 53, 1)",
+  stroke: "rgba(105, 58, 0, 0.18)",
+  haloFill: "rgba(255, 198, 92, 0.22)",
+  haloStroke: "rgba(255, 225, 164, 0.52)",
+  link: "rgba(255, 208, 119, 0.22)",
+  linkHighlight: "rgba(255, 225, 164, 0.46)",
+  bubbleFill: "rgba(255, 238, 198, 0.98)",
+  bubbleFillSelected: "rgba(255, 246, 223, 1)",
+  bubbleStroke: "rgba(229, 166, 47, 0.5)",
+  bubbleStrokeSelected: "rgba(206, 139, 8, 0.72)",
 };
 
 function layerColor(layer: NodeLayer) {
