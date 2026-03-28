@@ -9,6 +9,7 @@
 4. Add these env vars in Vercel and locally:
    - `VITE_SUPABASE_URL`
    - `VITE_SUPABASE_PUBLISHABLE_KEY`
+   - `SUPABASE_SERVICE_ROLE_KEY` if you want the in-app account deletion button to work
 5. Redeploy after the env vars are present.
 
 Behavior notes:

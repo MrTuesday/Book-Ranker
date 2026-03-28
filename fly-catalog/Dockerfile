@@ -7,7 +7,7 @@ WORKDIR /app
 COPY package.json ./
 RUN npm install --production
 
-COPY server.js credential-order.js clean-series.cjs clean-series-step2.cjs ./
+COPY server.js credential-order.js clean-series.cjs clean-series-step2.cjs rebuild-subjects-fts.js ./
 
 ENV PORT=8080
 ENV DB_PATH=/data/openlibrary.db

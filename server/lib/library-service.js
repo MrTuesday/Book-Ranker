@@ -11,12 +11,82 @@ import {
   replaceTag,
   syncActiveProfileState,
 } from "./library-model.js";
-import { upsertCatalogBooks } from "./catalog-memory.js";
+import { buildCatalogIdentityKey, upsertCatalogBooks } from "./catalog-memory.js";
+
+const MAX_PROFILE_GENRES_PER_BOOK = 10;
+
+function buildProfileGenreMap(profiles) {
+  const countsByIdentity = new Map();
+
+  for (const profile of profiles) {
+    const profileGenresByIdentity = new Map();
+
+    for (const book of profile.books ?? []) {
+      const identityKey = buildCatalogIdentityKey({
+        title: book.title,
+        authors: book.authors,
+      });
+      const currentGenres = profileGenresByIdentity.get(identityKey) ?? new Set();
+
+      for (const genre of (book.genres ?? []).map(normalizeGenreTag).filter(Boolean)) {
+        currentGenres.add(genre);
+      }
+
+      if (currentGenres.size > 0) {
+        profileGenresByIdentity.set(identityKey, currentGenres);
+      }
+    }
+
+    for (const [identityKey, genres] of profileGenresByIdentity.entries()) {
+      const currentCounts = countsByIdentity.get(identityKey) ?? new Map();
+
+      for (const genre of genres) {
+        currentCounts.set(genre, (currentCounts.get(genre) ?? 0) + 1);
+      }
+
+      countsByIdentity.set(identityKey, currentCounts);
+    }
+  }
+
+  return new Map(
+    Array.from(countsByIdentity.entries()).map(([identityKey, counts]) => [
+      identityKey,
+      Array.from(counts.entries())
+        .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+        .slice(0, MAX_PROFILE_GENRES_PER_BOOK)
+        .map(([genre]) => genre),
+    ]),
+  );
+}
+
+function buildAggregatedCatalogBooks(state) {
+  const profileGenresByIdentity = buildProfileGenreMap(state.profiles ?? []);
+  const seedCatalogBooks = (state.profiles ?? []).flatMap((profile) => profile.catalogBooks ?? []);
+  const profileBookIdentities = (state.profiles ?? []).flatMap((profile) =>
+    (profile.books ?? []).map((book) => ({
+      ...book,
+      genres: [],
+    })),
+  );
+
+  return upsertCatalogBooks(seedCatalogBooks, profileBookIdentities).map((book) => {
+    const profileGenres = profileGenresByIdentity.get(buildCatalogIdentityKey(book));
+
+    if (!profileGenres || profileGenres.length === 0) {
+      return book;
+    }
+
+    return {
+      ...book,
+      genres: [...profileGenres],
+    };
+  });
+}
 
 function serializeLibraryState(state) {
   return {
     books: state.books,
-    catalogBooks: state.catalogBooks,
+    catalogBooks: buildAggregatedCatalogBooks(state),
     genreInterests: state.genreInterests,
     authorExperiences: state.authorExperiences,
     seriesExperiences: state.seriesExperiences ?? {},

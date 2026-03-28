@@ -91,6 +91,75 @@ export async function updateSignedInUsername(username: string) {
   }
 }
 
+export async function updateSignedInEmail(email: string) {
+  const client = requireSupabase();
+  const { error } = await client.auth.updateUser({
+    email: email.trim(),
+  });
+
+  if (error) {
+    throw error;
+  }
+}
+
+export async function updateSignedInPassword(password: string) {
+  const client = requireSupabase();
+  const { error } = await client.auth.updateUser({
+    password,
+  });
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function messageFromResponse(response: Response) {
+  try {
+    const payload = await response.json();
+
+    if (payload && typeof payload === "object") {
+      if (typeof payload.message === "string" && payload.message.trim()) {
+        return payload.message;
+      }
+
+      if (typeof payload.error === "string" && payload.error.trim()) {
+        return payload.error;
+      }
+    }
+  } catch {
+    // Fall through to status text.
+  }
+
+  return response.statusText || "Request failed.";
+}
+
+export async function deleteSignedInAccount() {
+  const client = requireSupabase();
+  const {
+    data: { session },
+    error,
+  } = await client.auth.getSession();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!session) {
+    throw new Error("Log in required.");
+  }
+
+  const response = await fetch("/api/account", {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(await messageFromResponse(response));
+  }
+}
+
 export async function requestPasswordReset(email: string) {
   const client = requireSupabase();
   const { error } = await client.auth.resetPasswordForEmail(email.trim(), {

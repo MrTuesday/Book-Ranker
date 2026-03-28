@@ -1,3 +1,5 @@
+export const MAX_READ_COUNT = 5;
+
 type ProgressBarProps = {
   value: number;
   onChange: (pct: number) => void;
@@ -93,6 +95,15 @@ export function ReadCountStepper({
   onDecrement,
   disabled = false,
 }: ReadCountStepperProps) {
+  const isAtMax = value >= MAX_READ_COUNT;
+  const displayValue = isAtMax ? `${MAX_READ_COUNT} ≤` : String(value);
+  const countLabel =
+    isAtMax
+      ? `Read ${MAX_READ_COUNT} or more times`
+      : value === 1
+        ? "Read 1 time"
+        : `Read ${value} times`;
+
   return (
     <div className="read-count-stepper" role="group" aria-label="Read count">
       <button
@@ -109,18 +120,22 @@ export function ReadCountStepper({
       </button>
       <span
         className={`read-count-value${value > 0 ? " has-reads" : ""}`}
-        aria-label={value === 1 ? "Read 1 time" : `Read ${value} times`}
-        title={value === 1 ? "Read 1 time" : `Read ${value} times`}
+        aria-label={countLabel}
+        title={countLabel}
       >
-        {value}
+        {displayValue}
       </span>
       <button
         type="button"
         className="icon-btn read-count-stepper-btn"
         onClick={onIncrement}
-        disabled={disabled}
+        disabled={disabled || isAtMax}
         aria-label={
-          value === 1 ? "Increase read count from 1" : `Increase read count from ${value}`
+          isAtMax
+            ? `Read count is already ${MAX_READ_COUNT} or more`
+            : value === 1
+              ? "Increase read count from 1"
+              : `Increase read count from ${value}`
         }
         title="Increase read count"
       >

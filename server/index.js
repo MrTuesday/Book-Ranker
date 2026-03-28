@@ -37,6 +37,7 @@ import {
   addAuthorCredential,
   removeAuthorCredential,
 } from "./lib/author-credentials.js";
+import { deleteAuthenticatedAccount } from "./lib/account-service.js";
 
 const rootDir = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const distDir = join(rootDir, "dist");
@@ -164,6 +165,10 @@ async function handleApi(request, response, url) {
   if (request.method === "POST" && path === "/api/library/import") {
     const body = await readJson(request);
     return sendJson(response, 200, await importLibraryState(stateStore, body));
+  }
+
+  if (request.method === "DELETE" && path === "/api/account") {
+    return sendJson(response, 200, await deleteAuthenticatedAccount(request));
   }
 
   if (request.method === "POST" && path === "/api/books") {

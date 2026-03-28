@@ -4,6 +4,7 @@ import {
   searchCatalogDbBySubject,
   searchCatalogDbBySubjects,
 } from "./catalog-db.js";
+import { sanitizeSubjectTags } from "./subject-tags.js";
 
 const DEFAULT_RESULT_LIMIT = 6;
 const MAX_RESULT_LIMIT = 10;
@@ -16,45 +17,6 @@ const MIN_RECOMMENDATION_RESULTS_PER_TAG = 5;
 const MAX_TOPIC_COUNT = 12;
 const MAX_TAG_COUNT = 8;
 const MAX_GENRE_COUNT = 6;
-
-const NOISY_SUBJECT_PATTERNS = [
-  /^open library/i,
-  /^reading level-/i,
-  /^juvenile works$/i,
-  /^pictorial works$/i,
-  /^characters?$/i,
-  /^specimens$/i,
-  /^translations into /i,
-  /^spanish language materials$/i,
-  /^untranslated$/i,
-  /^open_syllabus_project$/i,
-  /^open syllabus project$/i,
-  /^general$/i,
-  /^reference$/i,
-];
-
-const GENRE_KEYWORDS = [
-  "fiction",
-  "fantasy",
-  "science fiction",
-  "sci-fi",
-  "mystery",
-  "thriller",
-  "romance",
-  "horror",
-  "historical",
-  "history",
-  "biography",
-  "memoir",
-  "poetry",
-  "classics",
-  "graphic novel",
-  "graphic novels",
-  "comics",
-  "adventure",
-  "young adult",
-  "children",
-];
 
 const BROAD_RECOMMENDATION_TAG_PATTERNS = [
   /^academic$/i,
@@ -96,29 +58,6 @@ function normalizeString(value) {
   return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
 }
 
-function toDisplayLabel(value) {
-  const trimmed = normalizeString(value);
-
-  if (!trimmed) {
-    return "";
-  }
-
-  const shouldRetitle =
-    trimmed === trimmed.toLocaleLowerCase() ||
-    trimmed === trimmed.toLocaleUpperCase();
-
-  if (!shouldRetitle) {
-    return trimmed;
-  }
-
-  return trimmed
-    .toLocaleLowerCase()
-    .replace(
-      /(^|[\s/(:,-])(\p{L})/gu,
-      (_match, boundary, letter) => `${boundary}${letter.toLocaleUpperCase()}`,
-    );
-}
-
 function normalizeStringArray(value) {
   return Array.isArray(value)
     ? value.map(normalizeString).filter(Boolean)
@@ -142,28 +81,6 @@ function normalizeIdentityKey(title, authors) {
   ).join("|")}`;
 }
 
-function isUsefulSubject(subject) {
-  if (!subject || subject.length < 3 || subject.length > 64) {
-    return false;
-  }
-
-  const letters = Array.from(subject).filter((character) =>
-    /\p{L}/u.test(character),
-  ).length;
-
-  if (letters < 3) {
-    return false;
-  }
-
-  return !NOISY_SUBJECT_PATTERNS.some((pattern) => pattern.test(subject));
-}
-
-function isGenreLikeSubject(subject) {
-  const normalized = subject.toLocaleLowerCase();
-
-  return GENRE_KEYWORDS.some((keyword) => normalized.includes(keyword));
-}
-
 function normalizeDbResult(row) {
   const title = normalizeString(row.title);
 
@@ -172,11 +89,9 @@ function normalizeDbResult(row) {
   }
 
   const authors = (row.authors ?? []).map(normalizeString).filter(Boolean);
-  const rawSubjects = (row.subjects ?? [])
-    .map(toDisplayLabel)
-    .filter(isUsefulSubject);
-  const subjects = uniqueStrings(rawSubjects);
-  const genres = subjects.filter(isGenreLikeSubject).slice(0, MAX_GENRE_COUNT);
+  const sanitized = sanitizeSubjectTags(row.subjects ?? []);
+  const subjects = uniqueStrings(sanitized.subjects);
+  const genres = sanitized.genres.slice(0, MAX_GENRE_COUNT);
   const tags = subjects.slice(0, MAX_TAG_COUNT);
   const topics = subjects.slice(0, MAX_TOPIC_COUNT);
   const key = normalizeString(row.key);
@@ -330,7 +245,7 @@ async function searchRecommendationsFromDb(tags, limit) {
       if (result) {
         byIdentity.set(normalizeIdentityKey(result.title, result.authors), {
           result,
-          subjects: row.subjects ?? [],
+          subjects: sanitizeSubjectTags(row.subjects ?? []).subjects,
         });
       }
     }
@@ -359,7 +274,7 @@ async function searchRecommendationsFromDb(tags, limit) {
       if (!byIdentity.has(identityKey)) {
         byIdentity.set(identityKey, {
           result,
-          subjects: row.subjects ?? [],
+          subjects: sanitizeSubjectTags(row.subjects ?? []).subjects,
         });
       }
     }

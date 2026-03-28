@@ -11,15 +11,24 @@ let db;
 let dbWrite;
 try {
   db = new Database(DB_PATH, { readonly: true });
-  db.pragma("journal_mode = WAL");
   db.pragma("cache_size = -64000"); // 64MB cache
   db.pragma("mmap_size = 268435456"); // 256MB mmap
-  console.log("Database opened successfully");
+  console.log("Catalog read database opened successfully");
+} catch (err) {
+  db = undefined;
+  console.error("Failed to open read database:", err.message);
+}
 
+try {
   dbWrite = new Database(DB_PATH);
   dbWrite.pragma("journal_mode = WAL");
+  console.log("Catalog write database opened successfully");
 } catch (err) {
-  console.error("Failed to open database:", err.message);
+  dbWrite = undefined;
+  console.error("Failed to open write database:", err.message);
+}
+
+if (!db) {
   console.log("Starting without database — upload the DB then restart");
 }
 
@@ -27,24 +36,43 @@ try {
 let searchFts, subjectFts;
 if (db) {
   try {
-    // Use DISTINCT key since works_fts now has multiple rows per work (edition titles)
     searchFts = db.prepare(`
-      SELECT DISTINCT key AS work_key
+      SELECT
+        key AS work_key,
+        title AS matched_title,
+        bm25(works_fts) AS fts_score
       FROM works_fts
       WHERE works_fts MATCH ?
-      ORDER BY rank
-      LIMIT ?
-    `);
-
-    subjectFts = db.prepare(`
-      SELECT work_key FROM subjects_fts
-      WHERE subjects_fts MATCH ?
-      ORDER BY rank
+      ORDER BY fts_score
       LIMIT ?
     `);
   } catch (err) {
-    console.error("Failed to prepare statements:", err.message);
+    console.error("Failed to prepare search statements:", err.message);
     db = undefined;
+  }
+
+  if (db) {
+    try {
+      const subjectSearchTable =
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('subjects_fts_v2', 'subjects_fts') ORDER BY name = 'subjects_fts_v2' DESC LIMIT 1",
+          )
+          .get()?.name ?? null;
+
+      if (!subjectSearchTable) {
+        console.warn("No subjects FTS table found");
+      } else {
+        subjectFts = db.prepare(`
+          SELECT work_key FROM ${subjectSearchTable}
+          WHERE ${subjectSearchTable} MATCH ?
+          ORDER BY rank
+          LIMIT ?
+        `);
+      }
+    } catch (err) {
+      console.error("Failed to prepare subject statements:", err.message);
+    }
   }
 }
 
@@ -169,17 +197,26 @@ app.get("/search", (req, res) => {
     if (tokens.length === 0) return res.json([]);
     const ftsQuery = tokens.map((t) => `"${t}"*`).join(" ");
 
-    // Fetch more candidates than needed so we can rank by popularity
-    const overfetch = Math.max(limit * 5, 30);
-    let keyRows = searchFts.all(ftsQuery, overfetch);
+    // Overfetch generously because works_fts contains edition-title aliases,
+    // and we need enough unique works left after de-duplicating by key.
+    const overfetch = Math.max(limit * 40, 200);
+    let candidateRows = searchFts.all(ftsQuery, overfetch);
 
     // Fallback: try phrase match if tokenized prefix match returns nothing
-    if (keyRows.length === 0) {
-      keyRows = searchFts.all(`"${sanitized}"`, overfetch);
+    if (candidateRows.length === 0) {
+      candidateRows = searchFts.all(`"${sanitized}"`, overfetch);
     }
-    if (keyRows.length === 0) return res.json([]);
+    if (candidateRows.length === 0) return res.json([]);
 
-    const keys = keyRows.map((r) => r.work_key);
+    const bestCandidateByKey = new Map();
+    for (const row of candidateRows) {
+      const current = bestCandidateByKey.get(row.work_key);
+      if (!current || row.fts_score < current.fts_score) {
+        bestCandidateByKey.set(row.work_key, row);
+      }
+    }
+
+    const keys = Array.from(bestCandidateByKey.keys());
     const results = fetchDetailsByKeys(keys);
 
     // Score and sort results: balance match quality with popularity
@@ -188,18 +225,26 @@ app.get("/search", (req, res) => {
     results.sort((a, b) => {
       const matchScore = (r) => {
         const t = r.title.toLowerCase();
+        const matchedTitle =
+          bestCandidateByKey.get(r.key)?.matched_title?.toLowerCase() ?? "";
         const authorStr = (r.authors || []).join(" ").toLowerCase();
+        const titleCandidates = [t, matchedTitle].filter(Boolean);
         // Best: exact title match
-        if (t === lowerQuery) return 0;
+        if (titleCandidates.some((candidate) => candidate === lowerQuery)) return 0;
         // Great: title starts with query
-        if (t.startsWith(lowerQuery)) return 0.3;
-        // Good: all tokens found in title+author combined (cross-column match)
+        if (titleCandidates.some((candidate) => candidate.startsWith(lowerQuery))) {
+          return 0.3;
+        }
+        // Good: all tokens found in title, matched alias, or author combined
         const allTokensMatch = lowerTokens.every(
-          (tok) => t.includes(tok) || authorStr.includes(tok)
+          (tok) =>
+            titleCandidates.some((candidate) => candidate.includes(tok)) ||
+            authorStr.includes(tok)
         );
         if (allTokensMatch) {
-          // Bonus if title starts with one of the query tokens
-          const titleStartsWithToken = lowerTokens.some((tok) => t.startsWith(tok));
+          const titleStartsWithToken = lowerTokens.some((tok) =>
+            titleCandidates.some((candidate) => candidate.startsWith(tok))
+          );
           return titleStartsWithToken ? 0.4 : 0.6;
         }
         // OK: partial match
@@ -207,9 +252,10 @@ app.get("/search", (req, res) => {
       };
       // Popularity score: log scale so 500 editions >> 2 editions
       const popScore = (r) => Math.log10(Math.max(r.editionCount || 1, 1));
+      const ftsScore = (r) => bestCandidateByKey.get(r.key)?.fts_score ?? 0;
       // Combined: match quality matters most, popularity breaks ties
       const score = (r) => popScore(r) - matchScore(r) * 4;
-      return score(b) - score(a);
+      return score(b) - score(a) || ftsScore(a) - ftsScore(b);
     });
 
     res.json(results.slice(0, limit));
@@ -221,6 +267,9 @@ app.get("/search", (req, res) => {
 
 app.get("/subjects", (req, res) => {
   if (!db) return res.status(503).json({ error: "Database not loaded" });
+  if (!subjectFts) {
+    return res.status(503).json({ error: "Subject search is unavailable" });
+  }
   try {
     const tags = (req.query.tags || "")
       .split(",")
@@ -260,6 +309,19 @@ const HIDDEN_CREDENTIALS = new Set([
   "Comics Creator",
 ]);
 
+function normalizeCredential(value) {
+  const trimmed = String(value ?? "").trim().replace(/\s+/g, " ");
+  if (!trimmed) return "";
+
+  const titled = trimmed.replace(/(^|[\s/-])(\p{L})/gu, (_match, boundary, letter) => {
+    return `${boundary}${letter.toLocaleUpperCase()}`;
+  });
+
+  return titled.replace(/\b(In|Of|And|For|The)\b/g, (match, _word, offset) => {
+    return offset === 0 ? match : match.toLowerCase();
+  });
+}
+
 app.use(express.json());
 
 app.post("/author-credentials", (req, res) => {
@@ -273,16 +335,21 @@ app.post("/author-credentials", (req, res) => {
       SELECT a.name, ac.credential
       FROM author_credentials ac
       JOIN authors a ON a.key = ac.author_key
-      WHERE a.name IN (${placeholders})
+      WHERE ac.author_key IN (
+        SELECT key
+        FROM authors
+        WHERE name IN (${placeholders})
+      )
       ORDER BY a.name, ac.source, ac.credential
     `).all(...authors);
 
     const result = {};
     for (const row of rows) {
-      if (HIDDEN_CREDENTIALS.has(row.credential)) continue;
+      const normalizedCredential = normalizeCredential(row.credential);
+      if (!normalizedCredential || HIDDEN_CREDENTIALS.has(normalizedCredential)) continue;
       if (!result[row.name]) result[row.name] = [];
-      if (!result[row.name].includes(row.credential)) {
-        result[row.name].push(row.credential);
+      if (!result[row.name].includes(normalizedCredential)) {
+        result[row.name].push(normalizedCredential);
       }
     }
 
@@ -301,7 +368,7 @@ app.put("/author-credentials/add", (req, res) => {
   if (!dbWrite) return res.status(503).json({ error: "Database not writable" });
   try {
     const authorName = (req.body?.author || "").trim();
-    const credential = (req.body?.credential || "").trim();
+    const credential = normalizeCredential(req.body?.credential || "");
     if (!authorName || !credential) {
       return res.status(400).json({ error: "author and credential are required" });
     }
@@ -318,7 +385,7 @@ app.put("/author-credentials/add", (req, res) => {
     }
 
     const exists = dbWrite
-      .prepare("SELECT 1 FROM author_credentials WHERE author_key = ? AND credential = ?")
+      .prepare("SELECT 1 FROM author_credentials WHERE author_key = ? AND credential = ? COLLATE NOCASE")
       .get(authorKey, credential);
     if (!exists) {
       dbWrite
@@ -337,7 +404,7 @@ app.delete("/author-credentials/remove", (req, res) => {
   if (!dbWrite) return res.status(503).json({ error: "Database not writable" });
   try {
     const authorName = (req.body?.author || "").trim();
-    const credential = (req.body?.credential || "").trim();
+    const credential = normalizeCredential(req.body?.credential || "");
     if (!authorName || !credential) {
       return res.status(400).json({ error: "author and credential are required" });
     }
@@ -348,7 +415,7 @@ app.delete("/author-credentials/remove", (req, res) => {
 
     if (authorKey) {
       dbWrite
-        .prepare("DELETE FROM author_credentials WHERE author_key = ? AND credential = ? AND source = 'manual'")
+        .prepare("DELETE FROM author_credentials WHERE author_key = ? AND credential = ? COLLATE NOCASE AND source = 'manual'")
         .run(authorKey, credential);
     }
 

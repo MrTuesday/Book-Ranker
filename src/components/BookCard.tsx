@@ -4,6 +4,7 @@ import type {
   ReactNode,
 } from "react";
 import type { AuthorCredentialMap } from "../lib/books-api";
+import { bookCardCredentials } from "../lib/credential-order";
 
 export function formatScore(value: number) {
   const pct = Math.max(0, Math.min(100, (value / 5) * 100));
@@ -65,7 +66,6 @@ export function BookCard({
   series,
   seriesNumber,
   authors,
-  interestTags,
   authorCredentials,
   score,
   className,
@@ -82,12 +82,12 @@ export function BookCard({
   const cardStyle = animationDelay ? { animationDelay } : undefined;
   const trimmedSeries = series?.trim() ?? "";
   const hasSeries = trimmedSeries.length > 0;
-  const visibleInterestTags = Array.from(new Set((interestTags ?? []).filter(Boolean)));
   const authorsWithCredentials = authors.flatMap((author) => {
-    const credentials = authorCredentials?.[author]?.filter(Boolean) ?? [];
+    const credentials = bookCardCredentials(authorCredentials?.[author] ?? []);
     return credentials.length > 0 ? [{ author, credentials }] : [];
   });
   const showCredentialAuthorLabels = authorsWithCredentials.length > 1;
+  const inlineActions = actions && !subMeta;
 
   function handleClick(event: ReactMouseEvent<HTMLElement>) {
     if (!onToggle || !shouldToggleFromTarget(event.target)) {
@@ -145,15 +145,6 @@ export function BookCard({
             ) : null}
             <div className="book-card-pair">
               <h3>{title}</h3>
-              {visibleInterestTags.length > 0 ? (
-                <div className="book-card-tag-list book-card-interest-tags">
-                  {visibleInterestTags.map((tag) => (
-                    <span key={tag} className="book-card-chip book-card-chip-interest">
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
             </div>
             <div className="book-card-pair">
               <p className="ranking-author">
@@ -182,7 +173,7 @@ export function BookCard({
           <strong className="score-value">
             {scoreOverride ?? formatScore(score)}
           </strong>
-          {progressBar || stars || subMeta ? (
+          {progressBar || stars || subMeta || inlineActions ? (
             <div className={`ranking-metrics${rank != null ? " has-rank" : ""}`}>
               {progressBar ? (
                 <div
@@ -196,7 +187,7 @@ export function BookCard({
                   {progressBar}
                 </div>
               ) : null}
-              {stars || subMeta ? (
+              {stars || subMeta || inlineActions ? (
                 <div className={`ranking-detail-row${rank != null ? " has-rank" : ""}`}>
                   {rank != null ? (
                     <div className="rank-badge ranking-progress-spacer" aria-hidden="true">
@@ -206,13 +197,16 @@ export function BookCard({
                   <div className="ranking-detail-content">
                     {stars}
                     {subMeta}
+                    {inlineActions ? (
+                      <span className="ranking-actions">{actions}</span>
+                    ) : null}
                   </div>
                 </div>
               ) : null}
             </div>
           ) : null}
         </div>
-        {actions ? (
+        {actions && !inlineActions ? (
           <div className="ranking-meta">
             <span className="ranking-actions">{actions}</span>
           </div>

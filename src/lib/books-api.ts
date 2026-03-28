@@ -1,4 +1,5 @@
 import {
+  buildCatalogIdentityKey,
   cloneCatalogBooks,
   normalizeCatalogBook,
   type CatalogBook,
@@ -98,6 +99,7 @@ const ACTIVE_PROFILE_STORAGE_KEY = "book-ranker.active-profile-id.v1";
 const BACKEND_MIGRATION_KEY = "book-ranker.backend-migrated.v1";
 const DEFAULT_PROFILE_ID = "profile-default";
 const DEFAULT_PROFILE_NAME = "My Profile";
+const MAX_PROFILE_GENRES_PER_BOOK = 10;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -194,6 +196,32 @@ async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> 
   return payload as T;
 }
 
+async function buildAuthenticatedHeaders() {
+  const headers: Record<string, string> = {};
+
+  if (!isSupabaseConfigured) {
+    return headers;
+  }
+
+  const client = requireSupabase();
+  const {
+    data: { session },
+    error,
+  } = await client.auth.getSession();
+
+  if (error) {
+    throw error;
+  }
+
+  const accessToken = session?.access_token?.trim();
+
+  if (accessToken) {
+    headers.Authorization = `Bearer ${accessToken}`;
+  }
+
+  return headers;
+}
+
 function hasMeaningfulStoredState(state: StoredLibraryState) {
   return state.profiles.some((profile) => {
     return (
@@ -257,6 +285,10 @@ function normalizeTitledTag(value: string) {
 }
 
 export function normalizeGenreTag(value: string) {
+  return normalizeTitledTag(value);
+}
+
+export function normalizeCredentialTag(value: string) {
   return normalizeTitledTag(value);
 }
 
@@ -524,6 +556,78 @@ function cloneStoredProfile(profile: StoredProfile): StoredProfile {
   };
 }
 
+function buildProfileGenreMap(profiles: StoredProfile[]) {
+  const countsByIdentity = new Map<string, Map<string, number>>();
+
+  for (const profile of profiles) {
+    const profileGenresByIdentity = new Map<string, Set<string>>();
+
+    for (const book of profile.books) {
+      const identityKey = buildCatalogIdentityKey({
+        title: book.title,
+        authors: book.authors,
+      });
+      const currentGenres =
+        profileGenresByIdentity.get(identityKey) ?? new Set<string>();
+
+      for (const genre of book.genres.map(normalizeGenreTag).filter(Boolean)) {
+        currentGenres.add(genre);
+      }
+
+      if (currentGenres.size > 0) {
+        profileGenresByIdentity.set(identityKey, currentGenres);
+      }
+    }
+
+    for (const [identityKey, genres] of profileGenresByIdentity.entries()) {
+      const currentCounts = countsByIdentity.get(identityKey) ?? new Map<string, number>();
+
+      for (const genre of genres) {
+        currentCounts.set(genre, (currentCounts.get(genre) ?? 0) + 1);
+      }
+
+      countsByIdentity.set(identityKey, currentCounts);
+    }
+  }
+
+  return new Map(
+    Array.from(countsByIdentity.entries()).map(([identityKey, counts]) => [
+      identityKey,
+      Array.from(counts.entries())
+        .sort(
+          (left, right) =>
+            right[1] - left[1] || left[0].localeCompare(right[0]),
+        )
+        .slice(0, MAX_PROFILE_GENRES_PER_BOOK)
+        .map(([genre]) => genre),
+    ]),
+  );
+}
+
+function buildAggregatedCatalogBooks(state: StoredLibraryState) {
+  const profileGenresByIdentity = buildProfileGenreMap(state.profiles);
+  const seedCatalogBooks = state.profiles.flatMap((profile) => profile.catalogBooks);
+  const profileBookIdentities = state.profiles.flatMap((profile) =>
+    profile.books.map((book) => ({
+      ...book,
+      genres: [],
+    })),
+  );
+
+  return upsertCatalogBooks(seedCatalogBooks, profileBookIdentities).map((book) => {
+    const profileGenres = profileGenresByIdentity.get(buildCatalogIdentityKey(book));
+
+    if (!profileGenres || profileGenres.length === 0) {
+      return book;
+    }
+
+    return {
+      ...book,
+      genres: [...profileGenres],
+    };
+  });
+}
+
 function createProfileId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
@@ -606,7 +710,7 @@ function toLibraryState(state: StoredLibraryState): LibraryState {
 
   return {
     books: cloneBooks(activeProfile.books),
-    catalogBooks: cloneCatalogBooks(activeProfile.catalogBooks),
+    catalogBooks: cloneCatalogBooks(buildAggregatedCatalogBooks(state)),
     genreInterests: { ...activeProfile.genreInterests },
     authorExperiences: { ...activeProfile.authorExperiences },
     seriesExperiences: { ...activeProfile.seriesExperiences },
@@ -862,29 +966,7 @@ async function readRemoteStoredLibraryContext(): Promise<RemoteLibraryContext> {
     return initializeRemoteStoredLibraryState(userId, username);
   }
 
-  // One-time reset: clear book data from remote profiles
-  const storage = getStorage();
-  const remoteResetKey = "book-ranker.remote-book-data-reset.v2";
-  const needsRemoteReset = !storage?.getItem(remoteResetKey);
-
-  const profiles = profileRows.map((row) => {
-    const normalized = normalizeRemoteProfileRow(row);
-    if (needsRemoteReset) {
-      return {
-        ...normalized,
-        books: [],
-        catalogBooks: [],
-        genreInterests: {},
-        authorExperiences: {},
-        seriesExperiences: {},
-      };
-    }
-    return normalized;
-  });
-
-  if (needsRemoteReset) {
-    storage?.setItem(remoteResetKey, new Date().toISOString());
-  }
+  const profiles = profileRows.map((row) => normalizeRemoteProfileRow(row));
   const activeProfileId =
     settingsResult.data?.active_profile_id &&
     profiles.some((profile) => profile.id === settingsResult.data?.active_profile_id)
@@ -901,7 +983,7 @@ async function readRemoteStoredLibraryContext(): Promise<RemoteLibraryContext> {
       findActiveStoredProfile(state).meta.updatedAt,
   };
 
-  if (needsRemoteReset || !settingsResult.data || settingsResult.data.active_profile_id !== activeProfileId) {
+  if (!settingsResult.data || settingsResult.data.active_profile_id !== activeProfileId) {
     await persistRemoteStoredLibraryState(userId, state, meta);
   }
 
@@ -2672,8 +2754,10 @@ export async function addAuthorCredential(
   author: string,
   credential: string,
 ): Promise<void> {
+  const headers = await buildAuthenticatedHeaders();
   await requestJson("/api/author-credentials/add", {
     method: "PUT",
+    headers,
     body: JSON.stringify({ author, credential }),
   });
 }
@@ -2682,8 +2766,10 @@ export async function removeAuthorCredential(
   author: string,
   credential: string,
 ): Promise<void> {
+  const headers = await buildAuthenticatedHeaders();
   await requestJson("/api/author-credentials/remove", {
     method: "DELETE",
+    headers,
     body: JSON.stringify({ author, credential }),
   });
 }

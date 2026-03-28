@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { sortCredentials } from "../../fly-catalog/credential-order.js";
 
 const rootDir = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 
@@ -29,6 +30,22 @@ function getDb() {
     }
   }
   return db;
+}
+
+function normalizeCredential(value) {
+  const trimmed = String(value ?? "").trim().replace(/\s+/g, " ");
+
+  if (!trimmed) {
+    return "";
+  }
+
+  const titled = trimmed.replace(/(^|[\s/-])(\p{L})/gu, (_match, boundary, letter) => {
+    return `${boundary}${letter.toLocaleUpperCase()}`;
+  });
+
+  return titled.replace(/\b(In|Of|And|For|The)\b/g, (match, _word, offset) => {
+    return offset === 0 ? match : match.toLowerCase();
+  });
 }
 
 // Generic writing labels that every author in the DB will have — not useful as credentials.
@@ -61,7 +78,11 @@ export function getAuthorCredentials(authorNames) {
     SELECT a.name, ac.credential, ac.source
     FROM author_credentials ac
     JOIN authors a ON a.key = ac.author_key
-    WHERE a.name IN (${authorNames.map(() => "?").join(", ")})
+    WHERE ac.author_key IN (
+      SELECT key
+      FROM authors
+      WHERE name IN (${authorNames.map(() => "?").join(", ")})
+    )
     ORDER BY a.name, ac.source, ac.credential
   `);
 
@@ -69,14 +90,20 @@ export function getAuthorCredentials(authorNames) {
   const result = {};
 
   for (const row of rows) {
-    if (HIDDEN_CREDENTIALS.has(row.credential)) continue;
+    const normalizedCredential = normalizeCredential(row.credential);
+
+    if (!normalizedCredential || HIDDEN_CREDENTIALS.has(normalizedCredential)) continue;
 
     if (!result[row.name]) {
       result[row.name] = [];
     }
-    if (!result[row.name].includes(row.credential)) {
-      result[row.name].push(row.credential);
+    if (!result[row.name].includes(normalizedCredential)) {
+      result[row.name].push(normalizedCredential);
     }
+  }
+
+  for (const author of Object.keys(result)) {
+    result[author] = sortCredentials(result[author]);
   }
 
   return result;
@@ -93,7 +120,7 @@ export function addAuthorCredential(authorName, credential) {
   if (!conn) throw new Error("Catalog DB not available");
 
   const trimmedName = authorName.trim();
-  const trimmedCred = credential.trim();
+  const trimmedCred = normalizeCredential(credential);
   if (!trimmedName || !trimmedCred) throw new Error("Author and credential are required");
 
   // Find existing author key, or create a synthetic one
@@ -112,7 +139,7 @@ export function addAuthorCredential(authorName, credential) {
   // Check for duplicate
   const exists = conn
     .prepare(
-      "SELECT 1 FROM author_credentials WHERE author_key = ? AND credential = ?",
+      "SELECT 1 FROM author_credentials WHERE author_key = ? AND credential = ? COLLATE NOCASE",
     )
     .get(authorKey, trimmedCred);
 
@@ -134,16 +161,17 @@ export function addAuthorCredential(authorName, credential) {
 export function removeAuthorCredential(authorName, credential) {
   const conn = getDb();
   if (!conn) throw new Error("Catalog DB not available");
+  const trimmedCred = normalizeCredential(credential);
 
   const authorKey = conn
     .prepare("SELECT key FROM authors WHERE name = ? COLLATE NOCASE")
     .get(authorName.trim())?.key;
 
-  if (!authorKey) return;
+  if (!authorKey || !trimmedCred) return;
 
   conn
     .prepare(
-      "DELETE FROM author_credentials WHERE author_key = ? AND credential = ? AND source = 'manual'",
+      "DELETE FROM author_credentials WHERE author_key = ? AND credential = ? COLLATE NOCASE AND source = 'manual'",
     )
-    .run(authorKey, credential.trim());
+    .run(authorKey, trimmedCred);
 }

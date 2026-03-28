@@ -31,6 +31,31 @@ export type SiteCatalogResult = CatalogSearchResult & {
   sourceBookIds: number[];
 };
 
+function isLocalCatalogResult(result: Pick<CatalogSearchResult, "id">) {
+  return result.id.startsWith("site:");
+}
+
+function mergePreferredTagList(
+  current: CatalogSearchResult,
+  incoming: CatalogSearchResult,
+  field: "genres" | "topics",
+) {
+  const currentValues =
+    field === "topics" && current.topics.length === 0 ? current.genres : current[field];
+  const incomingValues =
+    field === "topics" && incoming.topics.length === 0 ? incoming.genres : incoming[field];
+
+  if (isLocalCatalogResult(incoming) && incomingValues.length > 0) {
+    return uniqueStrings(incomingValues);
+  }
+
+  if (isLocalCatalogResult(current) && currentValues.length > 0) {
+    return uniqueStrings(currentValues);
+  }
+
+  return uniqueStrings([...currentValues, ...incomingValues]);
+}
+
 function mergeCatalogSearchResult(
   current: CatalogSearchResult,
   incoming: CatalogSearchResult,
@@ -47,10 +72,10 @@ function mergeCatalogSearchResult(
       current.authors.length > 0
         ? uniqueStrings(current.authors)
         : uniqueStrings(incoming.authors),
-    genres: uniqueStrings([...current.genres, ...incoming.genres]),
+    genres: mergePreferredTagList(current, incoming, "genres"),
     tags: uniqueStrings([...current.tags, ...incoming.tags]),
     moods: uniqueStrings([...current.moods, ...incoming.moods]),
-    topics: uniqueStrings([...current.topics, ...incoming.topics]),
+    topics: mergePreferredTagList(current, incoming, "topics"),
     averageRating: current.averageRating ?? incoming.averageRating,
     ratingsCount: current.ratingsCount ?? incoming.ratingsCount,
     usersCount: current.usersCount ?? incoming.usersCount,
@@ -124,8 +149,16 @@ function mergeCatalogResult(
       incoming.authors.length > 0
         ? uniqueStrings(incoming.authors)
         : uniqueStrings(current.authors),
-    genres: uniqueStrings([...current.genres, ...incoming.genres]),
-    topics: uniqueStrings([...current.topics, ...incoming.topics]),
+    genres:
+      incoming.genres.length > 0
+        ? uniqueStrings(incoming.genres)
+        : uniqueStrings(current.genres),
+    topics:
+      incoming.topics.length > 0
+        ? uniqueStrings(incoming.topics)
+        : incoming.genres.length > 0
+          ? uniqueStrings(incoming.genres)
+          : uniqueStrings(current.topics.length > 0 ? current.topics : current.genres),
     averageRating: current.averageRating ?? incoming.averageRating,
     ratingsCount: current.ratingsCount ?? incoming.ratingsCount,
     usersCount: current.usersCount ?? incoming.usersCount,

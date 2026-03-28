@@ -1,5 +1,4 @@
 import {
-  type DragEvent as ReactDragEvent,
   type FocusEvent as ReactFocusEvent,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -28,8 +27,9 @@ import {
   type AuthorExperienceMap,
   type ProfileSummary,
   type SeriesExperienceMap,
+  normalizeCredentialTag,
   normalizeGenreTag,
-  updateProfile,
+  setActiveProfile,
   updateBookRecord,
   writeGenreInterest,
   writeAuthorExperience,
@@ -45,6 +45,7 @@ import {
   type AuthorCredentialMap,
 } from "./lib/books-api";
 import {
+  deleteSignedInAccount,
   getAuthSession,
   isSupabaseConfigured,
   requestPasswordReset,
@@ -53,6 +54,8 @@ import {
   signUpWithEmail,
   subscribeToAuthChanges,
   type AuthSession,
+  updateSignedInEmail,
+  updateSignedInPassword,
   updateSignedInUsername,
 } from "./lib/auth";
 import {
@@ -71,10 +74,16 @@ import {
   type CatalogBook,
   upsertCatalogBooks,
 } from "./lib/catalog-memory";
+import {
+  buildGenreLibraryMetrics,
+  rankGenreTags,
+} from "./lib/genre-ranking";
+import { sortCredentials } from "./lib/credential-order";
 import { normalizeTitleText } from "./lib/title-case";
 import { BookCard } from "./components/BookCard";
 import {
   ArchiveShelfIcon,
+  MAX_READ_COUNT,
   ProgressBar,
   RatingButtons,
   ReadCountStepper,
@@ -87,6 +96,7 @@ import { searchOpenLibraryCatalog } from "./lib/open-library";
 import type { NodeLayer, SelectedNode } from "./components/InterestMap";
 
 const InterestMap = lazy(() => import("./components/InterestMap"));
+const GLOBAL_TAG_AUTHORITY_EMAIL = "danlyndon@proton.me";
 
 type BookDraft = {
   title: string;
@@ -114,10 +124,6 @@ type BookDraft = {
 };
 
 type SuggestionField = "author" | "genre";
-type DraftTagDrag = {
-  field: SuggestionField;
-  tag: string;
-};
 type DraftTextField =
   | "title"
   | "series"
@@ -133,7 +139,7 @@ type AuthView = "sign-in" | "sign-up" | "reset";
 type AuthStatus = "checking" | "signed-in" | "signed-out" | "disabled";
 
 const MAX_SUGGESTIONS = 6;
-const MAX_AUTOFILL_TOPICS = 8;
+const MAX_AUTOFILL_TOPICS = 10;
 const TITLE_SUGGESTION_FETCH_LIMIT = 6;
 const MIN_YEAR_OPTION = 1900;
 
@@ -215,24 +221,31 @@ function resolvedSuggestion(
     return null;
   }
 
+  const exactMatch = knownTags.find(
+    (tag) =>
+      !selectedTags.includes(tag) &&
+      tag.toLocaleLowerCase() === normalizedQuery,
+  );
+
+  if (exactMatch) {
+    return exactMatch;
+  }
+
   const suggestions = matchingSuggestions(query, selectedTags, knownTags);
-  const exactMatch = suggestions.find(
+  const partialExactMatch = suggestions.find(
     (tag) => tag.toLocaleLowerCase() === normalizedQuery,
   );
 
-  return exactMatch ?? (suggestions.length === 1 ? suggestions[0] : null);
+  return partialExactMatch ?? (suggestions.length === 1 ? suggestions[0] : null);
 }
 
 function buildCatalogGenres(
   result: Pick<CatalogSearchResult, "title" | "authors" | "genres" | "tags">,
-  knownGenres: string[],
 ) {
-  const knownGenreSet = new Set(knownGenres.map(normalizeGenreTag));
-
   return uniqueTags(
-    [...result.genres, ...result.tags]
+    result.genres
       .map(normalizeGenreTag)
-      .filter((genre) => knownGenreSet.has(genre)),
+      .filter(Boolean),
   ).slice(0, MAX_AUTOFILL_TOPICS);
 }
 
@@ -285,6 +298,13 @@ function formatDisplayedDraftCount(value: string) {
   return Math.round(parsed).toLocaleString();
 }
 
+function formatRatingCountLabel(value: string) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && Math.round(parsed) === 1
+    ? "rating"
+    : "ratings";
+}
+
 function buildDraftScores(tags: string[], scores: Record<string, number>) {
   return Object.fromEntries(
     tags.flatMap((tag) =>
@@ -301,43 +321,6 @@ function removeTagFromScores(scores: Record<string, string>, tag: string) {
   const nextScores = { ...scores };
   delete nextScores[tag];
   return nextScores;
-}
-
-
-function reorderTags(tags: string[], draggedTag: string, targetTag: string) {
-  if (draggedTag === targetTag) {
-    return tags;
-  }
-
-  const next = [...tags];
-  const draggedIndex = next.indexOf(draggedTag);
-
-  if (draggedIndex === -1) {
-    return tags;
-  }
-
-  next.splice(draggedIndex, 1);
-
-  const targetIndex = next.indexOf(targetTag);
-
-  if (targetIndex === -1) {
-    next.push(draggedTag);
-    return next;
-  }
-
-  next.splice(targetIndex, 0, draggedTag);
-  return next;
-}
-
-function moveTagToEnd(tags: string[], draggedTag: string) {
-  const next = tags.filter((tag) => tag !== draggedTag);
-
-  if (next.length === tags.length) {
-    return tags;
-  }
-
-  next.push(draggedTag);
-  return next;
 }
 
 function messageFromError(error: unknown) {
@@ -445,8 +428,18 @@ export default function App() {
   const [authConfirmPassword, setAuthConfirmPassword] = useState("");
   const [authFeedback, setAuthFeedback] = useState<string | null>(null);
   const [isAuthBusy, setIsAuthBusy] = useState(false);
+  const [isUpdatingProfiles, setIsUpdatingProfiles] = useState(false);
+  const [isSavingAccount, setIsSavingAccount] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [isUpdatingUsername, setIsUpdatingUsername] = useState(false);
-  const [isUsernameEditorOpen, setIsUsernameEditorOpen] = useState(false);
+  const [isAccountEditorOpen, setIsAccountEditorOpen] = useState(false);
+  const [accountEditUsernameInput, setAccountEditUsernameInput] = useState("");
+  const [accountEditEmailInput, setAccountEditEmailInput] = useState("");
+  const [accountEditCurrentPasswordInput, setAccountEditCurrentPasswordInput] =
+    useState("");
+  const [accountEditNextPasswordInput, setAccountEditNextPasswordInput] = useState("");
+  const [accountEditNextPasswordConfirmInput, setAccountEditNextPasswordConfirmInput] =
+    useState("");
   const [pendingDeleteId, setPendingDeleteId] = useState<number | null>(null);
   const [pendingTagDelete, setPendingTagDelete] = useState<string | null>(null);
   const [credentialInput, setCredentialInput] = useState("");
@@ -465,11 +458,6 @@ export default function App() {
   const [activeTagActionMenu, setActiveTagActionMenu] = useState<string | null>(
     null,
   );
-  const [draftTagDrag, setDraftTagDrag] = useState<DraftTagDrag | null>(null);
-  const [draftTagDropTarget, setDraftTagDropTarget] = useState<{
-    field: SuggestionField;
-    tag: string | null;
-  } | null>(null);
   const [selectedInterestPath, setSelectedInterestPath] = useState<SelectedNode[]>(
     [],
   );
@@ -825,13 +813,21 @@ export default function App() {
     });
   }, [books, catalogBooks, genreInterests]);
 
+  const genreLibraryMetrics = useMemo(() => {
+    return buildGenreLibraryMetrics(resolvedBooks);
+  }, [resolvedBooks]);
+
   const visibleGraphGenres = useMemo(() => {
-    return uniqueTags(
-      resolvedBooks.flatMap((book) =>
-        uniqueTags(book.genres).filter((tag) => genreInterests[tag] != null),
+    return rankGenreTags(
+      uniqueTags(
+        resolvedBooks.flatMap((book) =>
+          uniqueTags(book.genres).filter((tag) => genreInterests[tag] != null),
+        ),
       ),
-    ).sort((left, right) => left.localeCompare(right));
-  }, [resolvedBooks, genreInterests]);
+      genreInterests,
+      genreLibraryMetrics,
+    );
+  }, [resolvedBooks, genreInterests, genreLibraryMetrics]);
 
   const visibleGraphCredentials = useMemo(() => {
     const credSet = new Set<string>();
@@ -905,23 +901,30 @@ export default function App() {
     [profiles, activeProfileId],
   );
   const accountEmail = authSession?.user.email?.trim() ?? "";
+  const normalizedAccountEmail = accountEmail.toLocaleLowerCase();
+  const canEditGlobalCredentials =
+    !authEnabled || normalizedAccountEmail === GLOBAL_TAG_AUTHORITY_EMAIL;
   const storedAccountUsername = normalizeAccountUsername(
     authSession?.user.user_metadata?.username,
   );
+  const accountDisplayName =
+    storedAccountUsername || accountEmail.split("@")[0] || "Profile";
   const displayedProfileName =
-    storedAccountUsername ||
-    (!isPlaceholderProfileName(activeProfile?.name) ? activeProfile?.name : "") ||
-    accountEmail.split("@")[0] ||
-    "Profile";
+    !isPlaceholderProfileName(activeProfile?.name) ? activeProfile?.name ?? "Profile" : "Profile";
   const needsUsernameSetup =
     authEnabled &&
     authStatus === "signed-in" &&
     authSession != null &&
-    !storedAccountUsername &&
-    isPlaceholderProfileName(activeProfile?.name);
-  const isUsernameModalOpen = needsUsernameSetup || isUsernameEditorOpen;
+    !storedAccountUsername;
+  const isUsernameModalOpen = needsUsernameSetup;
   const profileControlDisabled =
-    isLoading || isSaving || isAuthBusy || isUpdatingUsername;
+    isLoading ||
+    isSaving ||
+    isAuthBusy ||
+    isUpdatingProfiles ||
+    isSavingAccount ||
+    isDeletingAccount ||
+    isUpdatingUsername;
 
   const isEditing = editingBookId !== null;
   const currentYearLabel = String(currentYear);
@@ -962,11 +965,17 @@ export default function App() {
     }
 
     return {
-      knownGenres: Array.from(nextGenres).sort((a, b) => a.localeCompare(b)),
+      knownGenres: rankGenreTags(nextGenres, genreInterests, genreLibraryMetrics),
       knownAuthors: Array.from(nextAuthors).sort((a, b) => a.localeCompare(b)),
       knownSeries: Array.from(nextSeries).sort((a, b) => a.localeCompare(b)),
     };
-  }, [resolvedBooks, genreInterests, authorExperiences, seriesExperiences]);
+  }, [
+    resolvedBooks,
+    genreInterests,
+    authorExperiences,
+    seriesExperiences,
+    genreLibraryMetrics,
+  ]);
 
 
   const authorSuggestions = useMemo(() => {
@@ -980,6 +989,37 @@ export default function App() {
   const graphGenreSuggestions = useMemo(() => {
     return matchingSuggestions(graphAddGenreInput, [], visibleGraphGenres);
   }, [graphAddGenreInput, visibleGraphGenres]);
+
+  const draftGenreRankingInputs = useMemo(() => {
+    const nextScores: GenreInterestMap = {};
+
+    for (const genre of draft.genres) {
+      const draftScore = draft.genreScores[genre]?.trim();
+
+      if (draftScore) {
+        const parsed = Number(draftScore);
+
+        if (Number.isFinite(parsed)) {
+          nextScores[genre] = parsed;
+          continue;
+        }
+      }
+
+      if (genreInterests[genre] != null) {
+        nextScores[genre] = genreInterests[genre];
+      }
+    }
+
+    return nextScores;
+  }, [draft.genres, draft.genreScores, genreInterests]);
+
+  const rankedDraftGenres = useMemo(() => {
+    return rankGenreTags(
+      draft.genres,
+      draftGenreRankingInputs,
+      genreLibraryMetrics,
+    );
+  }, [draft.genres, draftGenreRankingInputs, genreLibraryMetrics]);
 
   const resetDraft = useCallback(() => {
     const activeElement = document.activeElement;
@@ -1002,8 +1042,6 @@ export default function App() {
     selectedCatalogTitleRef.current = "";
     setActiveSuggestionField(null);
     setActiveTagActionMenu(null);
-    setDraftTagDrag(null);
-    setDraftTagDropTarget(null);
   }, []);
 
   const resetProfileWorkspace = useCallback(() => {
@@ -1077,8 +1115,12 @@ export default function App() {
       setAuthStatus(session ? "signed-in" : "signed-out");
       setIsAuthBusy(false);
       setIsProfileMenuOpen(false);
+      setIsAccountEditorOpen(false);
       setAuthPassword("");
       setAuthConfirmPassword("");
+      setAccountEditCurrentPasswordInput("");
+      setAccountEditNextPasswordInput("");
+      setAccountEditNextPasswordConfirmInput("");
 
       if (session) {
         setAuthEmail(session.user.email ?? "");
@@ -1086,14 +1128,17 @@ export default function App() {
           normalizeAccountUsername(session.user.user_metadata?.username) ||
             (session.user.email?.split("@")[0] ?? ""),
         );
-        setIsUsernameEditorOpen(false);
         setAuthFeedback(null);
         setErrorMessage(null);
         return;
       }
 
       setAuthUsernameInput("");
-      setIsUsernameEditorOpen(false);
+      setAccountEditUsernameInput("");
+      setAccountEditEmailInput("");
+      setAccountEditCurrentPasswordInput("");
+      setAccountEditNextPasswordInput("");
+      setAccountEditNextPasswordConfirmInput("");
       resetProfileWorkspace();
       clearLibraryState();
     });
@@ -1165,7 +1210,8 @@ export default function App() {
 
   async function handleLogout() {
     setIsProfileMenuOpen(false);
-    setIsUsernameEditorOpen(false);
+    setIsAccountEditorOpen(false);
+    setAuthFeedback(null);
     setErrorMessage(null);
 
     if (!authEnabled) {
@@ -1182,11 +1228,36 @@ export default function App() {
     }
   }
 
-  function openUsernameEditor() {
+  async function handleSwitchProfile(profileId: string) {
+    if (!profileId || profileId === activeProfileId) {
+      setIsProfileMenuOpen(false);
+      return;
+    }
+
     setIsProfileMenuOpen(false);
     setErrorMessage(null);
-    setAuthUsernameInput(storedAccountUsername || displayedProfileName);
-    setIsUsernameEditorOpen(true);
+    setIsUpdatingProfiles(true);
+
+    try {
+      const nextLibraryState = await setActiveProfile(profileId);
+      resetProfileWorkspace();
+      applyLibraryState(nextLibraryState);
+    } catch (error) {
+      setErrorMessage(messageFromError(error));
+    } finally {
+      setIsUpdatingProfiles(false);
+    }
+  }
+
+  function openAccountEditor() {
+    setIsProfileMenuOpen(false);
+    setErrorMessage(null);
+    setAccountEditUsernameInput(storedAccountUsername || accountEmail.split("@")[0] || "");
+    setAccountEditEmailInput(accountEmail);
+    setAccountEditCurrentPasswordInput("");
+    setAccountEditNextPasswordInput("");
+    setAccountEditNextPasswordConfirmInput("");
+    setIsAccountEditorOpen(true);
   }
 
   async function handleUsernameSetupSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1209,18 +1280,128 @@ export default function App() {
     try {
       await updateSignedInUsername(nextUsername);
 
-      if (activeProfile) {
-        applyLibraryState(await updateProfile(activeProfile.id, nextUsername));
+      const nextSession = await getAuthSession();
+      setAuthSession(nextSession);
+      setAuthUsernameInput(nextUsername);
+    } catch (error) {
+      setErrorMessage(messageFromError(error));
+    } finally {
+      setIsUpdatingUsername(false);
+    }
+  }
+
+  async function handleAccountUpdateSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setErrorMessage(null);
+    const nextUsername = normalizeAccountUsername(accountEditUsernameInput);
+    const nextEmail = accountEditEmailInput.trim().toLocaleLowerCase();
+    const nextPassword = accountEditNextPasswordInput;
+    const usernameChanged = nextUsername !== (storedAccountUsername || "");
+    const emailChanged = nextEmail !== accountEmail.trim().toLocaleLowerCase();
+    const passwordChanged = nextPassword.length > 0;
+
+    if (!nextUsername) {
+      setErrorMessage("Username is required.");
+      return;
+    }
+
+    if (!nextEmail) {
+      setErrorMessage("Email is required.");
+      return;
+    }
+
+    if (!accountEditCurrentPasswordInput) {
+      setErrorMessage("Current password is required.");
+      return;
+    }
+
+    if (nextPassword !== accountEditNextPasswordConfirmInput) {
+      setErrorMessage("Passwords do not match.");
+      return;
+    }
+
+    if (!authSession || !accountEmail) {
+      setErrorMessage("Log in required.");
+      return;
+    }
+
+    if (!usernameChanged && !emailChanged && !passwordChanged) {
+      setIsAccountEditorOpen(false);
+      return;
+    }
+
+    setIsSavingAccount(true);
+
+    try {
+      await signInWithEmail(accountEmail, accountEditCurrentPasswordInput);
+
+      if (usernameChanged) {
+        await updateSignedInUsername(nextUsername);
+      }
+
+      if (emailChanged) {
+        await updateSignedInEmail(nextEmail);
+      }
+
+      if (passwordChanged) {
+        await updateSignedInPassword(nextPassword);
       }
 
       const nextSession = await getAuthSession();
       setAuthSession(nextSession);
       setAuthUsernameInput(nextUsername);
-      setIsUsernameEditorOpen(false);
+      setAccountEditCurrentPasswordInput("");
+      setAccountEditNextPasswordInput("");
+      setAccountEditNextPasswordConfirmInput("");
+      setIsAccountEditorOpen(false);
+
+      if (emailChanged) {
+        window.alert("Account updated. Check your email to confirm the email change.");
+      } else {
+        window.alert("Account updated.");
+      }
     } catch (error) {
       setErrorMessage(messageFromError(error));
     } finally {
-      setIsUpdatingUsername(false);
+      setIsSavingAccount(false);
+    }
+  }
+
+  async function handleDeleteAccount() {
+    setIsProfileMenuOpen(false);
+    setErrorMessage(null);
+
+    if (!authSession) {
+      setErrorMessage("Log in required.");
+      return;
+    }
+
+    if (
+      !window.confirm(
+        "Delete this account and all saved profiles and books? This cannot be undone.",
+      )
+    ) {
+      return;
+    }
+
+    setIsDeletingAccount(true);
+
+    try {
+      await deleteSignedInAccount();
+      await signOutUser().catch(() => {});
+      setAuthSession(null);
+      setAuthStatus("signed-out");
+      setAuthMode("sign-in");
+      setAuthEmail("");
+      setAuthPassword("");
+      setAuthConfirmPassword("");
+      setAuthFeedback("Account deleted.");
+      resetProfileWorkspace();
+      clearLibraryState();
+    } catch (error) {
+      setErrorMessage(messageFromError(error));
+    } finally {
+      setIsDeletingAccount(false);
     }
   }
 
@@ -1511,7 +1692,7 @@ export default function App() {
           progressValue >= 100
         ) {
           next.progress = "100";
-          next.readCount = Math.max(1, current.readCount);
+          next.readCount = Math.min(MAX_READ_COUNT, Math.max(1, current.readCount));
           next.lastReadYear = current.lastReadYear.trim() || currentYearLabel;
         } else {
           next.readCount = 0;
@@ -1674,7 +1855,7 @@ export default function App() {
 
   function setDraftReadCount(nextReadCount: number) {
     setDraft((prev) => {
-      const readCount = Math.max(0, Math.floor(nextReadCount));
+      const readCount = Math.min(MAX_READ_COUNT, Math.max(0, Math.floor(nextReadCount)));
       return {
         ...prev,
         readCount,
@@ -1701,7 +1882,8 @@ export default function App() {
           : prev.progress.trim() === "100"
             ? ""
             : prev.progress,
-      readCount: lastReadYear ? Math.max(1, prev.readCount) : 0,
+      readCount:
+        lastReadYear ? Math.min(MAX_READ_COUNT, Math.max(1, prev.readCount)) : 0,
     }));
   }
 
@@ -1738,7 +1920,6 @@ export default function App() {
   ) {
     const catalogGenres = buildCatalogGenres(
       result,
-      knownGenres,
     );
     setDraft((current) => {
       const baseDraft = options?.resetDraft ? createDraft() : current;
@@ -1812,8 +1993,6 @@ export default function App() {
     setErrorMessage(null);
     setActiveSuggestionField(null);
     setActiveTagActionMenu(null);
-    setDraftTagDrag(null);
-    setDraftTagDropTarget(null);
     setSelectedRecommendationId(result.id);
     populateDraftFromAutofill(result, { resetDraft: true });
     scrollControlPanelIntoView();
@@ -1989,30 +2168,6 @@ export default function App() {
     });
   }
 
-  function reorderDraftTags(
-    field: SuggestionField,
-    draggedTag: string,
-    targetTag: string | null,
-  ) {
-    setDraft((current) => {
-      const tagsKey = field === "author" ? "authors" : "genres";
-      const currentTags = current[tagsKey];
-      const nextTags =
-        targetTag == null
-          ? moveTagToEnd(currentTags, draggedTag)
-          : reorderTags(currentTags, draggedTag, targetTag);
-
-      if (nextTags === currentTags) {
-        return current;
-      }
-
-      return {
-        ...current,
-        [tagsKey]: nextTags,
-      };
-    });
-  }
-
   function removeDraftTag(field: SuggestionField, tag: string) {
     setDraft((current) => {
       if (field === "author") {
@@ -2037,81 +2192,6 @@ export default function App() {
       event.preventDefault();
       addDraftTag(field);
     }
-  }
-
-  function handleDraftTagDragStart(
-    event: ReactDragEvent<HTMLSpanElement>,
-    field: SuggestionField,
-    tag: string,
-  ) {
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", `${field}:${tag}`);
-    setActiveTagActionMenu(null);
-    setDraftTagDrag({ field, tag });
-    setDraftTagDropTarget(null);
-  }
-
-  function handleDraftTagListDragOver(
-    event: ReactDragEvent<HTMLDivElement>,
-    field: SuggestionField,
-  ) {
-    if (!draftTagDrag || draftTagDrag.field !== field) {
-      return;
-    }
-
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
-    setDraftTagDropTarget((current) =>
-      current?.field === field && current.tag === null
-        ? current
-        : { field, tag: null },
-    );
-  }
-
-  function handleDraftTagDragOver(
-    event: ReactDragEvent<HTMLSpanElement>,
-    field: SuggestionField,
-    tag: string,
-  ) {
-    if (!draftTagDrag || draftTagDrag.field !== field) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-    event.dataTransfer.dropEffect = "move";
-
-    if (draftTagDrag.tag === tag) {
-      setDraftTagDropTarget(null);
-      return;
-    }
-
-    setDraftTagDropTarget((current) =>
-      current?.field === field && current.tag === tag
-        ? current
-        : { field, tag },
-    );
-  }
-
-  function handleDraftTagDrop(
-    event: ReactDragEvent<HTMLElement>,
-    field: SuggestionField,
-    targetTag: string | null = null,
-  ) {
-    if (!draftTagDrag || draftTagDrag.field !== field) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-    reorderDraftTags(field, draftTagDrag.tag, targetTag);
-    setDraftTagDrag(null);
-    setDraftTagDropTarget(null);
-  }
-
-  function handleDraftTagDragEnd() {
-    setDraftTagDrag(null);
-    setDraftTagDropTarget(null);
   }
 
   function startEditing(book: Book) {
@@ -2358,11 +2438,20 @@ export default function App() {
   }
 
   async function handleAddCredential(author: string, credential: string) {
+    if (!canEditGlobalCredentials) {
+      setErrorMessage("Credential editing is only available to the site owner account.");
+      return;
+    }
+
+    const normalizedCredential = normalizeCredentialTag(credential);
+
     try {
-      await addAuthorCredential(author, credential);
+      await addAuthorCredential(author, normalizedCredential);
       setAuthorCredentials((prev) => ({
         ...prev,
-        [author]: [...(prev[author] ?? []), credential],
+        [author]: sortCredentials(
+          Array.from(new Set([...(prev[author] ?? []), normalizedCredential])),
+        ),
       }));
     } catch (error) {
       setErrorMessage(messageFromError(error));
@@ -2370,11 +2459,20 @@ export default function App() {
   }
 
   async function handleRemoveCredential(author: string, credential: string) {
+    if (!canEditGlobalCredentials) {
+      setErrorMessage("Credential editing is only available to the site owner account.");
+      return;
+    }
+
+    const normalizedCredential = normalizeCredentialTag(credential);
+
     try {
-      await removeAuthorCredential(author, credential);
+      await removeAuthorCredential(author, normalizedCredential);
       setAuthorCredentials((prev) => ({
         ...prev,
-        [author]: (prev[author] ?? []).filter((c) => c !== credential),
+        [author]: (prev[author] ?? []).filter(
+          (c) => normalizeCredentialTag(c) !== normalizedCredential,
+        ),
       }));
     } catch (error) {
       setErrorMessage(messageFromError(error));
@@ -2509,49 +2607,6 @@ export default function App() {
     }
   }
 
-  async function setReadCount(bookId: number, value: number) {
-    const book = books.find((b) => b.id === bookId);
-    if (!book) return;
-
-    try {
-      const nextValue = Math.max(0, Math.floor(value));
-      const nextLastReadYear =
-        nextValue > 0
-          ? effectiveLastReadYear(book) ?? currentYear
-          : undefined;
-      const {
-        archivedAtYear: _archivedAtYear,
-        lastReadYear: _lastReadYear,
-        progress: _progress,
-        ...baseBook
-      } = book;
-      const updated = await updateBookRecord(bookId, {
-        ...baseBook,
-        ...(nextValue > 0 ? { progress: 100 } : {}),
-        readCount: nextValue,
-        ...(nextLastReadYear != null ? { lastReadYear: nextLastReadYear } : {}),
-      });
-      revealSavedBook(updated.find((nextBook) => nextBook.id === bookId) ?? null);
-      applyBooksUpdate(updated);
-    } catch {
-      // silently ignore
-    }
-  }
-
-  async function incrementReadCount(bookId: number) {
-    const book = books.find((b) => b.id === bookId);
-    if (!book) return;
-
-    await setReadCount(bookId, (book.readCount ?? 0) + 1);
-  }
-
-  async function decrementReadCount(bookId: number) {
-    const book = books.find((b) => b.id === bookId);
-    if (!book) return;
-
-    await setReadCount(bookId, (book.readCount ?? 0) - 1);
-  }
-
   // Auto-build reading list when at least one node is selected
   useEffect(() => {
     const genreTags = selectedInterestPath.filter((s) => s.layer === "genre").map((s) => s.tag);
@@ -2657,7 +2712,7 @@ export default function App() {
         value != null ? Math.max(0, Math.min(100, value)) : undefined;
       const nextReadCount =
         nextProgress != null && nextProgress >= 100
-          ? Math.max(1, book.readCount ?? 0)
+          ? Math.min(MAX_READ_COUNT, Math.max(1, book.readCount ?? 0))
           : 0;
       const nextLastReadYear =
         nextProgress != null && nextProgress >= 100
@@ -2708,10 +2763,10 @@ export default function App() {
       authStatus === "checking"
         ? "Checking your session"
         : authMode === "sign-up"
-          ? "Create your account"
+          ? "Sign up"
           : authMode === "reset"
             ? "Reset your password"
-            : "Sign in";
+            : "Log in";
     const authCopy =
       authStatus === "checking"
         ? "Loading your account."
@@ -2719,12 +2774,12 @@ export default function App() {
           ? "Use your email address to create an account for your saved lists."
           : authMode === "reset"
             ? "Enter your email address and we’ll send a reset link."
-            : "Sign in with your email address to access your saved lists.";
+            : "Log in with your email address to access your saved lists.";
 
     return (
       <main className="auth-shell">
         <section className="auth-card" aria-busy={authStatus === "checking" || isAuthBusy}>
-          <p className="auth-eyebrow">Book Ranker</p>
+          <p className="auth-eyebrow">SortingBay</p>
           <h1>{authTitle}</h1>
           <p className="auth-copy">{authCopy}</p>
           {authStatus === "checking" ? (
@@ -2809,10 +2864,10 @@ export default function App() {
                   {isAuthBusy
                     ? "Working..."
                     : authMode === "sign-up"
-                      ? "Create account"
+                      ? "Sign up"
                       : authMode === "reset"
                         ? "Send reset email"
-                        : "Sign in"}
+                        : "Log in"}
                 </button>
               </form>
               <div className="auth-actions">
@@ -2826,7 +2881,7 @@ export default function App() {
                       }}
                       disabled={isAuthBusy}
                     >
-                      Create an account
+                      Sign up
                     </button>
                     <button
                       type="button"
@@ -2848,7 +2903,7 @@ export default function App() {
                     }}
                     disabled={isAuthBusy}
                   >
-                    Back to sign in
+                    Back to log in
                   </button>
                 )}
               </div>
@@ -2870,7 +2925,6 @@ export default function App() {
               totalCount={rankedBooks.length}
               books={visibleRankedBooks}
               authorCredentials={authorCredentials}
-              genreInterests={genreInterests}
               isLoading={isLoading}
               emptyMessage="No books yet. Add your first book to get started."
               emptyFilteredMessage="No books in your reading list match the selected nodes."
@@ -2881,18 +2935,12 @@ export default function App() {
               canSubmit={canSubmit}
               onToggleCardEditing={toggleCardEditing}
               onToggleEditing={toggleEditing}
-              onProgressChange={(bookId, progress) => {
-                void updateProgress(bookId, progress);
-              }}
-              onIncrementReadCount={(bookId) => {
-                void incrementReadCount(bookId);
-              }}
-              onDecrementReadCount={(bookId) => {
-                void decrementReadCount(bookId);
-              }}
-              onRatingChange={(bookId, level) => {
-                void updateMyRating(bookId, level);
-              }}
+	              onProgressChange={(bookId, progress) => {
+	                void updateProgress(bookId, progress);
+	              }}
+	              onRatingChange={(bookId, level) => {
+	                void updateMyRating(bookId, level);
+	              }}
               onRemove={(bookId) => {
                 void removeBook(bookId);
               }}
@@ -2906,7 +2954,6 @@ export default function App() {
               totalCount={readBooks.length}
               books={visibleReadBooks}
               authorCredentials={authorCredentials}
-              genreInterests={genreInterests}
               emptyMessage="No read books yet."
               emptyFilteredMessage="No rereads match the selected nodes."
               readMode
@@ -2917,18 +2964,12 @@ export default function App() {
               canSubmit={canSubmit}
               onToggleCardEditing={toggleCardEditing}
               onToggleEditing={toggleEditing}
-              onProgressChange={(bookId, progress) => {
-                void updateProgress(bookId, progress);
-              }}
-              onIncrementReadCount={(bookId) => {
-                void incrementReadCount(bookId);
-              }}
-              onDecrementReadCount={(bookId) => {
-                void decrementReadCount(bookId);
-              }}
-              onRatingChange={(bookId, level) => {
-                void updateMyRating(bookId, level);
-              }}
+	              onProgressChange={(bookId, progress) => {
+	                void updateProgress(bookId, progress);
+	              }}
+	              onRatingChange={(bookId, level) => {
+	                void updateMyRating(bookId, level);
+	              }}
               onRemove={(bookId) => {
                 void removeBook(bookId);
               }}
@@ -2962,33 +3003,67 @@ export default function App() {
 	                {isProfileMenuOpen ? (
 	                  <div className="profile-menu" role="menu" aria-label="Profile options">
 	                    <div className="profile-menu-account">
-	                      <span className="profile-menu-username">{displayedProfileName}</span>
+	                      <span className="profile-menu-username">{accountDisplayName}</span>
 	                      {accountEmail ? (
 	                        <span className="profile-menu-email">{accountEmail}</span>
 	                      ) : null}
 	                    </div>
-	                    <button
-	                      type="button"
-	                      className="profile-menu-link"
-	                      onClick={openUsernameEditor}
-	                      disabled={profileControlDisabled}
-	                      role="menuitem"
-	                    >
-	                      Change username
-	                    </button>
-	                    {authEnabled ? (
-	                      <button
-	                        type="button"
-	                        className="profile-menu-link is-danger"
-	                        onClick={() => {
-	                          void handleLogout();
-	                        }}
-	                        disabled={profileControlDisabled}
-	                        role="menuitem"
-	                      >
-	                        Log out
-	                      </button>
+	                    {profiles.length > 1 ? (
+	                      <div className="profile-menu-list" role="group" aria-label="Profiles">
+	                        {profiles.map((profile) => {
+	                          const isActiveProfile = profile.id === activeProfileId;
+	                          const profileName = !isPlaceholderProfileName(profile.name)
+	                            ? profile.name
+	                            : "Profile";
+
+	                          return (
+	                            <button
+	                              key={profile.id}
+	                              type="button"
+	                              className={[
+	                                "profile-menu-item",
+	                                isActiveProfile ? "is-active" : "",
+	                              ]
+	                                .filter(Boolean)
+	                                .join(" ")}
+	                              onClick={() => {
+	                                void handleSwitchProfile(profile.id);
+	                              }}
+	                              disabled={profileControlDisabled}
+	                              role="menuitemradio"
+	                              aria-checked={isActiveProfile}
+	                            >
+	                              <span>{profileName}</span>
+	                              {isActiveProfile ? (
+	                                <span className="profile-menu-state">Current</span>
+	                              ) : null}
+	                            </button>
+	                          );
+	                        })}
+	                      </div>
 	                    ) : null}
+		                    <div className="profile-menu-actions" role="group" aria-label="Account actions">
+		                      <button
+		                        type="button"
+		                        className="profile-menu-link"
+		                        onClick={openAccountEditor}
+		                        disabled={profileControlDisabled}
+		                        role="menuitem"
+		                      >
+		                        Edit account
+		                      </button>
+		                      <button
+		                        type="button"
+		                        className="profile-menu-link"
+		                        onClick={() => {
+		                          void handleLogout();
+		                        }}
+		                        disabled={profileControlDisabled}
+		                        role="menuitem"
+		                      >
+		                        Log out
+		                      </button>
+		                    </div>
 	                  </div>
 	                ) : null}
 	              </div>
@@ -3252,7 +3327,11 @@ export default function App() {
                     series={rec.series}
                     seriesNumber={rec.seriesNumber}
                     authors={rec.authors}
-                    interestTags={rec.genres.filter((genre) => genreInterests[genre] != null)}
+                    interestTags={rankGenreTags(
+                      rec.genres.filter((genre) => genreInterests[genre] != null),
+                      genreInterests,
+                      genreLibraryMetrics,
+                    )}
                     authorCredentials={authorCredentials}
                     score={rec.score}
                     className={[
@@ -3305,7 +3384,6 @@ export default function App() {
                   >
                     <input
                       type="text"
-                      placeholder="The Path to Power"
                       value={draft.title}
                       autoComplete="off"
                       aria-expanded={showTitleSuggestions}
@@ -3370,7 +3448,6 @@ export default function App() {
                   <div className="tag-entry-row">
                     <input
                       type="text"
-                      placeholder="The Years of Lyndon Johnson"
                       value={draft.series}
                       onChange={(event) =>
                         updateDraft("series", event.target.value)
@@ -3423,7 +3500,6 @@ export default function App() {
                     >
                       <input
                         type="text"
-                        placeholder="Robert A. Caro"
                         value={draft.authorInput}
                         autoComplete="off"
                         aria-expanded={showAuthorSuggestions}
@@ -3510,66 +3586,18 @@ export default function App() {
                   />
                 </div>
                 {draft.authors.length > 0 ? (
-                  <div
-                    className={[
-                      "draft-tag-list",
-                      draftTagDrag?.field === "author" ? "is-drag-active" : "",
-                      draftTagDropTarget?.field === "author" &&
-                      draftTagDropTarget.tag === null
-                        ? "is-drop-target-end"
-                        : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                    onDragOver={(event) =>
-                      handleDraftTagListDragOver(event, "author")
-                    }
-                    onDrop={(event) => handleDraftTagDrop(event, "author")}
-                  >
+                  <div className="draft-tag-list">
                     {draft.authors.map((author) => {
                       const score = getDraftTagScore("author", author);
-                      const isDragging =
-                        draftTagDrag?.field === "author" &&
-                        draftTagDrag.tag === author;
-                      const isDropTarget =
-                        draftTagDropTarget?.field === "author" &&
-                        draftTagDropTarget.tag === author;
 
                       return (
                         <span
                           key={author}
-                          className={[
-                            "genre-tag",
-                            "draft-tag-chip",
-                            isDragging ? "is-dragging" : "",
-                            isDropTarget ? "is-drag-target" : "",
-                          ]
-                            .filter(Boolean)
-                            .join(" ")}
-                          draggable
-                          onDragStart={(event) =>
-                            handleDraftTagDragStart(event, "author", author)
-                          }
-                          onDragOver={(event) =>
-                            handleDraftTagDragOver(event, "author", author)
-                          }
-                          onDrop={(event) =>
-                            handleDraftTagDrop(event, "author", author)
-                          }
-                          onDragEnd={handleDraftTagDragEnd}
-                          onClick={(event) => {
-                            if (
-                              (event.target as HTMLElement).closest(
-                                ".tag-action-shell",
-                              )
-                            ) {
-                              return;
-                            }
-
+                          className="genre-tag draft-tag-chip"
+                          onClick={() => {
                             startEditingDraftTag("author", author);
                           }}
-                          aria-grabbed={isDragging}
-                          title={`Click to edit ${author}, or drag to reorder`}
+                          title={`Click to edit ${author}`}
                         >
                           <span className="genre-tag-name">{author}</span>
                           {score ? (
@@ -3604,77 +3632,84 @@ export default function App() {
                   return (
                     <div key={author} className="tag-editor">
                       <span className="credentials-author-label">{author}</span>
-                      <div className="tag-entry-group">
-                        <div className="tag-entry-row">
-                          <input
-                            type="text"
-                            placeholder="e.g. Oncologist"
-                            value={
-                              credentialAuthor === author
-                                ? credentialInput
-                                : ""
-                            }
-                            onChange={(e) => {
-                              setCredentialAuthor(author);
-                              setCredentialInput(e.target.value);
-                            }}
-                            onFocus={() => {
-                              if (credentialAuthor !== author) {
-                                setCredentialAuthor(author);
-                                setCredentialInput("");
+                      {canEditGlobalCredentials ? (
+                        <div className="tag-entry-group">
+                          <div className="tag-entry-row">
+                            <input
+                              type="text"
+                              value={
+                                credentialAuthor === author
+                                  ? credentialInput
+                                  : ""
                               }
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                e.preventDefault();
+                              onChange={(e) => {
+                                setCredentialAuthor(author);
+                                setCredentialInput(e.target.value);
+                              }}
+                              onFocus={() => {
+                                if (credentialAuthor !== author) {
+                                  setCredentialAuthor(author);
+                                  setCredentialInput("");
+                                }
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  const trimmed = credentialInput.trim();
+                                  if (trimmed) {
+                                    void handleAddCredential(author, trimmed);
+                                  }
+                                  setCredentialInput("");
+                                } else if (e.key === "Escape") {
+                                  setCredentialInput("");
+                                  setCredentialAuthor(null);
+                                }
+                              }}
+                            />
+                            <button
+                              type="button"
+                              className="graph-add-btn"
+                              disabled={
+                                credentialAuthor !== author ||
+                                !credentialInput.trim()
+                              }
+                              onClick={() => {
                                 const trimmed = credentialInput.trim();
                                 if (trimmed) {
                                   void handleAddCredential(author, trimmed);
                                 }
                                 setCredentialInput("");
-                              } else if (e.key === "Escape") {
-                                setCredentialInput("");
-                                setCredentialAuthor(null);
-                              }
-                            }}
-                          />
-                          <button
-                            type="button"
-                            className="graph-add-btn"
-                            disabled={
-                              credentialAuthor !== author ||
-                              !credentialInput.trim()
-                            }
-                            onClick={() => {
-                              const trimmed = credentialInput.trim();
-                              if (trimmed) {
-                                void handleAddCredential(author, trimmed);
-                              }
-                              setCredentialInput("");
-                            }}
-                            aria-label={`Add credential for ${author}`}
-                          >
-                            +
-                          </button>
+                              }}
+                              aria-label={`Add credential for ${author}`}
+                            >
+                              +
+                            </button>
+                          </div>
                         </div>
-                      </div>
+                      ) : (
+                        <p className="field-note">
+                          Credential tags are curated by the site owner.
+                        </p>
+                      )}
                       {creds.length > 0 ? (
                         <div className="draft-tag-list">
                           {creds.map((cred) => (
                             <span key={cred} className="genre-tag draft-tag-chip">
                               <span className="genre-tag-name">{cred}</span>
-                              <button
-                                type="button"
-                                className="tag-remove"
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() =>
-                                  void handleRemoveCredential(author, cred)
-                                }
-                                aria-label={`Remove ${cred}`}
-                                title={`Remove ${cred}`}
-                              >
-                                x
-                              </button>
+                              {canEditGlobalCredentials ? (
+                                <button
+                                  type="button"
+                                  className="tag-remove"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() =>
+                                    void handleRemoveCredential(author, cred)
+                                  }
+                                  aria-label={`Remove ${cred}`}
+                                  title={`Remove ${cred}`}
+                                >
+                                  x
+                                </button>
+                              ) : null}
                             </span>
                           ))}
                         </div>
@@ -3699,7 +3734,6 @@ export default function App() {
                     >
                       <input
                         type="text"
-                        placeholder="Biography"
                         value={draft.genreInput}
                         autoComplete="off"
                         aria-expanded={showGenreSuggestions}
@@ -3786,66 +3820,18 @@ export default function App() {
                   />
                 </div>
                 {draft.genres.length > 0 ? (
-                  <div
-                    className={[
-                      "draft-tag-list",
-                      draftTagDrag?.field === "genre" ? "is-drag-active" : "",
-                      draftTagDropTarget?.field === "genre" &&
-                      draftTagDropTarget.tag === null
-                        ? "is-drop-target-end"
-                        : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                    onDragOver={(event) =>
-                      handleDraftTagListDragOver(event, "genre")
-                    }
-                    onDrop={(event) => handleDraftTagDrop(event, "genre")}
-                  >
-                    {draft.genres.map((genre) => {
+                  <div className="draft-tag-list">
+                    {rankedDraftGenres.map((genre) => {
                       const score = getDraftTagScore("genre", genre);
-                      const isDragging =
-                        draftTagDrag?.field === "genre" &&
-                        draftTagDrag.tag === genre;
-                      const isDropTarget =
-                        draftTagDropTarget?.field === "genre" &&
-                        draftTagDropTarget.tag === genre;
 
                       return (
                         <span
                           key={genre}
-                          className={[
-                            "genre-tag",
-                            "draft-tag-chip",
-                            isDragging ? "is-dragging" : "",
-                            isDropTarget ? "is-drag-target" : "",
-                          ]
-                            .filter(Boolean)
-                            .join(" ")}
-                          draggable
-                          onDragStart={(event) =>
-                            handleDraftTagDragStart(event, "genre", genre)
-                          }
-                          onDragOver={(event) =>
-                            handleDraftTagDragOver(event, "genre", genre)
-                          }
-                          onDrop={(event) =>
-                            handleDraftTagDrop(event, "genre", genre)
-                          }
-                          onDragEnd={handleDraftTagDragEnd}
-                          onClick={(event) => {
-                            if (
-                              (event.target as HTMLElement).closest(
-                                ".tag-action-shell",
-                              )
-                            ) {
-                              return;
-                            }
-
+                          className="genre-tag draft-tag-chip"
+                          onClick={() => {
                             startEditingDraftTag("genre", genre);
                           }}
-                          aria-grabbed={isDragging}
-                          title={`Click to edit ${genre}, or drag to reorder`}
+                          title={`Click to edit ${genre}`}
                         >
                           <span className="genre-tag-name">{genre}</span>
                           {score ? (
@@ -3931,7 +3917,7 @@ export default function App() {
                 {draft.ratingCount.trim() ? (
                   <span className="entry-automated-stat">
                     <strong>{formatDisplayedDraftCount(draft.ratingCount)}</strong>
-                    <span>ratings</span>
+                    <span>{formatRatingCountLabel(draft.ratingCount)}</span>
                   </span>
                 ) : null}
               </div>
@@ -4005,32 +3991,137 @@ export default function App() {
 	                />
 	              </label>
 	              {errorMessage ? <p className="auth-error">{errorMessage}</p> : null}
-	              <button
-	                type="submit"
-	                className="auth-submit"
-	                disabled={isUpdatingUsername}
-	              >
-	                {isUpdatingUsername ? "Saving..." : "Save username"}
-	              </button>
-	              {!needsUsernameSetup ? (
-	                <div className="account-setup-actions">
-	                  <button
-	                    type="button"
-	                    className="auth-link"
-	                    onClick={() => {
-	                      setIsUsernameEditorOpen(false);
-	                      setErrorMessage(null);
-	                    }}
-	                    disabled={isUpdatingUsername}
-	                  >
-	                    Cancel
-	                  </button>
-	                </div>
-	              ) : null}
-	            </form>
-	          </div>
-	        </div>
-	      ) : null}
+		              <button
+		                type="submit"
+		                className="auth-submit"
+		                disabled={isUpdatingUsername}
+		              >
+		                {isUpdatingUsername ? "Saving..." : "Save username"}
+		              </button>
+		            </form>
+		          </div>
+		        </div>
+		      ) : null}
+		      {isAccountEditorOpen ? (
+		        <div className="account-setup-overlay" role="dialog" aria-modal="true">
+		          <div className="account-setup-card">
+		            <p className="account-setup-eyebrow">Account</p>
+		            <h2>Edit account</h2>
+		            <p className="account-setup-copy">
+		              Update your username, email, or password. Enter your current password
+		              to save any change.
+		            </p>
+		            <form
+		              className="account-setup-form"
+		              onSubmit={(event) => {
+		                void handleAccountUpdateSubmit(event);
+		              }}
+		            >
+		              <label className="auth-field">
+		                <span>Username</span>
+		                <input
+		                  className="auth-input"
+		                  type="text"
+		                  autoComplete="nickname"
+		                  value={accountEditUsernameInput}
+		                  onChange={(event) => {
+		                    setAccountEditUsernameInput(event.target.value);
+		                  }}
+		                  placeholder="How your name should appear"
+		                  disabled={isSavingAccount || isDeletingAccount}
+		                />
+		              </label>
+		              <label className="auth-field">
+		                <span>Email</span>
+		                <input
+		                  className="auth-input"
+		                  type="email"
+		                  autoComplete="email"
+		                  value={accountEditEmailInput}
+		                  onChange={(event) => {
+		                    setAccountEditEmailInput(event.target.value);
+		                  }}
+		                  placeholder="you@example.com"
+		                  disabled={isSavingAccount || isDeletingAccount}
+		                />
+		              </label>
+		              <label className="auth-field">
+		                <span>Current password</span>
+		                <input
+		                  className="auth-input"
+		                  type="password"
+		                  autoComplete="current-password"
+		                  value={accountEditCurrentPasswordInput}
+		                  onChange={(event) => {
+		                    setAccountEditCurrentPasswordInput(event.target.value);
+		                  }}
+		                  placeholder="Current password"
+		                  disabled={isSavingAccount || isDeletingAccount}
+		                />
+		              </label>
+		              <label className="auth-field">
+		                <span>New password</span>
+		                <input
+		                  className="auth-input"
+		                  type="password"
+		                  autoComplete="new-password"
+		                  value={accountEditNextPasswordInput}
+		                  onChange={(event) => {
+		                    setAccountEditNextPasswordInput(event.target.value);
+		                  }}
+		                  placeholder="Leave blank to keep your current password"
+		                  disabled={isSavingAccount || isDeletingAccount}
+		                />
+		              </label>
+		              <label className="auth-field">
+		                <span>Confirm new password</span>
+		                <input
+		                  className="auth-input"
+		                  type="password"
+		                  autoComplete="new-password"
+		                  value={accountEditNextPasswordConfirmInput}
+		                  onChange={(event) => {
+		                    setAccountEditNextPasswordConfirmInput(event.target.value);
+		                  }}
+		                  placeholder="Confirm new password"
+		                  disabled={isSavingAccount || isDeletingAccount}
+		                />
+		              </label>
+		              {errorMessage ? <p className="auth-error">{errorMessage}</p> : null}
+		              <button
+		                type="submit"
+		                className="auth-submit"
+		                disabled={isSavingAccount || isDeletingAccount}
+		              >
+		                {isSavingAccount ? "Saving..." : "Save account"}
+		              </button>
+		              <div className="account-setup-actions">
+		                <button
+		                  type="button"
+		                  className="auth-link is-danger"
+		                  onClick={() => {
+		                    void handleDeleteAccount();
+		                  }}
+		                  disabled={isSavingAccount || isDeletingAccount}
+		                >
+		                  {isDeletingAccount ? "Deleting account..." : "Delete account"}
+		                </button>
+		                <button
+		                  type="button"
+		                  className="auth-link"
+		                  onClick={() => {
+		                    setIsAccountEditorOpen(false);
+		                    setErrorMessage(null);
+		                  }}
+		                  disabled={isSavingAccount || isDeletingAccount}
+		                >
+		                  Cancel
+		                </button>
+		              </div>
+		            </form>
+		          </div>
+		        </div>
+		      ) : null}
 	    </main>
 	  );
 	}

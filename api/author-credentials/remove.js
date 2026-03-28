@@ -1,8 +1,18 @@
+import { HttpError } from "../../server/lib/http.js";
+import { requireGlobalTagAuthority } from "../../server/lib/authenticated-user.js";
+
 const CATALOG_API_URL =
   process.env.CATALOG_API_URL || "https://book-ranker-catalog.fly.dev";
 
 export default async function handler(request, response) {
+  if (request.method !== "DELETE") {
+    response.status(405).json({ message: "Method not allowed." });
+    return;
+  }
+
   try {
+    await requireGlobalTagAuthority(request);
+
     const res = await fetch(`${CATALOG_API_URL}/author-credentials/remove`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
@@ -12,8 +22,14 @@ export default async function handler(request, response) {
     const data = await res.json();
     response.status(res.status).json(data);
   } catch (error) {
+    if (error instanceof HttpError) {
+      response.status(error.status).json({ message: error.message });
+      return;
+    }
+
     response.status(502).json({
-      error: error instanceof Error ? error.message : "Catalog service unavailable",
+      message:
+        error instanceof Error ? error.message : "Catalog service unavailable",
     });
   }
 }

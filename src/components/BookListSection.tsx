@@ -2,18 +2,16 @@ import { BookCard } from "./BookCard";
 import {
   BookActionIcon,
   ProgressBar,
-  ReadCountStepper,
   StarRating,
 } from "./LibraryControls";
 import type { RankedBook } from "../lib/ranking";
-import type { AuthorCredentialMap, GenreInterestMap } from "../lib/books-api";
+import type { AuthorCredentialMap } from "../lib/books-api";
 
 type BookListSectionProps = {
   title: string;
   totalCount: number;
   books: RankedBook[];
   authorCredentials?: AuthorCredentialMap;
-  genreInterests?: GenreInterestMap;
   isLoading?: boolean;
   emptyMessage: string;
   emptyFilteredMessage: string;
@@ -26,8 +24,6 @@ type BookListSectionProps = {
   onToggleCardEditing: (book: RankedBook) => void;
   onToggleEditing: (book: RankedBook) => void;
   onProgressChange: (bookId: number, progress: number | undefined) => void;
-  onIncrementReadCount: (bookId: number) => void;
-  onDecrementReadCount: (bookId: number) => void;
   onRatingChange: (bookId: number, level: number) => void;
   onRemove: (bookId: number) => void;
   onToggleRead: (bookId: number, read: boolean) => void;
@@ -50,7 +46,6 @@ export function BookListSection({
   totalCount,
   books,
   authorCredentials,
-  genreInterests,
   isLoading = false,
   emptyMessage,
   emptyFilteredMessage,
@@ -63,8 +58,6 @@ export function BookListSection({
   onToggleCardEditing,
   onToggleEditing,
   onProgressChange,
-  onIncrementReadCount,
-  onDecrementReadCount,
   onRatingChange,
   onRemove,
   onToggleRead,
@@ -97,7 +90,6 @@ export function BookListSection({
                 series={book.series}
                 seriesNumber={book.seriesNumber}
                 authors={book.authors}
-                interestTags={book.genres.filter((genre) => genreInterests?.[genre] != null)}
                 authorCredentials={authorCredentials}
                 score={book.score}
                 scoreOverride={readMode ? book.archiveLabel ?? "Not yet" : undefined}
@@ -117,14 +109,6 @@ export function BookListSection({
                     onChange={(pct) =>
                       onProgressChange(book.id, pct === 0 ? undefined : pct)
                     }
-                  />
-                }
-                subMeta={
-                  <ReadCountStepper
-                    value={book.readCount ?? 0}
-                    onIncrement={() => onIncrementReadCount(book.id)}
-                    onDecrement={() => onDecrementReadCount(book.id)}
-                    disabled={isSaving || isDeleting}
                   />
                 }
                 stars={

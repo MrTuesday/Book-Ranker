@@ -221,31 +221,31 @@ function nodeKey(layer: NodeLayer, tag: string) {
 }
 
 const GENRE_COLOR = {
-  fill: "rgba(180, 83, 9, 0.55)",
-  fillSelected: "rgba(180, 83, 9, 0.85)",
-  stroke: "rgba(180, 83, 9, 0.3)",
-  haloFill: "rgba(180, 83, 9, 0.12)",
-  haloStroke: "rgba(180, 83, 9, 0.7)",
-  link: "rgba(180, 83, 9, 0.22)",
-  linkHighlight: "rgba(180, 83, 9, 0.78)",
-  bubbleFill: "rgba(252, 248, 241, 0.78)",
-  bubbleFillSelected: "rgba(255, 247, 237, 0.92)",
-  bubbleStroke: "rgba(180, 83, 9, 0.14)",
-  bubbleStrokeSelected: "rgba(180, 83, 9, 0.3)",
+  fill: "rgba(103, 232, 249, 0.46)",
+  fillSelected: "rgba(103, 232, 249, 0.94)",
+  stroke: "rgba(125, 211, 252, 0.34)",
+  haloFill: "rgba(103, 232, 249, 0.12)",
+  haloStroke: "rgba(103, 232, 249, 0.62)",
+  link: "rgba(103, 232, 249, 0.16)",
+  linkHighlight: "rgba(103, 232, 249, 0.72)",
+  bubbleFill: "rgba(9, 20, 38, 0.82)",
+  bubbleFillSelected: "rgba(12, 33, 60, 0.94)",
+  bubbleStroke: "rgba(103, 232, 249, 0.14)",
+  bubbleStrokeSelected: "rgba(103, 232, 249, 0.34)",
 };
 
 const CREDENTIAL_COLOR = {
-  fill: "rgba(139, 92, 246, 0.55)",
-  fillSelected: "rgba(139, 92, 246, 0.85)",
-  stroke: "rgba(139, 92, 246, 0.3)",
-  haloFill: "rgba(139, 92, 246, 0.12)",
-  haloStroke: "rgba(139, 92, 246, 0.7)",
-  link: "rgba(139, 92, 246, 0.22)",
-  linkHighlight: "rgba(139, 92, 246, 0.78)",
-  bubbleFill: "rgba(245, 243, 255, 0.78)",
-  bubbleFillSelected: "rgba(243, 237, 255, 0.92)",
-  bubbleStroke: "rgba(139, 92, 246, 0.14)",
-  bubbleStrokeSelected: "rgba(139, 92, 246, 0.3)",
+  fill: "rgba(134, 239, 172, 0.44)",
+  fillSelected: "rgba(134, 239, 172, 0.92)",
+  stroke: "rgba(134, 239, 172, 0.34)",
+  haloFill: "rgba(134, 239, 172, 0.12)",
+  haloStroke: "rgba(134, 239, 172, 0.62)",
+  link: "rgba(134, 239, 172, 0.16)",
+  linkHighlight: "rgba(134, 239, 172, 0.72)",
+  bubbleFill: "rgba(7, 24, 30, 0.82)",
+  bubbleFillSelected: "rgba(9, 43, 43, 0.94)",
+  bubbleStroke: "rgba(134, 239, 172, 0.14)",
+  bubbleStrokeSelected: "rgba(134, 239, 172, 0.34)",
 };
 
 function layerColor(layer: NodeLayer) {
@@ -300,12 +300,29 @@ function interestNodeLabelFontSize(radius: number) {
   return Math.max(10, Math.min(20, radius * 1.6));
 }
 
+let interestLabelMeasureContext: CanvasRenderingContext2D | null | undefined;
+
 function estimateInterestLabelWidth(label: string, fontSize: number) {
+  if (interestLabelMeasureContext === undefined && typeof document !== "undefined") {
+    interestLabelMeasureContext = document.createElement("canvas").getContext("2d");
+  }
+
+  if (interestLabelMeasureContext) {
+    interestLabelMeasureContext.font =
+      `500 ${fontSize}px "Avenir Next", "Segoe UI", sans-serif`;
+    const letterSpacing = Math.max(0, label.length - 1) * fontSize * 0.01;
+    return Math.ceil(interestLabelMeasureContext.measureText(label).width + letterSpacing);
+  }
+
   return Math.max(fontSize * 3.2, label.length * fontSize * 0.52 + 10);
 }
 
 function interestNodeScoreFontSize(radius: number) {
   return Math.max(8, Math.min(15, radius * 1.2));
+}
+
+function interestNodeChipRadius(radius: number) {
+  return Math.max(radius, 12);
 }
 
 function buildInterestLabelBox(
@@ -317,24 +334,27 @@ function buildInterestLabelBox(
 ): LabelBox {
   const left =
     anchor === "start" ? x : anchor === "end" ? x - width : x - width / 2;
+  const labelHeight = fontSize * 0.9;
 
   return {
-    left: left - 4,
-    right: left + width + 4,
-    top: y - fontSize * 0.82,
-    bottom: y + fontSize * 0.26,
+    left,
+    right: left + width,
+    top: y - labelHeight / 2,
+    bottom: y + labelHeight / 2,
   };
 }
 
 function buildInterestNodeBox(
   node: { x: number; y: number; radius: number },
-  padding = 6,
+  padding = 0,
 ): LabelBox {
+  const boxRadius = interestNodeChipRadius(node.radius) + padding;
+
   return {
-    left: node.x - node.radius - padding,
-    right: node.x + node.radius + padding,
-    top: node.y - node.radius - padding,
-    bottom: node.y + node.radius + padding,
+    left: node.x - boxRadius,
+    right: node.x + boxRadius,
+    top: node.y - boxRadius,
+    bottom: node.y + boxRadius,
   };
 }
 
@@ -349,26 +369,21 @@ function mergeInterestBoxes(...boxes: LabelBox[]) {
 
 function padInterestBox(
   box: LabelBox,
-  paddingX = 12,
-  paddingY = 10,
+  padding = 12,
 ): LabelBox {
   return {
-    left: box.left - paddingX,
-    right: box.right + paddingX,
-    top: box.top - paddingY,
-    bottom: box.bottom + paddingY,
+    left: box.left - padding,
+    right: box.right + padding,
+    top: box.top - padding,
+    bottom: box.bottom + padding,
   };
 }
 
 function preferredInterestLabelOrientation(
   dx: number,
-  dy: number,
+  _dy: number,
 ): LabelOrientation {
-  if (Math.abs(dx) > Math.abs(dy) + 18) {
-    return dx < 0 ? "left" : "right";
-  }
-
-  return dy < 0 ? "top" : "bottom";
+  return dx < 0 ? "left" : "right";
 }
 
 function buildInterestBubblePlacement(
@@ -377,18 +392,19 @@ function buildInterestBubblePlacement(
   labelWidth: number,
   labelFontSize: number,
 ) {
+  const chipRadius = interestNodeChipRadius(node.radius);
   const labelX =
     orientation === "left"
-      ? node.x - node.radius - 10
+      ? node.x - chipRadius - 10
       : orientation === "right"
-        ? node.x + node.radius + 10
+        ? node.x + chipRadius + 10
         : node.x;
   const labelY =
     orientation === "top"
-      ? node.y - node.radius - Math.max(10, labelFontSize * 0.65)
+      ? node.y - chipRadius - Math.max(10, labelFontSize * 0.9)
       : orientation === "bottom"
-        ? node.y + node.radius + Math.max(12, labelFontSize * 0.95)
-        : node.y + labelFontSize * 0.26;
+        ? node.y + chipRadius + Math.max(10, labelFontSize * 0.9)
+        : node.y;
   const labelAnchor: LabelAnchor =
     orientation === "left"
       ? "end"
@@ -1602,7 +1618,7 @@ function InterestMapView({
             const linkColor =
               source.layer === target.layer
                 ? layerColor(source.layer).link
-                : "rgba(120, 90, 140, 0.22)";
+                : "rgba(148, 163, 184, 0.16)";
 
             return (
               <g key={`${link.source}-${link.target}`}>
@@ -1635,7 +1651,7 @@ function InterestMapView({
             const highlightColor =
               source.layer === target.layer
                 ? layerColor(source.layer).linkHighlight
-                : "rgba(120, 90, 140, 0.78)";
+                : "rgba(226, 232, 240, 0.54)";
 
             return (
               <line
@@ -1730,6 +1746,7 @@ function InterestMapView({
                     x={node.labelX}
                     y={node.labelY}
                     textAnchor={node.labelAnchor}
+                    dominantBaseline="middle"
                     style={{ fontSize: `${node.labelFontSize}px` }}
                   >
                     {node.labelText}
