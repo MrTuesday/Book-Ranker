@@ -3766,6 +3766,54 @@ select:focus,
     fill: #cbd3dc;
 }
 
+.genre-tag {
+    background: #242b34;
+    color: #eef2f6;
+    box-shadow: inset 0 0 0 1px rgba(184, 195, 211, 0.22);
+}
+
+.genre-tag-interest {
+    background: #d8e0ea;
+    color: #111418;
+}
+
+.entry-credentials .genre-tag {
+    background: #242922;
+    color: #e0e6d8;
+    box-shadow: inset 0 0 0 1px rgba(174, 183, 163, 0.24);
+}
+
+.entry-credentials .tag-remove {
+    background: #343a31;
+    color: #eef2e8;
+}
+
+.book-card-chip {
+    background: #242b34;
+    color: #eef2f6;
+    -webkit-text-fill-color: #eef2f6;
+    box-shadow: inset 0 0 0 1px rgba(184, 195, 211, 0.22);
+}
+
+.book-card-tag-list.author-credentials {
+    gap: 6px 10px;
+}
+
+.author-credential {
+    padding: 0;
+    background: transparent;
+    color: #cfd8c3;
+    -webkit-text-fill-color: #cfd8c3;
+    box-shadow: none;
+    border-radius: 0;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+}
+
+.credentials-author-label {
+    color: #b8c1ca;
+}
+
 @keyframes rankingRowReveal {
     0% {
         box-shadow: 0 0 0 0 rgba(103, 232, 249, 0);
