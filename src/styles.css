@@ -3382,6 +3382,390 @@ select:focus,
     border-color: rgba(248, 113, 113, 0.4);
 }
 
+/* Minimal dark refinement */
+
+:root {
+    --bg: #101215;
+    --bg-strong: #14181d;
+    --surface: #171b20;
+    --surface-strong: #1c2128;
+    --surface-raised: #20262e;
+    --text: #f1f3f5;
+    --muted: #9aa2ad;
+    --line: rgba(255, 255, 255, 0.07);
+    --line-strong: rgba(255, 255, 255, 0.12);
+    --accent: #b8c3d3;
+    --accent-strong: #d7dfe9;
+    --accent-soft: rgba(184, 195, 211, 0.12);
+    --credential-accent: #aeb7a3;
+    --danger: #ce9a9a;
+    --shadow: 0 10px 24px rgba(0, 0, 0, 0.16);
+    --card-shadow: none;
+    --radius-xl: 18px;
+    --radius-lg: 12px;
+    --button-radius: 10px;
+}
+
+h1,
+h2,
+h3 {
+    font-family: "Avenir Next", "SF Pro Display", "Segoe UI", sans-serif;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+}
+
+html,
+body {
+    background: #101215;
+}
+
+body {
+    background: #101215;
+}
+
+::selection {
+    background: rgba(184, 195, 211, 0.22);
+    color: #ffffff;
+}
+
+* {
+    scrollbar-color: rgba(154, 162, 173, 0.34) #14181d;
+}
+
+.app-shell::before,
+.app-shell::after,
+.auth-shell::before,
+.auth-shell::after {
+    content: none;
+}
+
+.auth-shell,
+.center-column {
+    background: #12161b;
+}
+
+.left-column,
+.right-column,
+.column-footer {
+    background: #161a1f;
+    backdrop-filter: none;
+}
+
+.panel,
+.auth-card,
+.account-setup-card,
+.profile-menu,
+.suggestion-popover,
+.node-edit-popover,
+.path-recommendation,
+.hero-overview,
+.summary-tile,
+.empty-state,
+.account-panel-summary,
+.interest-map-plot {
+    background: var(--surface-strong);
+    border: 1px solid var(--line);
+    box-shadow: none;
+    backdrop-filter: none;
+}
+
+.center-column .interest-map-plot {
+    background: transparent;
+    border: none;
+}
+
+.eyebrow,
+.account-trigger,
+.layer-toggle,
+.recommendation-source,
+.genre-tag,
+.ranking-series-number,
+.genre-tag-interest,
+.tag-remove,
+.archive-count {
+    border-radius: 8px;
+}
+
+.eyebrow {
+    background: #20262e;
+    border-color: var(--line);
+}
+
+input,
+select,
+.auth-input,
+.list-size-select,
+.node-edit-label {
+    background: #15191f;
+    border: 1px solid var(--line);
+    box-shadow: none;
+    border-radius: 10px;
+}
+
+input:focus,
+select:focus,
+.auth-input:focus,
+.list-size-select:focus,
+.node-edit-label:focus {
+    border-color: rgba(184, 195, 211, 0.26);
+    box-shadow: 0 0 0 2px rgba(184, 195, 211, 0.08);
+    background: #171c22;
+}
+
+.suggestion-popover,
+.profile-menu,
+.node-edit-popover {
+    background: var(--surface-raised);
+}
+
+.suggestion-pick,
+.profile-menu-item,
+.profile-menu-link,
+.account-trigger,
+.icon-btn,
+.archive-toggle,
+.graph-add-btn,
+.interest-map-action-btn,
+.layer-toggle,
+.rating-btn,
+.btn,
+.auth-submit {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--line-strong);
+    box-shadow: none;
+}
+
+.suggestion-pick:hover,
+.suggestion-pick:focus-visible,
+.profile-menu-item:hover:not(:disabled),
+.profile-menu-link:hover:not(:disabled),
+.profile-menu-item.is-active,
+.account-trigger:hover:not(:disabled),
+.icon-btn:hover:not(:disabled),
+.archive-toggle:hover:not(:disabled),
+.graph-add-btn:hover:not(:disabled),
+.interest-map-action-btn:hover:not(:disabled),
+.layer-toggle:hover:not(:disabled),
+.rating-btn:hover,
+.btn:hover {
+    background: #222830;
+    border-color: rgba(255, 255, 255, 0.14);
+    color: var(--text);
+    box-shadow: none;
+}
+
+.btn-primary,
+.auth-submit {
+    background: #d7dfe9;
+    color: #101215;
+    border-color: #d7dfe9;
+}
+
+.btn-primary:hover,
+.auth-submit:hover:not(:disabled) {
+    background: #e3e8ef;
+    border-color: #e3e8ef;
+}
+
+.btn-secondary {
+    --btn-color: var(--text);
+    --btn-bg: #20262e;
+    --btn-bg-hover: #262d36;
+}
+
+.btn-tertiary,
+.btn-tag-add {
+    --btn-color: var(--text);
+    --btn-bg: #171b20;
+    --btn-bg-hover: #20262e;
+    --btn-shadow: none;
+}
+
+.rating-btn.is-active,
+.layer-toggle.is-active,
+.layer-toggle-genre.is-active,
+.layer-toggle-credential.is-active {
+    background: #2a313b;
+    color: var(--text);
+    border-color: rgba(184, 195, 211, 0.2);
+    box-shadow: none;
+}
+
+.layer-toggle-genre,
+.read-count-value.has-reads,
+.link-btn:hover,
+.account-trigger:hover:not(:disabled),
+.score-value {
+    color: var(--accent);
+}
+
+.layer-toggle-credential,
+.author-credential {
+    color: var(--credential-accent);
+}
+
+.graph-add-btn:disabled,
+.rating-btn:disabled,
+.archive-toggle:disabled,
+.icon-btn:disabled {
+    background: #171b20;
+    border-color: var(--line);
+}
+
+.profile-avatar {
+    border-radius: 10px;
+    background: #2a3038;
+    box-shadow: none;
+}
+
+.profile-trigger:focus-visible .profile-avatar {
+    box-shadow: 0 0 0 2px rgba(184, 195, 211, 0.08);
+}
+
+.ranking-row,
+.ranking-row.is-selected,
+.ranking-row.is-toggleable:hover {
+    background: #181d24;
+    border-color: var(--line);
+    box-shadow: none;
+}
+
+.ranking-row.is-toggleable:hover {
+    background: #1c2128;
+    border-color: rgba(255, 255, 255, 0.12);
+}
+
+.ranking-row:focus-within,
+.ranking-row:has(.icon-btn:active),
+.ranking-row:has(.my-rating-star:active),
+.ranking-row:has(.read-count-stepper-btn:active),
+.ranking-row:has(.reading-progress:active),
+.ranking-row.is-editing {
+    border-color: rgba(184, 195, 211, 0.2);
+    box-shadow: none;
+}
+
+.rank-badge.rank-gold {
+    color: #c7b084;
+}
+
+.rank-badge.rank-silver {
+    color: #b9c0c8;
+}
+
+.rank-badge.rank-bronze {
+    color: #bc9a84;
+}
+
+.ranking-series {
+    color: #aab3be;
+}
+
+.ranking-series-number,
+.recommendation-source.is-openlibrary,
+.genre-tag-interest,
+.archive-count,
+.tag-remove {
+    background: #2a313b;
+    color: #eef1f5;
+    border-color: transparent;
+}
+
+.recommendation-source {
+    background: #20262e;
+    color: #c8d0d9;
+    box-shadow: none;
+}
+
+.book-card-chip,
+.genre-tag {
+    background: #20262e;
+    color: #dde3ea;
+    box-shadow: none;
+}
+
+.book-card-chip {
+    -webkit-text-fill-color: #dde3ea;
+}
+
+.entry-credentials .genre-tag {
+    background: #232820;
+    color: #d8ddd0;
+    box-shadow: none;
+}
+
+.tag-action-toggle.is-open,
+.tag-action-option,
+.interest-map-action-btn.link-btn,
+.interest-map-action-btn.find-btn,
+.interest-map-action-btn.unlink-btn {
+    background: #20262e;
+    color: var(--text);
+    border-color: var(--line);
+}
+
+.tag-action-option:hover,
+.interest-map-action-btn.link-btn:hover,
+.interest-map-action-btn.find-btn:hover,
+.interest-map-action-btn.unlink-btn:hover,
+.tag-action-option-danger:hover {
+    background: #262d36;
+}
+
+.tag-action-option-danger,
+.node-edit-delete,
+.node-edit-delete:hover {
+    background: #2a2222;
+    color: #ddb5b5;
+    border-color: rgba(221, 181, 181, 0.12);
+}
+
+.reading-progress-track,
+.progress-slider,
+.score-meter {
+    background: #242a32;
+}
+
+.reading-progress-fill,
+.score-meter-fill {
+    background: var(--accent);
+}
+
+.progress-slider::-webkit-slider-thumb,
+.progress-slider::-moz-range-thumb {
+    background: #d7dfe9;
+    border-color: #101215;
+    box-shadow: none;
+}
+
+.reading-progress-label,
+.progress-slider-value,
+.interest-map-meta {
+    color: #a8b0bb;
+}
+
+.score-value {
+    text-shadow: none;
+}
+
+.my-rating-star {
+    color: rgba(154, 162, 173, 0.34);
+}
+
+.my-rating-star.is-filled,
+.star-filled {
+    color: #c8b08b;
+}
+
+.star-empty {
+    color: rgba(154, 162, 173, 0.34);
+}
+
+.interest-map-label {
+    fill: #cbd3dc;
+}
+
 @keyframes rankingRowReveal {
     0% {
         box-shadow: 0 0 0 0 rgba(103, 232, 249, 0);
